@@ -9,7 +9,7 @@ on:
 env:
   MIX_ENV: test
   ELIXIR_VERSION: 1.18.4
-  OTP_VERSION: 28.0
+  OTP_VERSION: 27.0
   NODE_VERSION: 18
 
 jobs:

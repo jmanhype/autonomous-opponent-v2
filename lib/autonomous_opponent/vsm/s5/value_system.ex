@@ -307,8 +307,8 @@ defmodule AutonomousOpponent.VSM.S5.ValueSystem do
     if env_data[:threat_assessment] do
       threat = env_data.threat_assessment
       pressures = Map.merge(pressures, %{
-        viability: if threat.level == :high, do: 1.0, else: 0.7,
-        adaptability: if threat.level == :low, do: 0.8, else: 0.4
+        viability: (if threat.level == :high, do: 1.0, else: 0.7),
+        adaptability: (if threat.level == :low, do: 0.8, else: 0.4)
       })
     end
     
