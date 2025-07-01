@@ -21,13 +21,15 @@ if System.get_env("PHX_SERVER") do
 end
 
 # Configure databases from environment variables
-if database_url = System.get_env("AUTONOMOUS_OPPONENT_V2_DATABASE_URL") || System.get_env("DATABASE_URL") do
+if database_url =
+     System.get_env("AUTONOMOUS_OPPONENT_V2_DATABASE_URL") || System.get_env("DATABASE_URL") do
   config :autonomous_opponent_v2, AutonomousOpponent.Repo,
     url: database_url,
     pool_size: String.to_integer(System.get_env("POOL_SIZE") || "10")
 end
 
-if database_url = System.get_env("AUTONOMOUS_OPPONENT_CORE_DATABASE_URL") || System.get_env("DATABASE_URL") do
+if database_url =
+     System.get_env("AUTONOMOUS_OPPONENT_CORE_DATABASE_URL") || System.get_env("DATABASE_URL") do
   config :autonomous_opponent_core, AutonomousOpponentCore.Repo,
     url: database_url,
     pool_size: String.to_integer(System.get_env("POOL_SIZE") || "10")
