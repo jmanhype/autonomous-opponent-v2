@@ -1,0 +1,205 @@
+name: Task Generation Assistant
+
+on:
+  # Manual trigger to generate new tasks
+  workflow_dispatch:
+    inputs:
+      generation_type:
+        description: 'Type of task generation'
+        required: true
+        type: choice
+        options:
+          - 'analyze-gaps'
+          - 'next-phase-tasks'
+          - 'bug-fix-tasks'
+          - 'optimization-tasks'
+          - 'emergence-tasks'
+  
+  # Weekly task generation
+  schedule:
+    - cron: '0 9 * * 1'  # Monday at 9 AM UTC
+
+jobs:
+  generate-tasks:
+    name: Generate New Tasks
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Create Task Generation PR
+      id: create-pr
+      run: |
+        # Create branch for new tasks
+        BRANCH_NAME="tasks/generate-$(date +%Y%m%d-%H%M%S)"
+        git checkout -b "$BRANCH_NAME"
+        
+        # Create task generation request file
+        cat > task-generation-request.md <<EOF
+        # Task Generation Request
+        
+        **Type**: ${{ inputs.generation_type || 'analyze-gaps' }}
+        **Date**: $(date -u '+%Y-%m-%d %H:%M:%S UTC')
+        
+        ## Current System Status
+        Please analyze the current implementation and generate new tasks.
+        
+        @claude Please help generate new tasks by:
+        
+        1. First, analyze the current tasks.json to see what's completed
+        2. Review the codebase to identify gaps
+        3. Generate new tasks in the exact JSON format used in .taskmaster/tasks/tasks.json
+        
+        ## Task Generation Guidelines:
+        
+        ### For 'analyze-gaps':
+        - Identify unimplemented functions that have stubs
+        - Find TODOs in the codebase
+        - Look for incomplete VSM subsystems
+        
+        ### For 'next-phase-tasks':
+        - Review the phase documentation
+        - Identify the next logical components to build
+        - Ensure proper dependencies are set
+        
+        ### For 'bug-fix-tasks':
+        - Search for error-prone patterns
+        - Identify potential race conditions
+        - Look for missing error handling
+        
+        ### For 'optimization-tasks':
+        - Find performance bottlenecks
+        - Identify memory optimization opportunities
+        - Look for concurrent processing opportunities
+        
+        ### For 'emergence-tasks':
+        - Identify self-organizing patterns to implement
+        - Find opportunities to reduce control
+        - Look for feedback loop enhancements
+        
+        ## Task Format Example:
+        \`\`\`json
+        {
+          "id": <next_available_id>,
+          "title": "Clear, action-oriented title",
+          "description": "Brief description of what needs to be done",
+          "details": "Detailed implementation requirements, specific functions, integration points",
+          "testStrategy": "How to test this implementation",
+          "priority": "high|medium|low",
+          "dependencies": [list of task IDs this depends on],
+          "status": "pending",
+          "subtasks": []
+        }
+        \`\`\`
+        
+        Please:
+        1. Generate 5-10 new tasks
+        2. Edit .taskmaster/tasks/tasks.json to add them
+        3. Ensure task IDs are sequential
+        4. Set appropriate priorities
+        5. Define clear dependencies
+        EOF
+        
+        git add task-generation-request.md
+        git commit -m "Request task generation: ${{ inputs.generation_type || 'analyze-gaps' }}"
+        git push -u origin "$BRANCH_NAME"
+        
+        echo "branch_name=$BRANCH_NAME" >> $GITHUB_OUTPUT
+    
+    - name: Create Pull Request
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const branchName = '${{ steps.create-pr.outputs.branch_name }}';
+          const generationType = '${{ inputs.generation_type || 'analyze-gaps' }}';
+          
+          const pr = await github.rest.pulls.create({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            title: `Generate new tasks: ${generationType}`,
+            head: branchName,
+            base: 'master',
+            body: `## Automated Task Generation Request
+            
+            **Generation Type**: ${generationType}
+            **Triggered By**: ${{ github.event_name }}
+            
+            This PR requests Claude to analyze the codebase and generate new tasks.
+            
+            @claude Please:
+            1. Read task-generation-request.md for specific instructions
+            2. Analyze the current .taskmaster/tasks/tasks.json
+            3. Generate new tasks based on the requested type
+            4. Edit the tasks.json file to add the new tasks
+            5. Commit the changes to this PR
+            
+            After generating tasks, please provide:
+            - Summary of tasks generated
+            - Rationale for each task
+            - Suggested implementation order
+            - Any architectural considerations
+            
+            Focus on tasks that:
+            - Advance the VSM implementation
+            - Build on existing completed work
+            - Can be implemented autonomously
+            - Have clear success criteria`,
+            labels: ['task-generation', generationType]
+          });
+          
+          console.log(`Created task generation PR #${pr.data.number}`);
+
+  # Create a task backlog report
+  task-backlog-report:
+    name: Generate Task Backlog Report
+    runs-on: ubuntu-latest
+    if: github.event_name == 'schedule'
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Generate Backlog Report
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const fs = require('fs');
+          const tasksData = JSON.parse(fs.readFileSync('.taskmaster/tasks/tasks.json', 'utf8'));
+          const allTasks = tasksData.master.tasks;
+          
+          const completed = allTasks.filter(t => t.status === 'done').length;
+          const pending = allTasks.filter(t => t.status === 'pending').length;
+          const total = allTasks.length;
+          
+          const issue = await github.rest.issues.create({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            title: `Weekly Task Backlog Report - ${new Date().toLocaleDateString()}`,
+            body: `## Task Backlog Status
+            
+            **Total Tasks**: ${total}
+            **Completed**: ${completed} (${Math.round(completed/total*100)}%)
+            **Pending**: ${pending}
+            
+            ### Pending Tasks by Priority:
+            ${['high', 'medium', 'low'].map(priority => {
+              const tasks = allTasks.filter(t => t.status === 'pending' && t.priority === priority);
+              return `\n#### ${priority.charAt(0).toUpperCase() + priority.slice(1)} Priority (${tasks.length})\n` +
+                tasks.map(t => `- Task ${t.id}: ${t.title}`).join('\n');
+            }).join('\n')}
+            
+            ### Recommendations:
+            @claude Based on the current backlog:
+            1. What tasks should be prioritized this week?
+            2. Are there any blocked tasks that need attention?
+            3. What new tasks should be added to maintain momentum?
+            4. Are we ready to move to the next phase?
+            
+            Please analyze and provide strategic guidance for autonomous task completion.`,
+            labels: ['task-backlog', 'weekly-report']
+          });
+          
+          console.log(`Created backlog report issue #${issue.data.number}`);

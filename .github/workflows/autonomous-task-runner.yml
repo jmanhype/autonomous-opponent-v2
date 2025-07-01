@@ -1,0 +1,348 @@
+name: Autonomous Task Runner
+
+on:
+  # Manual trigger to start autonomous mode
+  workflow_dispatch:
+    inputs:
+      max_tasks:
+        description: 'Maximum number of tasks to process'
+        required: false
+        default: '1'
+        type: choice
+        options: ['1', '3', '5', '10', 'all']
+      phase:
+        description: 'Target phase (or all)'
+        required: false
+        default: 'current'
+        type: choice
+        options: ['current', '1', '2', '3', 'all']
+  
+  # Schedule for continuous autonomous work
+  schedule:
+    - cron: '0 */6 * * *'  # Every 6 hours
+
+jobs:
+  # Find next tasks to work on
+  find-tasks:
+    name: Find Pending Tasks
+    runs-on: ubuntu-latest
+    outputs:
+      tasks: ${{ steps.parse.outputs.tasks }}
+      has_tasks: ${{ steps.parse.outputs.has_tasks }}
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Parse Task JSON
+      id: parse
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const fs = require('fs');
+          
+          // Read tasks.json
+          const tasksData = JSON.parse(fs.readFileSync('.taskmaster/tasks/tasks.json', 'utf8'));
+          const allTasks = tasksData.master.tasks;
+          
+          // Find pending tasks
+          const pendingTasks = allTasks.filter(task => task.status === 'pending');
+          
+          if (pendingTasks.length === 0) {
+            core.setOutput('has_tasks', 'false');
+            console.log('No pending tasks found!');
+            return;
+          }
+          
+          // Limit tasks based on input
+          const maxTasks = context.payload.inputs?.max_tasks || '1';
+          const limit = maxTasks === 'all' ? pendingTasks.length : parseInt(maxTasks);
+          
+          const selectedTasks = pendingTasks.slice(0, limit);
+          
+          core.setOutput('has_tasks', 'true');
+          core.setOutput('tasks', JSON.stringify(selectedTasks));
+          
+          console.log(`Found ${pendingTasks.length} pending tasks, processing ${selectedTasks.length}`);
+
+  # Create PR for each task
+  create-task-prs:
+    name: Create Task PR - ${{ matrix.task.title }}
+    needs: find-tasks
+    if: needs.find-tasks.outputs.has_tasks == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        task: ${{ fromJson(needs.find-tasks.outputs.tasks) }}
+      max-parallel: 3
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Create Task Branch
+      id: branch
+      run: |
+        TASK_ID="${{ matrix.task.id }}"
+        BRANCH_NAME="task/${TASK_ID}-autonomous"
+        
+        # Create and push branch
+        git checkout -b "$BRANCH_NAME"
+        
+        # Create task implementation file
+        cat > "task-${TASK_ID}-spec.md" <<EOF
+        # Task ${{ matrix.task.id }}: ${{ matrix.task.title }}
+        
+        ## Description
+        ${{ matrix.task.description }}
+        
+        ## Implementation Details
+        ${{ matrix.task.details }}
+        
+        ## Test Strategy
+        ${{ matrix.task.testStrategy }}
+        
+        ## Dependencies
+        Task dependencies: ${{ join(matrix.task.dependencies, ', ') || 'None' }}
+        
+        ## Implementation Status
+        This file tracks the implementation of Task ${TASK_ID}.
+        
+        @claude Please implement this task according to the specifications above.
+        EOF
+        
+        git add "task-${TASK_ID}-spec.md"
+        git commit -m "Task ${TASK_ID}: Begin autonomous implementation
+        
+        Title: ${{ matrix.task.title }}
+        Priority: ${{ matrix.task.priority }}
+        
+        This is an autonomous task implementation initiated by the workflow."
+        
+        git push -u origin "$BRANCH_NAME"
+        
+        echo "branch_name=$BRANCH_NAME" >> $GITHUB_OUTPUT
+    
+    - name: Create Pull Request
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const taskId = ${{ matrix.task.id }};
+          const branchName = '${{ steps.branch.outputs.branch_name }}';
+          
+          const pr = await github.rest.pulls.create({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            title: `Task ${taskId}: ${{ matrix.task.title }}`,
+            head: branchName,
+            base: 'master',
+            body: `## Autonomous Task Implementation
+            
+            **Task ID**: ${taskId}
+            **Priority**: ${{ matrix.task.priority }}
+            **Status**: Starting implementation
+            
+            ### Description
+            ${{ matrix.task.description }}
+            
+            ### Implementation Details
+            ${{ matrix.task.details }}
+            
+            ### Test Strategy
+            ${{ matrix.task.testStrategy }}
+            
+            ### Dependencies
+            ${JSON.stringify(${{ toJson(matrix.task.dependencies) }})}
+            
+            ### Implementation Plan
+            @claude Please implement this task following these steps:
+            
+            1. Review the task requirements and dependencies
+            2. Implement the core functionality as described
+            3. Add comprehensive tests following the test strategy
+            4. Update any relevant documentation
+            5. Ensure VSM principles are followed
+            
+            When complete, please:
+            - Summarize what was implemented
+            - Confirm all tests pass
+            - Note any architectural decisions made
+            - Suggest follow-up tasks if needed
+            
+            **IMPORTANT**: Before marking ready for review:
+            1. Run `mix test` - all tests must pass
+            2. Run `mix format` - code must be formatted
+            3. Run `mix credo --strict` - no credo issues
+            4. Run `mix dialyzer` - no type errors
+            5. Ensure Docker build succeeds
+            6. Update CLAUDE.md if you discover important patterns
+            
+            The PR will NOT be merged until:
+            - All CI/CD checks pass (look for green checkmarks)
+            - Tests achieve required coverage
+            - No security vulnerabilities
+            - Docker image builds successfully
+            
+            Use the OAuth connection to avoid API fees. Begin implementation now.`,
+            labels: ['autonomous-task', 'task-id-' + taskId, 'priority-${{ matrix.task.priority }}']
+          });
+          
+          console.log(`Created PR #${pr.data.number} for Task ${taskId}`);
+
+  # Monitor and update task status
+  update-task-status:
+    name: Update Task Status
+    needs: [find-tasks, create-task-prs]
+    runs-on: ubuntu-latest
+    if: always()
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Create Status Issue
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const tasks = JSON.parse('${{ needs.find-tasks.outputs.tasks }}');
+          
+          const issue = await github.rest.issues.create({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            title: `Autonomous Task Runner Report - ${new Date().toLocaleDateString()}`,
+            body: `## Autonomous Task Runner Status
+            
+            **Run Type**: ${{ github.event_name }}
+            **Max Tasks**: ${{ inputs.max_tasks || '1' }}
+            **Tasks Processed**: ${tasks.length}
+            
+            ### Tasks Initiated:
+            ${tasks.map(task => `- Task ${task.id}: ${task.title}`).join('\n')}
+            
+            ### Next Steps:
+            1. Claude will work on each PR autonomously
+            2. When PRs are ready, they'll be marked for review
+            3. After merge, tasks will be marked as done
+            4. This workflow will run again to pick up next tasks
+            
+            ### To Add More Tasks:
+            @claude When current tasks are complete, please:
+            1. Analyze the codebase for logical next steps
+            2. Create new task entries following the existing format
+            3. Add them to \`.taskmaster/tasks/tasks.json\`
+            4. Focus on tasks that advance the VSM implementation
+            
+            The goal is autonomous completion of the entire VSM system.`,
+            labels: ['autonomous-runner', 'task-report']
+          });
+          
+          console.log(`Created status issue #${issue.data.number}`);
+
+  # Monitor PR status and provide guidance
+  monitor-pr-status:
+    name: Monitor PR Status
+    needs: create-task-prs
+    runs-on: ubuntu-latest
+    if: needs.find-tasks.outputs.has_tasks == 'true'
+    
+    steps:
+    - name: Schedule Status Check
+      uses: actions/github-script@v7
+      with:
+        script: |
+          // Create an issue to track PR progress
+          const issue = await github.rest.issues.create({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            title: `Autonomous Task PR Monitoring - ${new Date().toLocaleDateString()}`,
+            body: `## Monitoring Autonomous Task PRs
+            
+            This issue tracks the autonomous PRs created in this run.
+            
+            ### Quality Checklist for Each PR:
+            - [ ] All tests pass (mix test)
+            - [ ] Code is formatted (mix format)
+            - [ ] Credo analysis passes (mix credo --strict)
+            - [ ] Type checking passes (mix dialyzer)
+            - [ ] Docker build succeeds
+            - [ ] CI/CD workflow is green
+            
+            ### If CI/CD Fails:
+            @claude When you see CI/CD failures on your PRs:
+            1. Check the failing job logs
+            2. Fix the issues (usually formatting or test failures)
+            3. Push fixes to the same branch
+            4. Keep iterating until all checks are green
+            
+            Common issues to watch for:
+            - Formatting: Run \`mix format\` before committing
+            - Test failures: Ensure new code has tests
+            - Coverage: Add tests if coverage drops below threshold
+            - Credo: Fix any code style issues
+            - Docker: Ensure no syntax errors in Elixir files
+            
+            Remember: The autonomous system should produce production-ready code!`,
+            labels: ['autonomous-monitoring', 'ci-cd']
+          });
+          
+          console.log(`Created monitoring issue #${issue.data.number}`);
+
+# Workflow to mark tasks complete after PR merge
+---
+name: Mark Task Complete
+
+on:
+  pull_request:
+    types: [closed]
+
+jobs:
+  update-task-status:
+    if: github.event.pull_request.merged == true && contains(github.event.pull_request.labels.*.name, 'autonomous-task')
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Extract Task ID and Update Status
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const pr = context.payload.pull_request;
+          const title = pr.title;
+          
+          // Extract task ID from title
+          const taskMatch = title.match(/Task (\d+):/);
+          if (!taskMatch) {
+            console.log('No task ID found in PR title');
+            return;
+          }
+          
+          const taskId = parseInt(taskMatch[1]);
+          
+          // Update tasks.json
+          const fs = require('fs');
+          const tasksPath = '.taskmaster/tasks/tasks.json';
+          const tasksData = JSON.parse(fs.readFileSync(tasksPath, 'utf8'));
+          
+          const task = tasksData.master.tasks.find(t => t.id === taskId);
+          if (task) {
+            task.status = 'done';
+            fs.writeFileSync(tasksPath, JSON.stringify(tasksData, null, 2));
+            
+            // Commit the change
+            const { execSync } = require('child_process');
+            execSync('git config user.name "Autonomous Task Runner"');
+            execSync('git config user.email "action@github.com"');
+            execSync('git add .taskmaster/tasks/tasks.json');
+            execSync(`git commit -m "Mark Task ${taskId} as complete"`);
+            execSync('git push');
+            
+            console.log(`Marked Task ${taskId} as complete`);
+          }
+          
+          // Create completion comment
+          await github.rest.issues.createComment({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            issue_number: pr.number,
+            body: `✅ Task ${taskId} has been marked as complete in the task system.
+            
+            @claude Please analyze what was accomplished and suggest the next logical tasks to add to the backlog.`
+          });

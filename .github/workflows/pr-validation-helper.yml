@@ -1,0 +1,154 @@
+name: PR Validation Helper
+
+on:
+  issue_comment:
+    types: [created]
+
+jobs:
+  validate-pr:
+    name: Validate PR Changes
+    if: |
+      github.event.issue.pull_request && 
+      contains(github.event.comment.body, '@claude-validate')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+    
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        ref: ${{ github.event.pull_request.head.ref }}
+    
+    - name: Set up Elixir
+      uses: erlef/setup-beam@v1
+      with:
+        elixir-version: '1.16.3'
+        otp-version: '26.2.5'
+    
+    - name: Install dependencies
+      run: |
+        mix local.hex --force
+        mix local.rebar --force
+        mix deps.get
+    
+    - name: Run Validation Suite
+      id: validate
+      continue-on-error: true
+      run: |
+        echo "## Running Validation Suite" > validation-report.md
+        echo "" >> validation-report.md
+        
+        # Format check
+        echo "### Code Formatting" >> validation-report.md
+        if mix format --check-formatted; then
+          echo "✅ Code is properly formatted" >> validation-report.md
+        else
+          echo "❌ Code needs formatting" >> validation-report.md
+          echo "Run: \`mix format\`" >> validation-report.md
+          echo "format_needed=true" >> $GITHUB_OUTPUT
+        fi
+        echo "" >> validation-report.md
+        
+        # Credo check
+        echo "### Credo Analysis" >> validation-report.md
+        if mix credo --strict --format=oneline > credo-output.txt 2>&1; then
+          echo "✅ Credo analysis passed" >> validation-report.md
+        else
+          echo "❌ Credo found issues:" >> validation-report.md
+          echo "\`\`\`" >> validation-report.md
+          cat credo-output.txt >> validation-report.md
+          echo "\`\`\`" >> validation-report.md
+          echo "credo_failed=true" >> $GITHUB_OUTPUT
+        fi
+        echo "" >> validation-report.md
+        
+        # Compile check
+        echo "### Compilation" >> validation-report.md
+        if mix compile --warnings-as-errors --force 2>&1 | tee compile-output.txt; then
+          echo "✅ Code compiles without warnings" >> validation-report.md
+        else
+          echo "❌ Compilation issues:" >> validation-report.md
+          echo "\`\`\`" >> validation-report.md
+          cat compile-output.txt >> validation-report.md
+          echo "\`\`\`" >> validation-report.md
+          echo "compile_failed=true" >> $GITHUB_OUTPUT
+        fi
+        echo "" >> validation-report.md
+        
+        # Test check
+        echo "### Tests" >> validation-report.md
+        if mix test --cover --warnings-as-errors 2>&1 | tee test-output.txt; then
+          echo "✅ All tests pass" >> validation-report.md
+          # Extract coverage
+          coverage=$(grep "Coverage:" test-output.txt | tail -1)
+          echo "$coverage" >> validation-report.md
+        else
+          echo "❌ Test failures:" >> validation-report.md
+          echo "\`\`\`" >> validation-report.md
+          cat test-output.txt | grep -A10 -B10 "failure\|error" >> validation-report.md
+          echo "\`\`\`" >> validation-report.md
+          echo "tests_failed=true" >> $GITHUB_OUTPUT
+        fi
+        echo "" >> validation-report.md
+        
+        # Docker build check
+        echo "### Docker Build" >> validation-report.md
+        if docker build -t test-build . > docker-output.txt 2>&1; then
+          echo "✅ Docker image builds successfully" >> validation-report.md
+        else
+          echo "❌ Docker build failed:" >> validation-report.md
+          echo "\`\`\`" >> validation-report.md
+          tail -50 docker-output.txt >> validation-report.md
+          echo "\`\`\`" >> validation-report.md
+          echo "docker_failed=true" >> $GITHUB_OUTPUT
+        fi
+    
+    - name: Post Validation Results
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const fs = require('fs');
+          const report = fs.readFileSync('validation-report.md', 'utf8');
+          
+          const formatNeeded = '${{ steps.validate.outputs.format_needed }}' === 'true';
+          const credoFailed = '${{ steps.validate.outputs.credo_failed }}' === 'true';
+          const compileFailed = '${{ steps.validate.outputs.compile_failed }}' === 'true';
+          const testsFailed = '${{ steps.validate.outputs.tests_failed }}' === 'true';
+          const dockerFailed = '${{ steps.validate.outputs.docker_failed }}' === 'true';
+          
+          const allPassed = !formatNeeded && !credoFailed && !compileFailed && !testsFailed && !dockerFailed;
+          
+          let comment = `## 🔍 Validation Report\n\n${report}\n\n`;
+          
+          if (allPassed) {
+            comment += `### ✅ All Checks Passed!\n\nThis PR is ready for review and merge.`;
+          } else {
+            comment += `### ❌ Issues Found\n\n@claude Please fix the issues above:\n\n`;
+            
+            if (formatNeeded) {
+              comment += `1. Run \`mix format\` to fix formatting\n`;
+            }
+            if (credoFailed) {
+              comment += `2. Fix Credo issues shown above\n`;
+            }
+            if (compileFailed) {
+              comment += `3. Fix compilation errors/warnings\n`;
+            }
+            if (testsFailed) {
+              comment += `4. Fix failing tests\n`;
+            }
+            if (dockerFailed) {
+              comment += `5. Fix Docker build issues\n`;
+            }
+            
+            comment += `\nAfter fixing, comment \`@claude-validate\` again to re-run validation.`;
+          }
+          
+          await github.rest.issues.createComment({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            issue_number: context.issue.number,
+            body: comment
+          });
