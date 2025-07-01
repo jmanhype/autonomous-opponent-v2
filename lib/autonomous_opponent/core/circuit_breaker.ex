@@ -2,7 +2,7 @@ defmodule AutonomousOpponent.Core.CircuitBreaker do
   @moduledoc """
   Circuit breaker pattern implementation for VSM algedonic system.
   Prevents cascade failures in cybernetic control loops.
-  
+
   States:
   - :closed - Normal operation, calls pass through
   - :open - Circuit broken, calls fail fast
