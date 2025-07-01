@@ -41,7 +41,7 @@ defmodule AutonomousOpponent.VSM.S4.ScenarioModeler do
   @impl true
   def handle_call({:generate_scenarios, environmental_model, params}, _from, state) do
     # 1 hour default
-    horizon = params[:horizon] || 3600_000
+    horizon = params[:horizon] || 3_600_000
     scenario_count = params[:count] || 5
 
     # Generate base scenarios
