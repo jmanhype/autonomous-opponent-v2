@@ -21,6 +21,11 @@ on:
   schedule:
     - cron: '0 */6 * * *'  # Every 6 hours
 
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
 jobs:
   # Find next tasks to work on
   find-tasks:
