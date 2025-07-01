@@ -97,22 +97,22 @@ else
     require Logger
 
     def declare_topology(_channel) do
-      Logger.warn("AMQP Topology running in stub mode - AMQP not available")
+      Logger.warning("AMQP Topology running in stub mode - AMQP not available")
       :ok
     end
 
     def declare_service_queue(_channel, service_name) do
-      Logger.warn("Cannot declare service queue #{service_name} - AMQP not available")
+      Logger.warning("Cannot declare service queue #{service_name} - AMQP not available")
       :ok
     end
 
     def publish_message(_channel, message, routing_key \\ "") do
-      Logger.warn("Cannot publish message to #{routing_key}: #{inspect(message)} - AMQP not available")
+      Logger.warning("Cannot publish message to #{routing_key}: #{inspect(message)} - AMQP not available")
       {:error, :amqp_not_available}
     end
 
     def consume_messages(_channel, queue_name, _consumer_fun) do
-      Logger.warn("Cannot consume messages from #{queue_name} - AMQP not available")
+      Logger.warning("Cannot consume messages from #{queue_name} - AMQP not available")
       fn -> {:error, :amqp_not_available} end
     end
   end

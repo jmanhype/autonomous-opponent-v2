@@ -67,7 +67,7 @@ else
 
     @impl true
     def init(_opts) do
-      Logger.warn("AMQP ConnectionManager running in stub mode - AMQP not available")
+      Logger.warning("AMQP ConnectionManager running in stub mode - AMQP not available")
       {:ok, %{}}
     end
 
