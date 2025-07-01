@@ -10,6 +10,7 @@ defmodule AutonomousOpponent.VSM.S2.DampingController do
   require Logger
 
   alias AutonomousOpponent.EventBus
+
   defstruct [
     :active_dampings,
     :damping_history,
@@ -70,11 +71,14 @@ defmodule AutonomousOpponent.VSM.S2.DampingController do
 
     # Update state
     new_dampings = Map.put(state.active_dampings, damping_id, damping)
-    new_state = %{state |
-      active_dampings: new_dampings,
-      damping_history: [damping | state.damping_history] |> Enum.take(100)
-    }
-    |> update_effectiveness_metrics()
+
+    new_state =
+      %{
+        state
+        | active_dampings: new_dampings,
+          damping_history: [damping | state.damping_history] |> Enum.take(100)
+      }
+      |> update_effectiveness_metrics()
 
     Logger.info("S2 DampingController: Applied damping #{damping_id} to #{length(units)} units")
 

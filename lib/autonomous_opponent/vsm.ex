@@ -1,24 +1,24 @@
 defmodule AutonomousOpponent.VSM do
   @moduledoc """
   Viable System Model (VSM) - Main API
-  
+
   Provides the public interface to the VSM implementation based on
   Stafford Beer's cybernetic principles. This module serves as the
   entry point for interacting with the complete VSM system.
-  
+
   ## Architecture
-  
+
   The VSM consists of five subsystems plus algedonic channels:
-  
+
   - **S1 (Operations)**: Variety absorption and operational units
   - **S2 (Coordination)**: Anti-oscillation between S1 units
   - **S3 (Control)**: Resource bargaining and optimization
   - **S4 (Intelligence)**: Environmental scanning and future modeling
   - **S5 (Policy)**: Identity, values, and governance
   - **Algedonic**: High-priority pain/pleasure signals
-  
+
   ## Usage
-  
+
       # Start the complete VSM
       AutonomousOpponent.VSM.start_link()
       
@@ -31,7 +31,7 @@ defmodule AutonomousOpponent.VSM do
       # Get environmental intelligence
       AutonomousOpponent.VSM.get_intelligence_report()
   """
-  
+
   alias AutonomousOpponent.VSM.{
     Supervisor,
     S1.Operations,
@@ -42,14 +42,14 @@ defmodule AutonomousOpponent.VSM do
     Algedonic.System,
     ControlLoop
   }
-  
+
   @doc """
   Starts the complete VSM system
   """
   def start_link(opts \\ []) do
     Supervisor.start_link(opts)
   end
-  
+
   @doc """
   Get comprehensive VSM status
   """
@@ -61,7 +61,7 @@ defmodule AutonomousOpponent.VSM do
       timestamp: System.monotonic_time(:millisecond)
     }
   end
-  
+
   @doc """
   Submit variety to S1 Operations for absorption
   """
@@ -70,7 +70,7 @@ defmodule AutonomousOpponent.VSM do
       Operations.absorb_variety(s1_pid, event)
     end
   end
-  
+
   @doc """
   Get operational metrics from S1
   """
@@ -79,7 +79,7 @@ defmodule AutonomousOpponent.VSM do
       Operations.get_operational_metrics(s1_pid)
     end
   end
-  
+
   @doc """
   Get coordination status from S2
   """
@@ -88,7 +88,7 @@ defmodule AutonomousOpponent.VSM do
       Coordination.get_coordination_status(s2_pid)
     end
   end
-  
+
   @doc """
   Get resource allocation from S3
   """
@@ -97,7 +97,7 @@ defmodule AutonomousOpponent.VSM do
       Control.get_resource_status(s3_pid)
     end
   end
-  
+
   @doc """
   Request resource optimization from S3
   """
@@ -106,7 +106,7 @@ defmodule AutonomousOpponent.VSM do
       Control.optimize_resources(s3_pid, constraints)
     end
   end
-  
+
   @doc """
   Get environmental intelligence from S4
   """
@@ -115,7 +115,7 @@ defmodule AutonomousOpponent.VSM do
       Intelligence.scan_environment(s4_pid, focus_areas)
     end
   end
-  
+
   @doc """
   Get future scenarios from S4
   """
@@ -124,7 +124,7 @@ defmodule AutonomousOpponent.VSM do
       Intelligence.model_scenarios(s4_pid, params)
     end
   end
-  
+
   @doc """
   Get system identity from S5
   """
@@ -133,7 +133,7 @@ defmodule AutonomousOpponent.VSM do
       Policy.get_system_identity(s5_pid)
     end
   end
-  
+
   @doc """
   Set strategic goal via S5
   """
@@ -142,7 +142,7 @@ defmodule AutonomousOpponent.VSM do
       Policy.set_strategic_goal(s5_pid, goal)
     end
   end
-  
+
   @doc """
   Submit action for policy evaluation
   """
@@ -151,7 +151,7 @@ defmodule AutonomousOpponent.VSM do
       Policy.enforce_policy(s5_pid, action)
     end
   end
-  
+
   @doc """
   Trigger algedonic signal (pain or pleasure)
   """
@@ -160,7 +160,7 @@ defmodule AutonomousOpponent.VSM do
       System.trigger(alg_pid, type, source, metadata)
     end
   end
-  
+
   @doc """
   Get algedonic system status
   """
@@ -169,14 +169,14 @@ defmodule AutonomousOpponent.VSM do
       System.get_status(alg_pid)
     end
   end
-  
+
   @doc """
   Enable emergency mode across VSM
   """
   def enable_emergency_mode do
     Supervisor.enable_emergency_mode()
   end
-  
+
   @doc """
   Disable emergency mode
   """
@@ -185,21 +185,22 @@ defmodule AutonomousOpponent.VSM do
       ControlLoop.disable_emergency_mode(cl_pid)
     end
   end
-  
+
   @doc """
   Perform complete health check
   """
   def health_check do
     Supervisor.health_check()
   end
-  
+
   @doc """
   Restart a specific subsystem
   """
-  def restart_subsystem(subsystem) when subsystem in [:s1, :s2, :s3, :s4, :s5, :algedonic, :control_loop] do
+  def restart_subsystem(subsystem)
+      when subsystem in [:s1, :s2, :s3, :s4, :s5, :algedonic, :control_loop] do
     Supervisor.restart_subsystem(subsystem)
   end
-  
+
   @doc """
   Get metrics for the control loop
   """
@@ -209,7 +210,7 @@ defmodule AutonomousOpponent.VSM do
       status[:metrics]
     end
   end
-  
+
   @doc """
   Manually trigger a control cycle
   """
@@ -218,27 +219,28 @@ defmodule AutonomousOpponent.VSM do
       ControlLoop.trigger_control_cycle(cl_pid)
     end
   end
-  
+
   # Private functions
-  
+
   defp get_subsystem_pid(subsystem) do
-    pid = case subsystem do
-      :s1 -> Process.whereis(S1.Operations)
-      :s2 -> Process.whereis(S2.Coordination)
-      :s3 -> Process.whereis(S3.Control)
-      :s4 -> Process.whereis(S4.Intelligence)
-      :s5 -> Process.whereis(S5.Policy)
-      :algedonic -> Process.whereis(Algedonic.System)
-      :control_loop -> Process.whereis(VSM.ControlLoop)
-    end
-    
+    pid =
+      case subsystem do
+        :s1 -> Process.whereis(S1.Operations)
+        :s2 -> Process.whereis(S2.Coordination)
+        :s3 -> Process.whereis(S3.Control)
+        :s4 -> Process.whereis(S4.Intelligence)
+        :s5 -> Process.whereis(S5.Policy)
+        :algedonic -> Process.whereis(Algedonic.System)
+        :control_loop -> Process.whereis(VSM.ControlLoop)
+      end
+
     if pid && Process.alive?(pid) do
       {:ok, pid}
     else
       {:error, {:subsystem_not_available, subsystem}}
     end
   end
-  
+
   defp get_control_loop_status do
     case get_subsystem_pid(:control_loop) do
       {:ok, pid} -> ControlLoop.get_system_status(pid)
