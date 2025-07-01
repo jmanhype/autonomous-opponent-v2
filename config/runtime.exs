@@ -30,7 +30,10 @@ if database_url = System.get_env("AUTONOMOUS_OPPONENT_CORE_DATABASE_URL") do
          Keyword.merge(
            [
              url: database_url,
-             pool_size: String.to_integer(System.get_env("POOL_SIZE") || "10")
+             pool_size: String.to_integer(System.get_env("POOL_SIZE") || "10"),
+             # Ensure we're not using compile-time values
+             stacktrace: true,
+             show_sensitive_data_on_connection_error: true
            ],
            pool_opts
          )
@@ -44,7 +47,10 @@ if database_url = System.get_env("AUTONOMOUS_OPPONENT_V2_DATABASE_URL") do
          Keyword.merge(
            [
              url: database_url,
-             pool_size: String.to_integer(System.get_env("POOL_SIZE") || "10")
+             pool_size: String.to_integer(System.get_env("POOL_SIZE") || "10"),
+             # Ensure we're not using compile-time values
+             stacktrace: true,
+             show_sensitive_data_on_connection_error: true
            ],
            pool_opts
          )

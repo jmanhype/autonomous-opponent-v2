@@ -3,7 +3,8 @@ import Config
 # Configure your database
 # The repos should be configured with their actual module names
 
-# First, set defaults for local development
+# Default configuration for test environment
+# These will be overridden by runtime.exs if DATABASE_URLs are provided
 config :autonomous_opponent_core, AutonomousOpponentV2Core.Repo,
   username: "postgres",
   password: "postgres",
@@ -19,21 +20,6 @@ config :autonomous_opponent_web, AutonomousOpponentV2Web.Repo,
   database: "autonomous_opponent_web_test#{System.get_env("MIX_TEST_PARTITION")}",
   pool: Ecto.Adapters.SQL.Sandbox,
   pool_size: 10
-
-# Override with specific DATABASE_URLs if provided (for CI/CD environments)
-if core_url = System.get_env("AUTONOMOUS_OPPONENT_CORE_DATABASE_URL") do
-  config :autonomous_opponent_core, AutonomousOpponentV2Core.Repo,
-    url: core_url,
-    pool: Ecto.Adapters.SQL.Sandbox,
-    pool_size: 10
-end
-
-if web_url = System.get_env("AUTONOMOUS_OPPONENT_V2_DATABASE_URL") do
-  config :autonomous_opponent_web, AutonomousOpponentV2Web.Repo,
-    url: web_url,
-    pool: Ecto.Adapters.SQL.Sandbox,
-    pool_size: 10
-end
 
 # We don't run a server during test. If one is required,
 # you can enable the server option below.

@@ -46,11 +46,14 @@ defmodule AutonomousOpponentV2.MixProject do
     [
       "deps.get": ["deps.get --only dev", "cmd mix deps.get"],
       "ecto.setup": [
-        "ecto.create",
-        "ecto.migrate"
+        "ecto.create -r AutonomousOpponentV2Core.Repo -r AutonomousOpponentV2Web.Repo",
+        "ecto.migrate -r AutonomousOpponentV2Core.Repo -r AutonomousOpponentV2Web.Repo"
       ],
-      "ecto.reset": ["cmd mix ecto.reset"],
-      test: ["cmd mix test"]
+      "ecto.reset": [
+        "ecto.drop -r AutonomousOpponentV2Core.Repo -r AutonomousOpponentV2Web.Repo",
+        "ecto.setup"
+      ],
+      test: ["ecto.create --quiet", "ecto.migrate --quiet", "test"]
     ]
   end
 end
