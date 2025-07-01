@@ -191,6 +191,17 @@ jobs:
           **Authentication:** OAuth via Max Subscription
           **Turns Allowed:** ${{ needs.claude-policy.outputs.max_turns }}
           
+          **Available VSM Commands:**
+          You can use these task-master commands in your responses:
+          - `/task create --title "..." --description "..." --tag phase-X`
+          - `/task list --tag phase-X --status todo`
+          - `/task set-status --id X.Y --status in-progress`
+          - `/task-master next --tag phase-X`
+          - `/report generate --tag vsm --format markdown`
+          - `/vsm analyze --phase X`
+          - `/vsm policy-update --component SX --threshold Y`
+          
+          When working on VSM components, check task status and update appropriately.
           Be efficient with your responses to respect rate limits.
           Focus on immediate operational needs while considering VSM viability.
     

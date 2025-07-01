@@ -1,0 +1,58 @@
+name: Task Tracking Integration
+
+on:
+  push:
+    branches: [ 'task/**', 'feat/**', 'fix/**' ]
+  pull_request:
+    types: [opened, synchronize]
+
+jobs:
+  # Extract and track task progress
+  track-task:
+    name: Track Task Progress
+    runs-on: ubuntu-latest
+    if: contains(github.ref, 'task/') || contains(github.head_ref, 'task/')
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Extract Task Context
+      id: extract
+      run: |
+        # Extract task ID from branch name
+        BRANCH="${{ github.head_ref || github.ref_name }}"
+        if [[ "$BRANCH" =~ task/([0-9.]+)- ]]; then
+          TASK_ID="${BASH_REMATCH[1]}"
+          echo "task_id=$TASK_ID" >> $GITHUB_OUTPUT
+          
+          # Extract phase from task ID
+          if [[ "$TASK_ID" =~ ^([0-9]+)\. ]]; then
+            echo "phase=${BASH_REMATCH[1]}" >> $GITHUB_OUTPUT
+          fi
+        fi
+    
+    - name: Create Task Progress Comment
+      if: github.event_name == 'pull_request' && steps.extract.outputs.task_id
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const taskId = '${{ steps.extract.outputs.task_id }}';
+          const phase = '${{ steps.extract.outputs.phase }}';
+          
+          const comment = `@claude This PR is for Task ${taskId} in Phase ${phase}. Please:
+          
+          1. Review if the implementation matches the task requirements
+          2. Check if it follows VSM principles for Phase ${phase}
+          3. Suggest any improvements or missing pieces
+          4. Confirm if the task can be marked as complete
+          
+          When you use Claude Code locally, you can track this with:
+          - \`/task-master set-status --id ${taskId} --status done\`
+          - \`/task-master next --tag phase-${phase}\``;
+          
+          await github.rest.issues.createComment({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            issue_number: context.payload.pull_request.number,
+            body: comment
+          });
