@@ -45,7 +45,7 @@ defmodule AutonomousOpponentV2.MixProject do
   defp aliases do
     [
       "deps.get": ["deps.get --only dev", "cmd mix deps.get"],
-      "ecto.setup": ["cmd mix ecto.setup"],
+      "ecto.setup": ["ecto.create", "ecto.migrate", "run priv/repo/seeds.exs"],
       "ecto.reset": ["cmd mix ecto.reset"],
       test: ["cmd mix test"]
     ]
