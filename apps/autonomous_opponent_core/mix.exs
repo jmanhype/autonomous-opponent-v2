@@ -11,7 +11,8 @@ defmodule AutonomousOpponentV2Core.MixProject do
       lockfile: "../../mix.lock",
       elixir: "~> 1.16",
       start_permanent: Mix.env() == :prod,
-      deps: deps()
+      deps: deps(),
+      aliases: aliases()
     ]
   end
 
@@ -45,6 +46,14 @@ defmodule AutonomousOpponentV2Core.MixProject do
       {:mix_audit, "~> 2.1", only: [:dev, :test], runtime: false}
       # Temporarily disabled - AMQP doesn't support OTP 27+ yet
       # {:amqp, "~> 3.3"}
+    ]
+  end
+
+  defp aliases do
+    [
+      "ecto.setup": ["ecto.create", "ecto.migrate"],
+      "ecto.reset": ["ecto.drop", "ecto.setup"],
+      test: ["ecto.create --quiet", "ecto.migrate --quiet", "test"]
     ]
   end
 end

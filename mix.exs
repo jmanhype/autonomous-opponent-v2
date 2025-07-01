@@ -46,10 +46,8 @@ defmodule AutonomousOpponentV2.MixProject do
     [
       "deps.get": ["deps.get --only dev", "cmd mix deps.get"],
       "ecto.setup": [
-        "cmd --cd apps/autonomous_opponent_core mix ecto.create",
-        "cmd --cd apps/autonomous_opponent_web mix ecto.create",
-        "cmd --cd apps/autonomous_opponent_core mix ecto.migrate",
-        "cmd --cd apps/autonomous_opponent_web mix ecto.migrate"
+        "ecto.create",
+        "ecto.migrate"
       ],
       "ecto.reset": ["cmd mix ecto.reset"],
       test: ["cmd mix test"]
