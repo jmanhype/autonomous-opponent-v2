@@ -78,38 +78,32 @@ defmodule AutonomousOpponentV2.Core.FileUtils do
   end
 
   def cleanup_temp_files(pattern) do
-    try do
-      pattern
-      |> Path.wildcard()
-      |> Enum.each(fn path ->
-        case File.rm(path) do
-          :ok -> Logger.debug("Cleaned up temp file: #{path}")
-          {:error, reason} -> Logger.warning("Failed to cleanup #{path}: #{inspect(reason)}")
-        end
-      end)
-      :ok
-    rescue
-      error ->
-        Logger.error("Error during temp file cleanup: #{inspect(error)}")
-        {:error, error}
-    end
+    pattern
+    |> Path.wildcard()
+    |> Enum.each(fn path ->
+      case File.rm(path) do
+        :ok -> Logger.debug("Cleaned up temp file: #{path}")
+        {:error, reason} -> Logger.warning("Failed to cleanup #{path}: #{inspect(reason)}")
+      end
+    end)
+    :ok
+  rescue
+    error ->
+      Logger.error("Error during temp file cleanup: #{inspect(error)}")
+      {:error, error}
   end
 
   defp atomic_write(path, content, mode, use_lock) do
     temp_path = path <> ".tmp." <> random_suffix()
 
     operation = fn ->
-      case File.write(temp_path, content, mode) do
-        :ok ->
-          case File.rename(temp_path, path) do
-            :ok ->
-              :ok
-            {:error, reason} ->
-              File.rm(temp_path)
-              {:error, reason}
-          end
-        error ->
-          error
+      with :ok <- File.write(temp_path, content, mode),
+           :ok <- File.rename(temp_path, path) do
+        :ok
+      else
+        {:error, reason} ->
+          File.rm(temp_path)
+          {:error, reason}
       end
     end
 

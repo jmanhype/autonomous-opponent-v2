@@ -44,7 +44,7 @@ defmodule AutonomousOpponent.VSM.S3.Control do
   require Logger
 
   alias AutonomousOpponent.EventBus
-  alias AutonomousOpponent.VSM.S3.{KalmanFilter, ResourceBargainer, AuditSubsystem}
+  alias AutonomousOpponent.VSM.S3.{AuditSubsystem, KalmanFilter, ResourceBargainer}
 
   # WISDOM: Resource types aren't arbitrary - they map to Ashby's variety constraints
   # CPU = processing variety, Memory = variety buffer, Capacity = variety channel width
@@ -412,11 +412,11 @@ defmodule AutonomousOpponent.VSM.S3.Control do
   end
 
   defp maybe_trigger_bargaining(state, unit_id, request) do
-    if not state.bargaining_state.active do
+    if state.bargaining_state.active do
+      state
+    else
       Logger.info("Triggering resource bargaining due to request from #{unit_id}")
       run_bargaining_round(state)
-    else
-      state
     end
   end
 

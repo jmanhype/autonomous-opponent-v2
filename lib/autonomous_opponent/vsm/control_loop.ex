@@ -49,7 +49,7 @@ defmodule AutonomousOpponent.VSM.ControlLoop do
   require Logger
 
   alias AutonomousOpponent.EventBus
-  alias AutonomousOpponent.VSM.{S1, S2, S3, S4, S5, Algedonic}
+  alias AutonomousOpponent.VSM.{Algedonic, S1, S2, S3, S4, S5}
 
   # WISDOM: Loop timing constants - the rhythm of viability
   # 1 second matches human "moment of awareness" - faster feels frantic,
@@ -298,55 +298,53 @@ defmodule AutonomousOpponent.VSM.ControlLoop do
   # This is the VSM's core choreography. Information flows up through each
   # subsystem, getting refined at each stage: S1 raw data → S2 coordinated →
   # S3 optimized → S4 contextualized → S5 governed. Then decisions flow back
-  # down. Like a nervous system: sensory neurons → spinal cord → brain → 
+  # down. Like a nervous system: sensory neurons → spinal cord → brain →
   # motor neurons. The try/catch ensures the loop continues even if one cycle fails.
   defp execute_control_cycle(state) do
     start_time = System.monotonic_time(:millisecond)
 
-    try do
-      # Step 1: Gather operational data from S1 - the raw reality
-      s1_data = gather_s1_operational_data(state.subsystems.s1)
+    # Step 1: Gather operational data from S1 - the raw reality
+    s1_data = gather_s1_operational_data(state.subsystems.s1)
 
-      # Step 2: Pass through S2 coordination - prevent oscillation
-      s2_result = coordinate_through_s2(s1_data, state.subsystems.s2)
+    # Step 2: Pass through S2 coordination - prevent oscillation
+    s2_result = coordinate_through_s2(s1_data, state.subsystems.s2)
 
-      # Step 3: S3 resource control - optimize what we have
-      s3_decisions = control_through_s3(s2_result, state.subsystems.s3)
+    # Step 3: S3 resource control - optimize what we have
+    s3_decisions = control_through_s3(s2_result, state.subsystems.s3)
 
-      # Step 4: S4 environmental intelligence - understand context
-      s4_insights = analyze_through_s4(s3_decisions, state.subsystems.s4)
+    # Step 4: S4 environmental intelligence - understand context
+    s4_insights = analyze_through_s4(s3_decisions, state.subsystems.s4)
 
-      # Step 5: S5 policy governance - decide what matters
-      s5_directives = govern_through_s5(s4_insights, state.subsystems.s5)
+    # Step 5: S5 policy governance - decide what matters
+    s5_directives = govern_through_s5(s4_insights, state.subsystems.s5)
 
-      # Step 6: Feed back to S1 - close the loop
-      feedback_to_s1(s5_directives, state.subsystems.s1)
+    # Step 6: Feed back to S1 - close the loop
+    feedback_to_s1(s5_directives, state.subsystems.s1)
 
-      # WISDOM: Metrics matter - you can't improve what you don't measure
-      cycle_time = System.monotonic_time(:millisecond) - start_time
-      new_metrics = update_cycle_metrics(state.loop_metrics, :success, cycle_time)
+    # WISDOM: Metrics matter - you can't improve what you don't measure
+    cycle_time = System.monotonic_time(:millisecond) - start_time
+    new_metrics = update_cycle_metrics(state.loop_metrics, :success, cycle_time)
 
-      new_state = %{
-        state
-        | control_state: %{
-            state.control_state
-            | cycle_count: state.control_state.cycle_count + 1,
-              last_cycle: System.monotonic_time(:millisecond)
-          },
-          loop_metrics: new_metrics
-      }
+    new_state = %{
+      state
+      | control_state: %{
+          state.control_state
+          | cycle_count: state.control_state.cycle_count + 1,
+            last_cycle: System.monotonic_time(:millisecond)
+        },
+        loop_metrics: new_metrics
+    }
 
-      {:ok, new_state}
-    catch
-      # WISDOM: Failure is information - learn from it
-      error ->
-        Logger.error("Control cycle failed: #{inspect(error)}")
+    {:ok, new_state}
+  catch
+    # WISDOM: Failure is information - learn from it
+    error ->
+      Logger.error("Control cycle failed: #{inspect(error)}")
 
-        new_metrics = update_cycle_metrics(state.loop_metrics, :failure, 0)
-        new_state = %{state | loop_metrics: new_metrics}
+      new_metrics = update_cycle_metrics(state.loop_metrics, :failure, 0)
+      new_state = %{state | loop_metrics: new_metrics}
 
-        {{:error, error}, new_state}
-    end
+      {{:error, error}, new_state}
   end
 
   # WISDOM: Emergency cycle - survival mode activation
@@ -357,24 +355,22 @@ defmodule AutonomousOpponent.VSM.ControlLoop do
   # extremities to vital organs. Speed over completeness, survival over optimization.
   defp execute_emergency_cycle(state) do
     # Simplified cycle for emergency mode
-    try do
-      # WISDOM: Direct path - no time for bureaucracy
-      # S1 → S3 → S5 skips coordination and intelligence. We need action NOW.
-      s1_data = gather_s1_operational_data(state.subsystems.s1)
-      s3_decisions = control_through_s3(%{data: s1_data, emergency: true}, state.subsystems.s3)
+    # WISDOM: Direct path - no time for bureaucracy
+    # S1 → S3 → S5 skips coordination and intelligence. We need action NOW.
+    s1_data = gather_s1_operational_data(state.subsystems.s1)
+    s3_decisions = control_through_s3(%{data: s1_data, emergency: true}, state.subsystems.s3)
 
-      s5_directives =
-        govern_through_s5(%{decisions: s3_decisions, emergency: true}, state.subsystems.s5)
+    s5_directives =
+      govern_through_s5(%{decisions: s3_decisions, emergency: true}, state.subsystems.s5)
 
-      # Immediate feedback - no delays
-      feedback_to_s1(s5_directives, state.subsystems.s1)
+    # Immediate feedback - no delays
+    feedback_to_s1(s5_directives, state.subsystems.s1)
 
-      {:ok, state}
-    catch
-      error ->
-        Logger.error("Emergency cycle failed: #{inspect(error)}")
-        {{:error, error}, state}
-    end
+    {:ok, state}
+  catch
+    error ->
+      Logger.error("Emergency cycle failed: #{inspect(error)}")
+      {{:error, error}, state}
   end
 
   defp gather_s1_operational_data(s1_pid) when is_pid(s1_pid) do

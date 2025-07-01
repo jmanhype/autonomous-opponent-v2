@@ -15,13 +15,13 @@ defmodule AutonomousOpponent.VSM.Supervisor do
   require Logger
 
   alias AutonomousOpponent.VSM.{
+    Algedonic.System,
+    ControlLoop,
     S1.Operations,
     S2.Coordination,
     S3.Control,
     S4.Intelligence,
-    S5.Policy,
-    Algedonic.System,
-    ControlLoop
+    S5.Policy
   }
 
   def start_link(opts) do
@@ -129,33 +129,8 @@ defmodule AutonomousOpponent.VSM.Supervisor do
     subsystems = [:s1, :s2, :s3, :s4, :s5, :algedonic, :control_loop]
 
     health_results =
-      Enum.map(subsystems, fn subsystem ->
-        pid = get_subsystem_pid(subsystem)
-
-        health =
-          if pid && Process.alive?(pid) do
-            # Try to call subsystem
-            try do
-              case subsystem do
-                :s1 -> Operations.get_operational_metrics(pid)
-                :s2 -> Coordination.get_coordination_status(pid)
-                :s3 -> Control.get_resource_status(pid)
-                :s4 -> Intelligence.get_environmental_model(pid)
-                :s5 -> Policy.get_system_identity(pid)
-                :algedonic -> System.get_status(pid)
-                :control_loop -> ControlLoop.get_system_status(pid)
-              end
-
-              :healthy
-            catch
-              _ -> :unresponsive
-            end
-          else
-            :dead
-          end
-
-        {subsystem, health}
-      end)
+      subsystems
+      |> Enum.map(&check_subsystem_health/1)
       |> Map.new()
 
     overall_health =
@@ -171,6 +146,35 @@ defmodule AutonomousOpponent.VSM.Supervisor do
       timestamp: System.monotonic_time(:millisecond)
     }
   end
+
+  defp check_subsystem_health(subsystem) do
+    pid = get_subsystem_pid(subsystem)
+
+    health =
+      if pid && Process.alive?(pid) do
+        check_subsystem_responsiveness(subsystem, pid)
+      else
+        :dead
+      end
+
+    {subsystem, health}
+  end
+
+  defp check_subsystem_responsiveness(subsystem, pid) do
+    # Try to call subsystem
+    call_subsystem_health(subsystem, pid)
+    :healthy
+  catch
+    _ -> :unresponsive
+  end
+
+  defp call_subsystem_health(:s1, pid), do: Operations.get_operational_metrics(pid)
+  defp call_subsystem_health(:s2, pid), do: Coordination.get_coordination_status(pid)
+  defp call_subsystem_health(:s3, pid), do: Control.get_resource_status(pid)
+  defp call_subsystem_health(:s4, pid), do: Intelligence.get_environmental_model(pid)
+  defp call_subsystem_health(:s5, pid), do: Policy.get_system_identity(pid)
+  defp call_subsystem_health(:algedonic, pid), do: System.get_status(pid)
+  defp call_subsystem_health(:control_loop, pid), do: ControlLoop.get_system_status(pid)
 
   # Private functions
 

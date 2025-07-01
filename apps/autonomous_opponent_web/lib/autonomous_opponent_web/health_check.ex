@@ -8,8 +8,7 @@ defmodule AutonomousOpponentV2Web.HealthCheck do
     if Application.get_env(:autonomous_opponent_web, AutonomousOpponentV2Web.Endpoint)[:server] do
       # Check database connectivity for both repos
       core_repo_healthy = check_repo(AutonomousOpponentV2Core.Repo)
-      web_repo_healthy = check_repo(AutonomousOpponentV2Web.Repo)
-      
+      web_repo_healthy = check_repo(AutonomousOpponentV2.Repo)
       if core_repo_healthy && web_repo_healthy do
         IO.puts("Health check passed")
         :ok
@@ -24,11 +23,9 @@ defmodule AutonomousOpponentV2Web.HealthCheck do
   end
 
   defp check_repo(repo) do
-    try do
-      Ecto.Adapters.SQL.query!(repo, "SELECT 1", [])
-      true
-    rescue
-      _ -> false
-    end
+    Ecto.Adapters.SQL.query!(repo, "SELECT 1", [])
+    true
+  rescue
+    _ -> false
   end
 end

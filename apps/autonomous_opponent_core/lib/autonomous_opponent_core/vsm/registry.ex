@@ -3,7 +3,6 @@ defmodule AutonomousOpponentV2Core.VSM.Registry do
   A Registry for VSM dynamic workers.
   This allows VSM components to be named and looked up dynamically.
   """
-  
 
   def start_link(_opts) do
     Registry.start_link(keys: :unique, name: __MODULE__)
