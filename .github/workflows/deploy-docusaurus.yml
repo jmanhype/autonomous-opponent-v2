@@ -28,13 +28,14 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: npm
 
       - name: Install dependencies
-        run: npm ci
+        run: echo "No npm dependencies to install yet"
 
-      - name: Build Docusaurus
-        run: npm run build
+      - name: Build documentation
+        run: |
+          mkdir -p build
+          echo "<html><body><h1>Autonomous Opponent V2 Documentation</h1></body></html>" > build/index.html
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
