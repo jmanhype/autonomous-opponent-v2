@@ -63,10 +63,7 @@ ENV PHX_SERVER=true
 WORKDIR /app
 COPY --from=build --chown=app:app /app/_build/prod/rel/autonomous_opponent ./
 
-# Copy any runtime scripts if they exist
-RUN mkdir -p /app/bin
-COPY --from=build --chown=app:app /app/rel/overlays/bin/* /app/bin/ 2>/dev/null || true
-RUN chmod +x /app/bin/* 2>/dev/null || true
+# Copy runtime scripts from release (they are already in the release)
 
 # Switch to non-root user
 USER app
