@@ -1,0 +1,98 @@
+# The directory Mix will write compiled artifacts to.
+/_build/
+
+# If you run "mix test --cover", coverage assets end up here.
+/cover/
+
+# The directory Mix downloads your dependencies sources to.
+/deps/
+
+# Where third-party dependencies like ExDoc output generated docs.
+/doc/
+
+# If the VM crashes, it generates a dump, let's ignore it too.
+erl_crash.dump
+
+# Also ignore archive artifacts (built via "mix archive.build").
+*.ez
+
+# Ignore package tarball (built via "mix hex.build").
+autonomous_opponent_v2-*.tar
+
+# Temporary files, for example, from tests.
+/tmp/
+
+# Configuration files with secrets
+config/llm_config.json
+mcp.json
+
+# Environment files - CRITICAL: NEVER commit these!
+.env
+.env.*
+*.env
+../.env
+../.env.*
+../.env.local
+../.env.test
+
+# API keys and tokens
+**/secrets.exs
+/config/*.secret.exs
+SECRET_KEY_BASE
+secret_key_base
+
+# Erlang/Elixir sensitive files
+.erlang.cookie
+*.pid
+phoenix.pid
+phoenix_docker.pid
+
+# Phoenix specific
+/priv/static/assets/
+/priv/static/cache_manifest.json
+/assets/node_modules/
+
+# Elixir Language Server
+/.elixir_ls/
+
+# OS files
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# Logs
+/logs/
+*.log
+nohup.out
+
+# Python (for agent-guides)
+__pycache__/
+*.py[cod]
+venv/
+ENV/
+
+# Data files
+*.dets
+*.dets.bak
+
+# Parent directory files that might be included
+../COOLIFY_ENV_VARS.md
+../coolify-hosts.sh
+../deploy.sh
+../deployment/
+../DEPLOYMENT_STRATEGY.md
+../DOCKER_DEPLOYMENT.md
+../docker-compose.prod.yml
+../docker-compose.adaptive.yml
+../Dockerfile.prod
+../run_phoenix.sh
+../run_with_docker.sh
+../start_with_nohup.sh
+../nginx-proxy.conf

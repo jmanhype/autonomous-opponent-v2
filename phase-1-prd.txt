@@ -1,0 +1,98 @@
+# Phase 1: VSM Foundation Implementation PRD
+
+## Objective
+Implement the core VSM (Viable System Model) foundation based on Stafford Beer's cybernetic principles, integrating V1 components into a working S1-S5 subsystem hierarchy with algedonic channels.
+
+## Background
+Phase 0 has stabilized V1 components and created the variety engineering foundation. Now we must implement authentic VSM control loops that enable self-regulation and environmental adaptation.
+
+## Core VSM Subsystem Tasks
+
+### S1 Operations - Variety Absorption Layer (Week 1-2)
+- Implement VSM.S1.Operations GenServer with variety absorption patterns
+- Integrate V1 Memory Tiering as natural variety buffer (hot/warm/cold)
+- Create variety measurement algorithms using Ashby's Law principles
+- Implement S1 dynamic spawning for load-based scaling
+- Connect MCP Gateway tool execution as operational variety
+- Add EventBus variety routing to appropriate tiers
+
+### S2 Coordination - Anti-Oscillation Layer (Week 2-3)
+- Implement VSM.S2.Coordination with Beer's anti-oscillation algorithms
+- Create damping mechanisms for S1 unit interactions
+- Implement resource contention resolution between S1 units
+- Add pattern detection for oscillatory behaviors
+- Create coordination rules engine with learning capability
+- Integrate with V1 Workflows for coordination procedures
+
+### S3 Control - Resource Optimization Layer (Week 3-4)
+- Implement VSM.S3.Control with Beer's resource bargaining algorithms
+- Integrate V1 Workflows Engine as control procedures executor
+- Implement Kalman filters for predictive resource allocation
+- Create audit subsystem (S3*) for sporadic interventions
+- Add reinforcement learning for allocation optimization
+- Implement performance target management and adjustment
+
+### S4 Intelligence - Environmental Scanning (Week 4-5)
+- Implement VSM.S4.Intelligence for environmental model building
+- Integrate V1 Intelligence.LLM for amplified scanning capability
+- Connect CRDT BeliefSet as distributed consciousness substrate
+- Implement pattern extraction from operational variety
+- Create future scenario modeling with uncertainty quantification
+- Add cross-domain learning transfer mechanisms
+
+### S5 Policy - Identity and Governance (Week 5-6)
+- Implement VSM.S5.Policy for system identity management
+- Create value system with constraint learning
+- Implement strategic goal setting and adjustment
+- Add ethical boundary enforcement mechanisms
+- Create system constitution with self-modification rules
+- Implement long-term viability assessment
+
+### Algedonic System - Pain/Pleasure Signals (Week 1-6, Continuous)
+- Implement VSM.AlgedonicSystem with <100ms response guarantee
+- Create pain signal routing for urgent interventions
+- Implement pleasure signal reinforcement mechanisms
+- Add signal filtering to prevent noise amplification
+- Create algedonic memory for pattern learning
+- Integrate with all S1-S5 subsystems for bypass capability
+
+### Control Loop Integration (Week 6-7)
+- Connect S1→S2→S3→S4→S5 feedback loops
+- Implement variety attenuation upward flow
+- Create variety amplification downward flow
+- Add homeostatic regulation mechanisms
+- Implement emergency override pathways
+- Create system-wide stability monitoring
+
+### VSM Metrics and Observability (Week 7-8)
+- Implement variety flow measurement across all channels
+- Create VSM-specific Grafana dashboards
+- Add subsystem health indicators
+- Implement control loop effectiveness metrics
+- Create algedonic signal analytics
+- Add system viability scoring
+
+## Success Criteria
+- All S1-S5 subsystems operational and communicating
+- Algedonic signals achieve <100ms response time
+- Variety absorption rate >90% without S3 intervention
+- Control loops maintain stability under load
+- System demonstrates self-regulation behaviors
+- V1 components successfully integrated into VSM framework
+
+## Timeline
+8 weeks total with 2-week buffer for integration challenges
+
+## Dependencies
+- Phase 0 completion (all V1 components stabilized)
+- CircuitBreaker, RateLimiter, Metrics operational
+- EventBus configured for VSM event patterns
+- Security hardening completed
+- Testing framework ready
+
+## Risks
+- VSM complexity may require more time than estimated
+- V1 component integration may reveal incompatibilities
+- Performance targets may be challenging with full VSM overhead
+- Team learning curve for cybernetic principles
+- Emergent behaviors may be unpredictable

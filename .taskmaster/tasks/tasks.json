@@ -1,0 +1,999 @@
+{
+  "master": {
+    "tasks": [
+      {
+        "id": 1,
+        "title": "Implement AutonomousOpponent.Core.CircuitBreaker",
+        "description": "Implement circuit breaker pattern for VSM algedonic system to prevent cascade failures in cybernetic loops",
+        "details": "Create a GenServer-based circuit breaker following the standard pattern with states (closed, open, half-open). Implement exponential backoff, configurable failure thresholds, and timeout windows. Include metrics collection for VSM monitoring. Use Elixir's :ets for state storage and :timer for window management. Integrate with EventBus for algedonic alerts when circuits trip.",
+        "testStrategy": "Unit tests for state transitions, load tests with deliberate failures, integration tests with VSM event processing, monitoring alert verification",
+        "priority": "high",
+        "dependencies": [],
+        "status": "done",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "GenServer setup and state management",
+            "description": "Implement the GenServer foundation with proper state structure for tracking circuit breaker status, call counts, and timing information",
+            "dependencies": [],
+            "details": "Create the GenServer skeleton with init/1, handle_call/3, handle_cast/2, and handle_info/2 callbacks. Define state structure to include current state (:closed, :open, :half_open), failure count, last failure time, and configuration parameters.",
+            "status": "done",
+            "testStrategy": ""
+          },
+          {
+            "id": 2,
+            "title": "State transition logic (closed/open/half-open)",
+            "description": "Implement the core state machine logic for transitioning between closed, open, and half-open states based on failure patterns",
+            "dependencies": [
+              1
+            ],
+            "details": "Implement transition functions for closed->open (on threshold breach), open->half_open (after timeout), and half_open->closed/open (based on test call results). Include proper state validation and atomic transitions.",
+            "status": "done",
+            "testStrategy": ""
+          },
+          {
+            "id": 3,
+            "title": "Failure threshold and timeout configuration",
+            "description": "Implement configurable failure thresholds, timeout periods, and sliding window mechanisms for failure tracking",
+            "dependencies": [
+              1
+            ],
+            "details": "Add configuration options for failure_threshold, timeout_duration, and reset_timeout. Implement sliding window failure counting and time-based reset mechanisms. Include validation for configuration parameters.",
+            "status": "done",
+            "testStrategy": ""
+          },
+          {
+            "id": 4,
+            "title": "EventBus integration for algedonic alerts",
+            "description": "Integrate with the EventBus system to publish circuit breaker state changes and failure alerts for monitoring",
+            "dependencies": [
+              2
+            ],
+            "details": "Publish events on state transitions (circuit_breaker_opened, circuit_breaker_closed, circuit_breaker_half_opened) and critical failures. Include relevant metadata like service name, failure count, and timestamps for algedonic alert processing.",
+            "status": "done",
+            "testStrategy": ""
+          },
+          {
+            "id": 5,
+            "title": "ETS-based metrics collection",
+            "description": "Implement ETS tables for efficient metrics storage and retrieval of circuit breaker performance data",
+            "dependencies": [
+              3,
+              4
+            ],
+            "details": "Create ETS tables for storing call statistics, failure rates, and response times. Implement metrics collection functions for success/failure counts, average response times, and state duration tracking. Include cleanup mechanisms for old metrics data.",
+            "status": "done",
+            "testStrategy": ""
+          }
+        ]
+      },
+      {
+        "id": 2,
+        "title": "Implement AutonomousOpponent.Core.RateLimiter",
+        "description": "Implement token bucket rate limiter for variety flow control in VSM subsystems",
+        "details": "Create token bucket algorithm with configurable bucket size and refill rate. Use GenServer for state management and :ets for token storage. Implement per-client and global rate limiting. Add variety flow metrics for VSM S1-S5 subsystems. Include burst handling and graceful degradation when limits exceeded.",
+        "testStrategy": "Unit tests for token bucket mechanics, load tests at various rates, integration tests with MCP gateway, verification of variety flow constraints",
+        "priority": "high",
+        "dependencies": [],
+        "status": "done",
+        "subtasks": []
+      },
+      {
+        "id": 3,
+        "title": "Implement AutonomousOpponent.Core.Metrics",
+        "description": "Implement comprehensive metrics collection system for VSM subsystem monitoring and cybernetic feedback loops",
+        "details": "Create metrics aggregation system using :telemetry and Prometheus format. Implement counters, gauges, histograms for VSM subsystems S1-S5. Add custom metrics for variety, algedonic signals, and cybernetic loop performance. Include real-time dashboards and alerting thresholds. Store metrics in ETS with periodic persistence.",
+        "testStrategy": "Unit tests for metric collection, performance tests for high-volume metrics, integration tests with circuit breaker and rate limiter, dashboard functionality verification",
+        "priority": "high",
+        "dependencies": [
+          1,
+          2
+        ],
+        "status": "done",
+        "subtasks": []
+      },
+      {
+        "id": 4,
+        "title": "Implement Intelligence.VectorStore.HNSWIndex",
+        "description": "Implement Hierarchical Navigable Small World index for S4 environmental scanning and pattern recognition",
+        "details": "Create HNSW implementation using NIFs or pure Elixir with configurable M and ef parameters. Implement vector similarity search with cosine and euclidean distance metrics. Add incremental index building and persistence to disk. Integrate with S4 environmental scanning for pattern detection. Use concurrent processing for index updates.",
+        "testStrategy": "Unit tests for index operations, performance benchmarks for search speed and accuracy, integration tests with S4 subsystem, memory usage validation",
+        "priority": "medium",
+        "dependencies": [],
+        "status": "done",
+        "subtasks": []
+      },
+      {
+        "id": 5,
+        "title": "Implement Intelligence.VectorStore.Quantizer",
+        "description": "Implement vector quantization for efficient S4 pattern recognition and memory optimization",
+        "details": "Create product quantization with k-means clustering for vector compression. Implement adaptive quantization based on data distribution. Add fine-tuning for search accuracy vs storage trade-offs. Support both scalar and vector quantization methods. Integrate with HNSW index for compressed search.",
+        "testStrategy": "Unit tests for quantization accuracy, performance tests for compression ratios, integration tests with HNSW index, memory usage benchmarks",
+        "priority": "medium",
+        "dependencies": [
+          4
+        ],
+        "status": "pending",
+        "subtasks": []
+      },
+      {
+        "id": 6,
+        "title": "Security Hardening and Secrets Management",
+        "description": "Rotate exposed API keys, implement secrets management, and enable comprehensive security measures",
+        "details": "Rotate all OpenAI API keys in Intelligence layer. Implement HashiCorp Vault integration or Elixir's built-in secrets management. Enable TLS 1.3 for all transport layers with proper certificate management. Implement encrypted configuration using Cloak or similar. Add API key rotation mechanism and secure environment variable handling.",
+        "testStrategy": "Security audit using automated tools, penetration testing of API endpoints, verification of TLS configuration, secrets rotation testing, compliance validation",
+        "priority": "high",
+        "dependencies": [],
+        "status": "pending",
+        "subtasks": []
+      },
+      {
+        "id": 7,
+        "title": "Complete MCP Gateway Transport Implementation",
+        "description": "Complete HTTP+SSE and WebSocket transport layers for MCP gateway with proper routing and connection pooling",
+        "details": "Implement HTTP+SSE transport using Phoenix.Endpoint and Server-Sent Events. Complete WebSocket transport with Phoenix.Socket. Add gateway routing with load balancing using consistent hashing. Implement connection pooling with configurable pool sizes. Add proper error handling, reconnection logic, and backpressure management.",
+        "testStrategy": "Unit tests for transport protocols, load tests with concurrent connections, integration tests with rate limiter and metrics, connection pool behavior verification",
+        "priority": "high",
+        "dependencies": [
+          2,
+          3
+        ],
+        "status": "pending",
+        "subtasks": []
+      },
+      {
+        "id": 8,
+        "title": "Implement Audit Logging for Cybernetic Compliance",
+        "description": "Implement comprehensive audit logging system for VSM cybernetic compliance and operational transparency",
+        "details": "Create structured audit logging using Logger with custom formatters. Implement audit trails for all VSM subsystem interactions, security events, and cybernetic loop decisions. Add log aggregation with configurable retention policies. Include tamper-evident logging with cryptographic signatures. Integrate with metrics system for audit analytics.",
+        "testStrategy": "Unit tests for log formatting and integrity, integration tests with security systems, compliance validation against cybernetic standards, log retention testing",
+        "priority": "medium",
+        "dependencies": [
+          3,
+          6
+        ],
+        "status": "pending",
+        "subtasks": []
+      },
+      {
+        "id": 9,
+        "title": "Create VSM Integration Testing Framework",
+        "description": "Develop comprehensive testing framework for VSM readiness, component health monitoring, and variety flow validation",
+        "details": "Create ExUnit-based testing framework with custom test helpers for VSM components. Implement health check endpoints for all subsystems with readiness scoring. Add variety flow testing with synthetic load generation. Create performance benchmarking suite targeting 100 req/sec sustained load. Include integration tests for V1-V2 component bridge.",
+        "testStrategy": "Meta-testing of the framework itself, validation of health scoring accuracy, performance benchmark verification, integration test coverage analysis",
+        "priority": "high",
+        "dependencies": [
+          1,
+          2,
+          3,
+          7
+        ],
+        "status": "pending",
+        "subtasks": []
+      },
+      {
+        "id": 10,
+        "title": "Performance Optimization and Load Testing",
+        "description": "Optimize system performance to handle 100 req/sec sustained load and implement comprehensive load testing",
+        "details": "Profile system performance using :observer and custom telemetry. Optimize database queries with proper indexing and connection pooling. Implement response caching where appropriate. Tune BEAM VM settings for high concurrency. Create load testing suite using :gun or similar tools to validate 100 req/sec for 1 hour continuous operation.",
+        "testStrategy": "Performance profiling before and after optimizations, sustained load tests at target throughput, memory leak detection, latency percentile analysis, system stability validation",
+        "priority": "medium",
+        "dependencies": [
+          7,
+          9
+        ],
+        "status": "pending",
+        "subtasks": []
+      }
+    ],
+    "metadata": {
+      "created": "2025-06-30T22:07:41.276Z",
+      "updated": "2025-07-01T02:58:03.365Z",
+      "description": "Tasks for master context"
+    }
+  },
+  "phase-1": {
+    "tasks": [
+      {
+        "id": 1,
+        "title": "Implement S1 Operations - Variety Absorption Layer",
+        "description": "Create the S1 Operations GenServer with variety absorption patterns and integrate V1 Memory Tiering as natural variety buffer",
+        "details": "Implement VSM.S1.Operations GenServer module with: 1) Variety absorption algorithms following Ashby's Law principles 2) Integration with existing V1 Memory Tiering (hot/warm/cold) as variety buffers 3) Dynamic spawning capability for load-based scaling 4) MCP Gateway tool execution integration as operational variety source 5) EventBus variety routing to appropriate memory tiers 6) Variety measurement and monitoring capabilities 7) GenServer state management for operational units 8) Process supervision and fault tolerance",
+        "testStrategy": "Unit tests for variety absorption algorithms, integration tests with V1 Memory Tiering, load testing for dynamic spawning, performance tests for variety measurement, mock MCP Gateway interactions",
+        "priority": "high",
+        "dependencies": [],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "GenServer Foundation Setup",
+            "description": "Create the basic GenServer structure for the circuit breaker with proper initialization, state management, and OTP supervision",
+            "dependencies": [],
+            "details": "Implement the GenServer callbacks (init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2) with a structured state containing circuit status, failure counts, and timing information. Set up proper supervision tree integration.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 2,
+            "title": "Circuit Breaker State Machine",
+            "description": "Implement the core three-state machine logic (closed, open, half-open) with proper transition conditions",
+            "dependencies": [
+              1
+            ],
+            "details": "Define state transitions between closed (normal operation), open (circuit tripped), and half-open (testing recovery). Implement the logic for when to transition between states based on failure thresholds and timeout periods.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 3,
+            "title": "Configurable Thresholds and Timeouts",
+            "description": "Add configuration system for failure thresholds, timeout periods, and recovery settings",
+            "dependencies": [
+              1
+            ],
+            "details": "Implement configurable parameters including failure_threshold (number of failures to trip), timeout (time to wait before half-open), success_threshold (successes needed to close), and window_size for rolling failure counts.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 4,
+            "title": "Request Execution Logic",
+            "description": "Implement the core circuit breaker logic for wrapping and executing requests based on current state",
+            "dependencies": [
+              2,
+              3
+            ],
+            "details": "Create functions to execute requests through the circuit breaker, handling immediate failures in open state, allowing single requests in half-open state, and normal execution in closed state. Include proper error handling and result processing.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 5,
+            "title": "ETS-based Metrics Collection",
+            "description": "Set up ETS tables for storing circuit breaker metrics and statistics",
+            "dependencies": [
+              1
+            ],
+            "details": "Create ETS tables to track metrics like total requests, successful requests, failed requests, state transition timestamps, and current circuit status. Implement functions to read, write, and aggregate these metrics.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 6,
+            "title": "EventBus Integration for Alerts",
+            "description": "Integrate with the EventBus system to publish circuit breaker state changes and alerts",
+            "dependencies": [
+              2,
+              5
+            ],
+            "details": "Publish events when circuit state changes (closed->open, open->half_open, half_open->closed/open). Include relevant metrics and context in events. Subscribe to system events if needed for external circuit control.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 7,
+            "title": "Error Handling and Recovery",
+            "description": "Implement robust error handling, timeout management, and graceful degradation scenarios",
+            "dependencies": [
+              4
+            ],
+            "details": "Handle various error types (timeouts, exceptions, connection failures), implement proper cleanup on crashes, and ensure the circuit breaker can recover from internal failures without affecting the overall system.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 8,
+            "title": "Testing and Validation",
+            "description": "Create comprehensive tests for all circuit breaker functionality and edge cases",
+            "dependencies": [
+              4,
+              6,
+              7
+            ],
+            "details": "Write unit tests for state transitions, integration tests with EventBus, load tests for concurrent access, and failure scenario tests. Include tests for configuration changes and metrics accuracy.",
+            "status": "pending",
+            "testStrategy": ""
+          }
+        ]
+      },
+      {
+        "id": 2,
+        "title": "Implement S2 Coordination - Anti-Oscillation Layer",
+        "description": "Create S2 Coordination system with Beer's anti-oscillation algorithms and damping mechanisms for S1 unit interactions",
+        "details": "Implement VSM.S2.Coordination module with: 1) Beer's anti-oscillation algorithms for system stability 2) Damping mechanisms to prevent S1 unit conflicts 3) Resource contention resolution between multiple S1 units 4) Pattern detection algorithms for oscillatory behaviors 5) Coordination rules engine with machine learning capability 6) Integration with V1 Workflows for coordination procedures 7) State machine for coordination phases 8) Monitoring and alerting for coordination failures",
+        "testStrategy": "Unit tests for anti-oscillation algorithms, simulation tests for oscillatory behavior detection, integration tests with S1 operations, stress tests for resource contention scenarios",
+        "priority": "high",
+        "dependencies": [
+          1,
+          "3"
+        ],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Token Bucket Algorithm Implementation",
+            "description": "Implement core token bucket algorithm with configurable capacity, refill rate, and consumption logic",
+            "dependencies": [],
+            "details": "Create the fundamental token bucket data structure and algorithms for token allocation, consumption, and refill operations with proper atomic operations for concurrent access",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 2,
+            "title": "GenServer State Management and ETS Storage",
+            "description": "Design GenServer architecture with ETS-backed storage for rate limiter state persistence",
+            "dependencies": [
+              1
+            ],
+            "details": "Implement GenServer process to manage rate limiter lifecycle, state transitions, and ETS table operations for efficient concurrent access to bucket states",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 3,
+            "title": "Per-Client and Global Rate Limiting Logic",
+            "description": "Implement differentiated rate limiting for individual clients and system-wide constraints",
+            "dependencies": [
+              1,
+              2
+            ],
+            "details": "Create logic to handle both per-client token buckets and global system limits with proper isolation, overflow handling, and priority-based token allocation",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 4,
+            "title": "VSM Flow Metrics Integration",
+            "description": "Integrate rate limiting metrics with VSM subsystems for system-wide monitoring and control",
+            "dependencies": [
+              2,
+              3
+            ],
+            "details": "Connect rate limiter metrics to VSM event bus, implement flow variety calculations, and create feedback loops for adaptive rate limiting based on system state",
+            "status": "pending",
+            "testStrategy": ""
+          }
+        ]
+      },
+      {
+        "id": 3,
+        "title": "Implement S3 Control - Resource Optimization Layer",
+        "description": "Create S3 Control system with Beer's resource bargaining algorithms and Kalman filters for predictive resource allocation",
+        "details": "Implement VSM.S3.Control module with: 1) Beer's resource bargaining algorithms for optimal allocation 2) Integration with V1 Workflows Engine as control procedures executor 3) Kalman filters for predictive resource allocation and forecasting 4) Audit subsystem (S3*) for sporadic system interventions 5) Reinforcement learning algorithms for allocation optimization 6) Performance target management and dynamic adjustment 7) Resource allocation decision trees 8) Emergency resource reallocation protocols",
+        "testStrategy": "Unit tests for resource bargaining algorithms, integration tests with Workflows Engine, performance tests for Kalman filter accuracy, simulation tests for resource allocation scenarios",
+        "priority": "high",
+        "dependencies": [
+          1
+        ],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Telemetry Integration Setup",
+            "description": "Configure Elixir telemetry infrastructure for metric collection and event emission",
+            "dependencies": [],
+            "details": "Set up :telemetry library integration, define telemetry event handlers, and establish metric collection pipeline for the autonomous opponent system",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 2,
+            "title": "Prometheus Format Implementation",
+            "description": "Implement Prometheus metrics format and export functionality",
+            "dependencies": [
+              1
+            ],
+            "details": "Add prometheus_ex library, configure metric formats (counters, gauges, histograms), and implement /metrics endpoint for Prometheus scraping",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 3,
+            "title": "VSM S1-S5 Subsystem Metrics",
+            "description": "Create specific metrics for each VSM subsystem component",
+            "dependencies": [
+              1
+            ],
+            "details": "Define and implement metrics for VSM subsystems S1 (operations), S2 (coordination), S3 (control), S4 (intelligence), and S5 (policy) including performance, health, and operational indicators",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 4,
+            "title": "ETS Storage Implementation",
+            "description": "Set up ETS tables for high-performance metric storage",
+            "dependencies": [
+              1
+            ],
+            "details": "Create ETS tables for metric storage, implement efficient read/write operations, and optimize for concurrent access patterns",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 5,
+            "title": "Persistence Layer Integration",
+            "description": "Add persistence mechanism for metric data retention",
+            "dependencies": [
+              4
+            ],
+            "details": "Implement periodic persistence of ETS data to database or file system, configure retention policies, and handle system recovery scenarios",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 6,
+            "title": "Real-time Dashboard Creation",
+            "description": "Build Phoenix LiveView dashboard for real-time metric visualization",
+            "dependencies": [
+              2,
+              3
+            ],
+            "details": "Create LiveView components for metric display, implement real-time updates via WebSocket, and design intuitive visualization for VSM subsystem health and performance",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 7,
+            "title": "Alerting Threshold Configuration",
+            "description": "Implement configurable alerting system with threshold management",
+            "dependencies": [
+              3,
+              4
+            ],
+            "details": "Create threshold configuration system, implement alert triggering logic, and set up notification mechanisms for metric threshold violations",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 8,
+            "title": "System Integration Testing",
+            "description": "Comprehensive testing of telemetry system integration",
+            "dependencies": [
+              6,
+              7
+            ],
+            "details": "Create integration tests for telemetry collection, validate Prometheus export, test dashboard functionality, and verify alerting system operation",
+            "status": "pending",
+            "testStrategy": ""
+          }
+        ]
+      },
+      {
+        "id": 4,
+        "title": "Implement Algedonic System - Pain/Pleasure Signals",
+        "description": "Create VSM Algedonic System with sub-100ms response guarantee for urgent system interventions",
+        "details": "Implement VSM.AlgedonicSystem module with: 1) Pain signal routing for urgent interventions with <100ms response time 2) Pleasure signal reinforcement mechanisms for positive behaviors 3) Signal filtering to prevent noise amplification and false positives 4) Algedonic memory for pattern learning and historical analysis 5) Integration points with all S1-S5 subsystems for bypass capability 6) Priority-based signal processing queue 7) Real-time monitoring and alerting 8) Signal correlation and analysis algorithms",
+        "testStrategy": "Performance tests for <100ms response time requirement, unit tests for signal filtering algorithms, integration tests with all VSM subsystems, stress tests for signal volume handling",
+        "priority": "high",
+        "dependencies": [],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Implement core HNSW data structures",
+            "description": "Create the hierarchical navigable small world graph data structures including nodes, layers, and connection management",
+            "dependencies": [],
+            "details": "Define the graph node structure, layer management, and basic graph operations for the HNSW algorithm foundation",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 2,
+            "title": "Implement distance metrics module",
+            "description": "Create configurable distance calculation functions supporting cosine similarity and Euclidean distance",
+            "dependencies": [],
+            "details": "Build a metrics module with optimized implementations of cosine and Euclidean distance calculations with proper vector normalization",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 3,
+            "title": "Implement configurable HNSW parameters",
+            "description": "Create parameter management system for M (max connections), ef (search parameter), and other HNSW configuration options",
+            "dependencies": [],
+            "details": "Design a configuration system that allows runtime adjustment of HNSW parameters with validation and default values",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 4,
+            "title": "Implement HNSW search and insertion algorithms",
+            "description": "Build the core HNSW algorithms for vector insertion and nearest neighbor search using the data structures and metrics",
+            "dependencies": [
+              1,
+              2,
+              3
+            ],
+            "details": "Implement the greedy search algorithm, layer selection, and insertion logic following the HNSW paper specifications",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 5,
+            "title": "Implement incremental index building",
+            "description": "Create functionality to build and update the HNSW index incrementally as new vectors are added",
+            "dependencies": [
+              4
+            ],
+            "details": "Design an incremental building system that maintains index quality while allowing real-time additions without full rebuilds",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 6,
+            "title": "Implement disk persistence layer",
+            "description": "Create serialization and deserialization functionality to save and load HNSW indexes from disk storage",
+            "dependencies": [
+              4
+            ],
+            "details": "Build efficient binary serialization format and I/O operations for persisting HNSW graph structure and metadata",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 7,
+            "title": "Implement concurrent processing optimization",
+            "description": "Add thread-safe operations and parallel processing capabilities for improved HNSW performance",
+            "dependencies": [
+              5,
+              6
+            ],
+            "details": "Implement concurrent search operations, thread-safe insertions, and parallel index building with proper synchronization",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 8,
+            "title": "Integrate HNSW with S4 pattern detection system",
+            "description": "Connect the HNSW implementation to the existing S4 system for pattern detection and analysis workflows",
+            "dependencies": [
+              7
+            ],
+            "details": "Create S4 integration layer, event bus connections, and pattern detection workflows using the HNSW index for similarity search",
+            "status": "pending",
+            "testStrategy": ""
+          }
+        ]
+      },
+      {
+        "id": 5,
+        "title": "Implement S4 Intelligence - Environmental Scanning",
+        "description": "Create S4 Intelligence system for environmental model building with amplified scanning using V1 Intelligence.LLM",
+        "details": "Implement VSM.S4.Intelligence module with: 1) Environmental scanning and model building algorithms 2) Integration with V1 Intelligence.LLM for amplified scanning capability 3) Connection to CRDT BeliefSet as distributed consciousness substrate 4) Pattern extraction algorithms from operational variety data 5) Future scenario modeling with uncertainty quantification 6) Cross-domain learning transfer mechanisms 7) Environmental change detection and adaptation 8) Predictive analytics for system planning",
+        "testStrategy": "Unit tests for pattern extraction algorithms, integration tests with Intelligence.LLM, simulation tests for scenario modeling, performance tests for environmental scanning",
+        "priority": "medium",
+        "dependencies": [
+          1,
+          2,
+          3
+        ],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Product quantization with k-means clustering",
+            "description": "Implement product quantization algorithm using k-means clustering to compress high-dimensional vectors into discrete codes",
+            "dependencies": [],
+            "details": "Create k-means clustering implementation for vector quantization, including centroid calculation, code assignment, and reconstruction methods. Handle multi-dimensional vector splitting and codebook generation.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 2,
+            "title": "Adaptive quantization based on data distribution",
+            "description": "Develop adaptive quantization system that adjusts quantization parameters based on input data distribution characteristics",
+            "dependencies": [
+              1
+            ],
+            "details": "Analyze data distribution patterns, implement dynamic quantization level adjustment, and create distribution-aware codebook optimization. Include statistical analysis for optimal parameter selection.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 3,
+            "title": "Accuracy vs storage trade-off configuration",
+            "description": "Design configurable system for balancing quantization accuracy against storage requirements with user-defined parameters",
+            "dependencies": [
+              1,
+              2
+            ],
+            "details": "Create configuration interface for precision levels, implement storage size estimation, develop accuracy metrics calculation, and provide trade-off analysis tools with recommended settings.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 4,
+            "title": "Scalar and vector quantization methods",
+            "description": "Implement both scalar and vector quantization approaches with optimized algorithms for different data types",
+            "dependencies": [
+              1
+            ],
+            "details": "Develop scalar quantization for individual components, implement vector quantization for grouped elements, create hybrid approaches, and optimize for different vector dimensions and data characteristics.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 5,
+            "title": "HNSW index integration",
+            "description": "Integrate quantization methods with HNSW (Hierarchical Navigable Small World) index for efficient similarity search",
+            "dependencies": [
+              1,
+              2,
+              3,
+              4
+            ],
+            "details": "Modify HNSW index to work with quantized vectors, implement distance calculation for compressed data, optimize search algorithms for quantized space, and ensure compatibility with existing HNSW operations.",
+            "status": "pending",
+            "testStrategy": ""
+          }
+        ]
+      },
+      {
+        "id": 6,
+        "title": "Implement S5 Policy - Identity and Governance",
+        "description": "Create S5 Policy system for system identity management, value systems, and strategic goal setting",
+        "details": "Implement VSM.S5.Policy module with: 1) System identity management and self-awareness mechanisms 2) Value system with constraint learning and ethical boundaries 3) Strategic goal setting and dynamic adjustment capabilities 4) Ethical boundary enforcement mechanisms 5) System constitution with self-modification rules and governance 6) Long-term viability assessment algorithms 7) Policy conflict resolution mechanisms 8) Strategic planning and execution oversight",
+        "testStrategy": "Unit tests for identity management, integration tests for value system constraints, simulation tests for strategic goal adjustment, compliance tests for ethical boundaries",
+        "priority": "medium",
+        "dependencies": [
+          4,
+          5
+        ],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "API Key Rotation Implementation",
+            "description": "Implement automated API key rotation system with support for OpenAI and other service providers",
+            "dependencies": [],
+            "details": "Create GenServer for key rotation scheduling, implement rotation logic for external APIs, add database migration for key versioning, and create rotation event handling through EventBus",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 2,
+            "title": "Secrets Management System Integration",
+            "description": "Integrate HashiCorp Vault or implement built-in secrets management for secure credential storage",
+            "dependencies": [
+              1
+            ],
+            "details": "Add Vault client library or implement encrypted storage module, create configuration for secrets backend, implement secret retrieval and storage functions, and add fallback mechanisms",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 3,
+            "title": "TLS 1.3 Configuration and Certificate Management",
+            "description": "Configure TLS 1.3 for Phoenix endpoint and implement automated certificate management",
+            "dependencies": [],
+            "details": "Update Phoenix endpoint configuration for TLS 1.3, implement certificate renewal automation, add certificate validation and monitoring, and configure secure cipher suites",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 4,
+            "title": "Encrypted Configuration Setup",
+            "description": "Implement encrypted configuration management for sensitive application settings",
+            "dependencies": [
+              2
+            ],
+            "details": "Create encrypted config module using Elixir's crypto functions, implement configuration decryption at runtime, add environment-specific encryption keys, and migrate existing sensitive configs",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 5,
+            "title": "Automated Security Audit Implementation",
+            "description": "Implement automated security auditing system with scheduled scans and reporting",
+            "dependencies": [
+              1,
+              2,
+              3,
+              4
+            ],
+            "details": "Create security audit GenServer with scheduled tasks, implement dependency vulnerability scanning, add configuration security checks, create audit reporting through EventBus, and integrate with existing health check endpoint",
+            "status": "pending",
+            "testStrategy": ""
+          }
+        ]
+      },
+      {
+        "id": 7,
+        "title": "Implement Control Loop Integration",
+        "description": "Connect S1→S2→S3→S4→S5 feedback loops with variety attenuation and amplification mechanisms",
+        "details": "Implement VSM control loop integration with: 1) S1→S2→S3→S4→S5 feedback loop connections 2) Variety attenuation mechanisms for upward information flow 3) Variety amplification mechanisms for downward control flow 4) Homeostatic regulation mechanisms for system stability 5) Emergency override pathways for critical situations 6) System-wide stability monitoring and alerting 7) Feedback loop performance optimization 8) Loop timing and synchronization management",
+        "testStrategy": "Integration tests for complete feedback loops, performance tests for variety flow, stability tests for homeostatic regulation, failure tests for emergency overrides",
+        "priority": "high",
+        "dependencies": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "HTTP+SSE Transport with Phoenix.Endpoint",
+            "description": "Implement Server-Sent Events transport layer using Phoenix.Endpoint for real-time communication",
+            "dependencies": [],
+            "details": "Create SSE endpoint handlers, implement event streaming, manage client connections, and integrate with Phoenix.Endpoint routing",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 2,
+            "title": "WebSocket Transport with Phoenix.Socket",
+            "description": "Implement WebSocket transport layer using Phoenix.Socket for bidirectional real-time communication",
+            "dependencies": [],
+            "details": "Create WebSocket handlers, implement message routing, manage socket connections, and integrate with Phoenix.Socket framework",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 3,
+            "title": "Gateway Routing with Load Balancing",
+            "description": "Implement gateway routing system with load balancing capabilities",
+            "dependencies": [
+              1,
+              2
+            ],
+            "details": "Create routing logic to distribute requests across transport layers, implement load balancing algorithms, and manage traffic distribution",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 4,
+            "title": "Connection Pooling Implementation",
+            "description": "Implement connection pooling mechanism for efficient resource management",
+            "dependencies": [
+              1,
+              2
+            ],
+            "details": "Create connection pool manager, implement pool sizing strategies, handle connection lifecycle, and integrate with both transport layers",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 5,
+            "title": "Error Handling and Reconnection Logic",
+            "description": "Implement comprehensive error handling and automatic reconnection mechanisms",
+            "dependencies": [
+              3,
+              4
+            ],
+            "details": "Create error detection and recovery systems, implement exponential backoff for reconnections, handle network failures, and ensure graceful degradation",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 6,
+            "title": "Backpressure Management",
+            "description": "Implement backpressure management system to handle high load scenarios",
+            "dependencies": [
+              3,
+              4,
+              5
+            ],
+            "details": "Create backpressure detection mechanisms, implement flow control, integrate with rate limiter and metrics systems, and manage system stability under load",
+            "status": "pending",
+            "testStrategy": ""
+          }
+        ]
+      },
+      {
+        "id": 8,
+        "title": "Implement VSM Metrics and Observability",
+        "description": "Create comprehensive VSM monitoring with variety flow measurement and system viability scoring",
+        "details": "Implement VSM observability system with: 1) Variety flow measurement across all communication channels 2) VSM-specific Grafana dashboards for visual monitoring 3) Subsystem health indicators and status reporting 4) Control loop effectiveness metrics and analysis 5) Algedonic signal analytics and pattern recognition 6) System viability scoring algorithms 7) Performance benchmarking and trend analysis 8) Automated alerting for system anomalies",
+        "testStrategy": "Unit tests for metrics collection, integration tests with Grafana, performance tests for real-time monitoring, validation tests for viability scoring accuracy",
+        "priority": "medium",
+        "dependencies": [
+          7
+        ],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Structured Audit Logging with Custom Formatters",
+            "description": "Implement structured audit logging system with configurable custom formatters for different event types and output formats",
+            "dependencies": [],
+            "details": "Create audit logger module with structured event schemas, custom formatters for JSON/text output, and configurable formatting rules for different audit event types",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 2,
+            "title": "VSM Subsystem Audit Trail Implementation",
+            "description": "Integrate audit logging with VSM subsystems to track system operations and state changes across the viable system model",
+            "dependencies": [
+              1
+            ],
+            "details": "Implement audit trail hooks in VSM components, track S1-S5 system operations, log state transitions, and integrate with existing EventBus for VSM event auditing",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 3,
+            "title": "Log Aggregation with Retention Policies",
+            "description": "Build log aggregation system with configurable retention policies for audit data management and storage optimization",
+            "dependencies": [
+              1
+            ],
+            "details": "Create log aggregation service, implement retention policy engine, add database storage for audit logs with automated cleanup, and provide configuration for retention periods",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 4,
+            "title": "Tamper-Evident Logging with Cryptographic Signatures",
+            "description": "Implement cryptographic signatures and hash chains for tamper-evident audit logging to ensure log integrity",
+            "dependencies": [
+              1,
+              2,
+              3
+            ],
+            "details": "Add cryptographic signing to audit log entries, implement hash chain verification, create tamper detection mechanisms, and integrate with existing audit logging infrastructure",
+            "status": "pending",
+            "testStrategy": ""
+          }
+        ]
+      },
+      {
+        "id": 9,
+        "title": "VSM Performance Optimization and Tuning",
+        "description": "Optimize VSM subsystem performance to meet variety absorption and response time requirements",
+        "details": "Implement VSM performance optimization with: 1) Variety absorption rate optimization to achieve >90% without S3 intervention 2) Algedonic signal latency optimization for <100ms response guarantee 3) Memory usage optimization for all VSM subsystems 4) CPU utilization balancing across S1-S5 processes 5) Database query optimization for VSM state persistence 6) EventBus message routing optimization 7) Garbage collection tuning for sustained performance 8) Load testing and capacity planning",
+        "testStrategy": "Performance benchmarking for variety absorption rates, latency testing for algedonic signals, load testing for sustained performance, memory profiling for optimization",
+        "priority": "medium",
+        "dependencies": [
+          7,
+          8
+        ],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "ExUnit framework extension with VSM test helpers",
+            "description": "Create custom ExUnit helpers and macros specifically for testing VSM (Viable System Model) components, including test fixtures for system hierarchies and state transitions",
+            "dependencies": [],
+            "details": "Develop test/support/vsm_test_helpers.ex with macros for VSM system setup, state assertions, and hierarchy validation. Include fixtures for S1-S5 system components and Kalman filter mocks.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 2,
+            "title": "Health check endpoints for all subsystems",
+            "description": "Implement comprehensive health check endpoints that monitor the status of EventBus, AMQP connections, database, consciousness modules, and other critical subsystems",
+            "dependencies": [],
+            "details": "Extend existing /health endpoint to include detailed subsystem status checks. Add endpoints like /health/detailed, /health/amqp, /health/consciousness with proper HTTP status codes and JSON responses.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 3,
+            "title": "Variety flow testing with synthetic load",
+            "description": "Create test scenarios that simulate various types of system loads and interactions to validate the system's ability to handle different operational patterns",
+            "dependencies": [
+              1
+            ],
+            "details": "Build test/integration/variety_flow_test.exs using VSM test helpers to simulate multiple concurrent user interactions, EventBus message floods, and mixed workload patterns.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 4,
+            "title": "Performance benchmarking suite for 100 req/sec",
+            "description": "Develop automated performance testing framework to validate system capability of handling 100 requests per second with proper metrics collection and reporting",
+            "dependencies": [
+              2
+            ],
+            "details": "Create test/performance/benchmark_suite.exs using tools like :benchee or custom load generators. Include latency measurements, throughput validation, and resource utilization monitoring against health endpoints.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 5,
+            "title": "V1-V2 bridge integration tests",
+            "description": "Implement integration tests that validate compatibility and data migration paths between V1 monolithic architecture and V2 umbrella application structure",
+            "dependencies": [
+              1,
+              3
+            ],
+            "details": "Create test/integration/v1_v2_bridge_test.exs to test data migration scenarios, API compatibility, and feature parity between versions. Use VSM test helpers and variety flow patterns to ensure comprehensive coverage.",
+            "status": "pending",
+            "testStrategy": ""
+          }
+        ]
+      },
+      {
+        "id": 10,
+        "title": "VSM Integration Testing and Validation",
+        "description": "Comprehensive end-to-end testing of complete VSM system with self-regulation behavior validation",
+        "details": "Implement comprehensive VSM validation with: 1) End-to-end integration testing of complete S1-S5 system 2) Self-regulation behavior validation and verification 3) System stability testing under various load conditions 4) V1 component integration validation with VSM framework 5) Failure scenario testing and recovery validation 6) Performance regression testing suite 7) Cybernetic principle compliance verification 8) Production readiness assessment and sign-off",
+        "testStrategy": "End-to-end system tests, chaos engineering for failure scenarios, performance regression test suite, behavioral validation tests for self-regulation, compliance tests for cybernetic principles",
+        "priority": "high",
+        "dependencies": [
+          9
+        ],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "System profiling with observer and telemetry",
+            "description": "Implement comprehensive system profiling using Erlang Observer and Phoenix telemetry to identify performance bottlenecks, memory usage patterns, and process behavior in the Autonomous Opponent system.",
+            "dependencies": [],
+            "details": "Set up :observer and telemetry metrics collection, instrument key processes including EventBus, AMQP connections, and Phoenix LiveView components. Create telemetry dashboards for real-time monitoring of system performance metrics.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 2,
+            "title": "Database query optimization and connection pooling",
+            "description": "Optimize Ecto queries and configure proper database connection pooling to improve database performance and reduce connection overhead.",
+            "dependencies": [
+              1
+            ],
+            "details": "Analyze slow queries using Ecto telemetry, add database indexes, optimize N+1 queries, configure connection pool sizes, and implement query result caching for frequently accessed data like VSM systems and consciousness states.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 3,
+            "title": "Response caching implementation",
+            "description": "Implement multi-layer caching strategy for HTTP responses, database queries, and computed results to reduce server load and improve response times.",
+            "dependencies": [
+              1,
+              2
+            ],
+            "details": "Set up ETS-based caching for frequently accessed data, implement HTTP response caching with proper cache headers, and add Redis integration for distributed caching of consciousness states and VSM data.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 4,
+            "title": "BEAM VM tuning for concurrency",
+            "description": "Configure BEAM VM parameters and optimize process scheduling for high-concurrency scenarios, focusing on the EventBus and AMQP connection pools.",
+            "dependencies": [
+              1
+            ],
+            "details": "Tune scheduler bind types, adjust process heap sizes, configure dirty scheduler settings, optimize GenServer message handling patterns, and implement backpressure mechanisms for the EventBus system.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 5,
+            "title": "Load testing suite creation",
+            "description": "Create comprehensive load testing suite to simulate realistic traffic patterns and identify performance bottlenecks under sustained load conditions.",
+            "dependencies": [
+              2,
+              3,
+              4
+            ],
+            "details": "Set up load testing with tools like Artillery or k6, create test scenarios for Phoenix LiveView connections, AMQP message processing, and database operations. Include gradual ramp-up tests and sustained load scenarios.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 6,
+            "title": "Sustained performance validation",
+            "description": "Execute sustained load testing at 100 requests per second for 1 hour to validate system stability and performance under continuous load.",
+            "dependencies": [
+              5
+            ],
+            "details": "Run 1-hour sustained load test at 100 req/sec, monitor system metrics throughout the test, identify memory leaks or performance degradation, validate error rates remain below thresholds, and document performance characteristics.",
+            "status": "pending",
+            "testStrategy": ""
+          }
+        ]
+      }
+    ],
+    "metadata": {
+      "created": "2025-07-01T02:03:48.687Z",
+      "updated": "2025-07-01T02:03:48.687Z",
+      "description": "Tasks for phase-1 context"
+    }
+  }
+}

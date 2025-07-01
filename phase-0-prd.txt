@@ -1,0 +1,50 @@
+# Phase 0: VSM Component Stabilization PRD
+
+## Objective
+Stabilize V1 components and prepare VSM foundation for Beer's cybernetic implementation.
+
+## Critical Tasks
+
+### Week 1-2: Missing Dependencies (Critical Path)
+- Implement AutonomousOpponent.Core.CircuitBreaker for VSM algedonic system
+- Implement AutonomousOpponent.Core.RateLimiter for variety flow control  
+- Implement AutonomousOpponent.Core.Metrics for VSM subsystem monitoring
+- Implement Intelligence.VectorStore.HNSWIndex for S4 environmental scanning
+- Implement Intelligence.VectorStore.Quantizer for S4 pattern recognition
+
+### Week 2-3: Security Hardening (Critical)
+- Rotate exposed OpenAI API keys in Intelligence layer
+- Implement secrets management using Vault or similar
+- Enable TLS encryption for all transport layers
+- Security audit of V1 components for VSM integration
+- Implement audit logging for cybernetic compliance
+
+### Week 3-4: MCP Gateway Completion (High Priority)
+- Complete HTTP+SSE transport implementation
+- Complete WebSocket transport implementation  
+- Fix gateway routing and load balancing
+- Add missing error handling paths
+- Implement proper connection pooling
+
+### Week 4: Integration Testing Framework (High Priority)
+- Create VSM readiness testing framework
+- Implement component health monitoring
+- Add variety flow testing capabilities
+- Performance benchmarking for 100 req/sec sustained load
+- Integration tests for V1-V2 component bridge
+
+## Success Criteria
+- All missing dependencies implemented and tested
+- Zero security vulnerabilities in audit
+- All V1 components achieve 80%+ readiness score
+- System handles 100 req/sec for 1 hour without failure
+- VSM Event Processor routes all events correctly
+
+## Timeline
+4 months with weekly go/no-go checkpoints
+
+## Dependencies
+- V1 component architecture understanding
+- Security compliance requirements
+- VSM cybernetic principles (Beer's model)
+- Elixir/OTP supervision tree patterns
