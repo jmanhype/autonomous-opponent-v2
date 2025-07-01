@@ -1,0 +1,197 @@
+name: Claude VSM Advisor
+
+on:
+  workflow_run:
+    workflows: ["VSM-Enhanced CI/CD Pipeline with Claude Integration"]
+    types: [completed]
+  
+  pull_request:
+    types: [opened]
+    
+  # Manual trigger for advice
+  workflow_dispatch:
+    inputs:
+      advice_type:
+        description: 'Type of advice needed'
+        required: true
+        type: choice
+        options:
+          - architecture
+          - performance
+          - emergence
+          - vsm-implementation
+
+jobs:
+  # Analyze CI/CD results and provide advice
+  vsm-analysis:
+    name: VSM Pattern Analysis
+    runs-on: ubuntu-latest
+    if: |
+      github.event_name == 'workflow_run' && 
+      github.event.workflow_run.conclusion == 'failure'
+    
+    steps:
+    - name: Request Claude Analysis
+      uses: actions/github-script@v7
+      with:
+        script: |
+          // Find the PR associated with this workflow run
+          const runs = await github.rest.actions.listWorkflowRuns({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            workflow_id: context.payload.workflow_run.workflow_id,
+            per_page: 1
+          });
+          
+          if (runs.data.workflow_runs[0].pull_requests.length > 0) {
+            const pr = runs.data.workflow_runs[0].pull_requests[0];
+            
+            const comment = `@claude The VSM CI/CD pipeline failed. As our S4 Intelligence augmentation, please analyze:
+            
+            **Workflow Run**: [${context.payload.workflow_run.name}](${context.payload.workflow_run.html_url})
+            **Conclusion**: ${context.payload.workflow_run.conclusion}
+            
+            Please provide:
+            1. Root cause analysis
+            2. Emergence patterns (is the system trying to tell us something?)
+            3. VSM stability recommendations
+            4. Should S5 policies be adjusted?`;
+            
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: pr.number,
+              body: comment
+            });
+          }
+
+  # Proactive architecture advice on new PRs
+  architecture-advisor:
+    name: Architecture Advisor
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    
+    steps:
+    - name: Check if architectural changes
+      id: check
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const files = await github.rest.pulls.listFiles({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            pull_number: context.payload.pull_request.number
+          });
+          
+          const architecturalFiles = files.data.filter(f => 
+            f.filename.includes('/vsm/') || 
+            f.filename.includes('supervisor') ||
+            f.filename.includes('application.ex') ||
+            f.filename.includes('router.ex')
+          );
+          
+          return architecturalFiles.length > 0;
+    
+    - name: Request Architecture Review
+      if: steps.check.outputs.result == 'true'
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const comment = `@claude I notice this PR contains architectural changes. As our VSM advisor, please review:
+          
+          1. Do these changes align with Beer's VSM principles?
+          2. Will this improve variety absorption (S1) or requisite variety?
+          3. Any risk to system viability or emergence?
+          4. Suggestions for enhancing cybernetic feedback loops?
+          
+          Focus on VSM coherence and emergent properties.`;
+          
+          await github.rest.issues.createComment({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            issue_number: context.payload.pull_request.number,
+            body: comment
+          });
+
+  # Weekly emergence analysis
+  emergence-analysis:
+    name: Weekly Emergence Analysis
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' && inputs.advice_type == 'emergence'
+    
+    steps:
+    - name: Create Emergence Analysis Issue
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const issue = await github.rest.issues.create({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            title: `Weekly Emergence Analysis - ${new Date().toLocaleDateString()}`,
+            body: `@claude Please perform our weekly emergence analysis:
+            
+            **S4 Intelligence Gathering:**
+            1. What patterns emerged in our development this week?
+            2. Are there signs of self-organization we didn't plan?
+            3. What is the system teaching us about itself?
+            
+            **Cybernetic Health:**
+            1. How well are our feedback loops functioning?
+            2. Is variety being absorbed effectively at each level?
+            3. Any algedonic signals we're missing?
+            
+            **Emergence Indicators:**
+            1. Unexpected beneficial behaviors?
+            2. Patterns that suggest new capabilities?
+            3. Signs of collective intelligence?
+            
+            **Recommendations:**
+            1. What should we amplify?
+            2. What should we dampen?
+            3. Where should we reduce control and let emergence happen?
+            
+            Use the GitHub API to analyze our commit patterns, PR discussions, and issue trends.`,
+            labels: ['emergence', 'vsm-analysis', 'weekly-review']
+          });
+          
+          console.log(`Created issue #${issue.data.number} for emergence analysis`);
+
+  # Manual VSM implementation advice
+  implementation-advisor:
+    name: VSM Implementation Advisor
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' && inputs.advice_type == 'vsm-implementation'
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Create Implementation Advice Issue
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const issue = await github.rest.issues.create({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            title: `VSM Implementation Guidance Request`,
+            body: `@claude We need your guidance on VSM implementation:
+            
+            **Current State Analysis:**
+            - Review our VSM module implementations (S1-S5)
+            - Identify gaps between Beer's theory and our code
+            - Assess our variety engineering
+            
+            **Next Steps:**
+            - What's the highest priority VSM component to implement?
+            - How can we better model requisite variety?
+            - Suggestions for improving our algedonic channel (<100ms requirement)
+            
+            **Emergence Cultivation:**
+            - How can we create conditions for beneficial emergence?
+            - What control should we release?
+            - Where are we over-engineering vs under-engineering?
+            
+            Please analyze our current codebase and provide specific recommendations.`,
+            labels: ['vsm-implementation', 'architecture', 'guidance']
+          });
+          
+          console.log(`Created issue #${issue.data.number} for VSM implementation advice`);

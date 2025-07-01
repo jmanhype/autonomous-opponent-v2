@@ -19,10 +19,13 @@ jobs:
     name: Validate PR Requirements
     runs-on: ubuntu-latest
     if: github.event_name == 'pull_request'
+    outputs:
+      needs_claude_review: ${{ steps.check.outputs.needs_claude }}
     steps:
       - uses: actions/checkout@v4
       
       - name: Check PR Description
+        id: check
         uses: actions/github-script@v7
         with:
           script: |
@@ -32,8 +35,39 @@ jobs:
             
             if (!hasAcceptanceCriteria || !hasTestPlan) {
               console.log('PR must include Acceptance Criteria and Test Plan sections');
-              // Warning instead of failing for now
+              // Request Claude to help complete the PR description
+              core.setOutput('needs_claude', 'true');
+            } else {
+              core.setOutput('needs_claude', 'false');
             }
+
+  # Claude PR Description Assistant
+  claude-pr-assistant:
+    name: Claude PR Description Assistant
+    runs-on: ubuntu-latest
+    needs: validate-pr
+    if: needs.validate-pr.outputs.needs_claude_review == 'true'
+    
+    steps:
+    - name: Request Claude Assistance
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const pr = context.payload.pull_request;
+          const comment = `@claude This PR is missing required sections. Please help by:
+          
+          1. Analyzing the code changes in this PR
+          2. Suggesting appropriate **Acceptance Criteria** based on the changes
+          3. Proposing a **Test Plan** to validate the implementation
+          
+          Please format your response so the PR author can easily copy it into their PR description.`;
+          
+          await github.rest.issues.createComment({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            issue_number: pr.number,
+            body: comment
+          });
 
   # Stage 2: Code Quality & Security
   code-quality:

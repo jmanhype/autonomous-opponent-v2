@@ -1,0 +1,338 @@
+name: Claude Performance & Cost Advisor
+
+on:
+  # Analyze performance on main branch pushes
+  push:
+    branches: [main, master]
+    
+  # Weekly performance review
+  schedule:
+    - cron: '0 10 * * 3'  # Wednesday at 10 AM UTC
+    
+  # Manual trigger for specific analysis
+  workflow_dispatch:
+    inputs:
+      analysis_type:
+        description: 'Type of performance analysis'
+        required: true
+        type: choice
+        options:
+          - cost-optimization
+          - performance-bottlenecks
+          - resource-usage
+          - claude-usage-analysis
+          - emergence-efficiency
+
+jobs:
+  # Collect performance metrics
+  collect-metrics:
+    name: Collect Performance Metrics
+    runs-on: ubuntu-latest
+    outputs:
+      metrics_available: ${{ steps.collect.outputs.available }}
+      claude_usage: ${{ steps.collect.outputs.claude_usage }}
+      ci_duration: ${{ steps.collect.outputs.ci_duration }}
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Collect Workflow Metrics
+      id: collect
+      uses: actions/github-script@v7
+      with:
+        script: |
+          // Get recent workflow runs
+          const runs = await github.rest.actions.listWorkflowRunsForRepo({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            per_page: 50,
+            status: 'completed'
+          });
+          
+          // Calculate average CI duration
+          const durations = runs.data.workflow_runs.map(run => {
+            const start = new Date(run.created_at);
+            const end = new Date(run.updated_at);
+            return (end - start) / 1000 / 60; // minutes
+          });
+          
+          const avgDuration = durations.reduce((a, b) => a + b, 0) / durations.length;
+          
+          // Count Claude invocations
+          const claudeRuns = runs.data.workflow_runs.filter(run => 
+            run.name.includes('Claude') || run.name.includes('VSM')
+          );
+          
+          core.setOutput('available', 'true');
+          core.setOutput('claude_usage', claudeRuns.length);
+          core.setOutput('ci_duration', avgDuration.toFixed(2));
+          
+          // Store detailed metrics
+          const metrics = {
+            timestamp: new Date().toISOString(),
+            average_duration_minutes: avgDuration,
+            total_runs: runs.data.workflow_runs.length,
+            claude_invocations: claudeRuns.length,
+            success_rate: runs.data.workflow_runs.filter(r => r.conclusion === 'success').length / runs.data.workflow_runs.length * 100
+          };
+          
+          require('fs').writeFileSync('performance-metrics.json', JSON.stringify(metrics, null, 2));
+    
+    - name: Upload Metrics
+      uses: actions/upload-artifact@v4
+      with:
+        name: performance-metrics-${{ github.run_number }}
+        path: performance-metrics.json
+
+  # Analyze performance patterns
+  performance-analysis:
+    name: Performance Pattern Analysis
+    runs-on: ubuntu-latest
+    needs: collect-metrics
+    if: needs.collect-metrics.outputs.metrics_available == 'true'
+    
+    steps:
+    - name: Download Metrics
+      uses: actions/download-artifact@v4
+      with:
+        name: performance-metrics-${{ github.run_number }}
+    
+    - name: Analyze Patterns
+      id: analyze
+      run: |
+        echo "::notice::Analyzing performance patterns"
+        
+        # Read metrics
+        METRICS=$(cat performance-metrics.json)
+        AVG_DURATION=$(echo "$METRICS" | jq -r '.average_duration_minutes')
+        CLAUDE_USAGE=$(echo "$METRICS" | jq -r '.claude_invocations')
+        
+        # Determine if we need optimization
+        if (( $(echo "$AVG_DURATION > 15" | bc -l) )); then
+          echo "needs_optimization=true" >> $GITHUB_OUTPUT
+          echo "optimization_reason=high_duration" >> $GITHUB_OUTPUT
+        elif [ "$CLAUDE_USAGE" -gt 30 ]; then
+          echo "needs_optimization=true" >> $GITHUB_OUTPUT
+          echo "optimization_reason=high_claude_usage" >> $GITHUB_OUTPUT
+        else
+          echo "needs_optimization=false" >> $GITHUB_OUTPUT
+        fi
+
+  # Request Claude optimization advice
+  claude-optimization-advisor:
+    name: Claude Optimization Advisor
+    runs-on: ubuntu-latest
+    needs: [collect-metrics, performance-analysis]
+    if: |
+      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') ||
+      (needs.performance-analysis.outputs.needs_optimization == 'true')
+    
+    steps:
+    - name: Create Optimization Issue
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const eventType = context.eventName;
+          const avgDuration = '${{ needs.collect-metrics.outputs.ci_duration }}';
+          const claudeUsage = '${{ needs.collect-metrics.outputs.claude_usage }}';
+          
+          let analysisType = 'general';
+          if (eventType === 'workflow_dispatch') {
+            analysisType = '${{ inputs.analysis_type }}';
+          }
+          
+          const prompts = {
+            'cost-optimization': `Focus on reducing CI/CD costs:
+              - Identify expensive operations
+              - Suggest caching strategies
+              - Recommend parallel vs sequential trade-offs
+              - Optimize Claude API usage patterns`,
+            
+            'performance-bottlenecks': `Identify and resolve bottlenecks:
+              - Analyze slowest jobs and steps
+              - Suggest parallelization opportunities
+              - Recommend test optimization
+              - Identify redundant operations`,
+            
+            'resource-usage': `Optimize resource utilization:
+              - Review runner specifications
+              - Suggest resource pooling
+              - Optimize Docker layer caching
+              - Recommend build optimization`,
+            
+            'claude-usage-analysis': `Optimize Claude integration:
+              - Review OAuth vs API key usage
+              - Suggest batching strategies
+              - Optimize prompt engineering
+              - Recommend caching Claude responses`,
+            
+            'emergence-efficiency': `Enhance emergence cultivation:
+              - Identify over-controlled processes
+              - Suggest areas for reduced intervention
+              - Optimize feedback loops
+              - Recommend self-organizing patterns`,
+            
+            'general': `General performance optimization:
+              - Review overall CI/CD efficiency
+              - Suggest quick wins
+              - Identify systemic improvements
+              - Recommend long-term optimizations`
+          };
+          
+          const issue = await github.rest.issues.create({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            title: `Performance Optimization Analysis - ${new Date().toLocaleDateString()}`,
+            body: `@claude Please analyze our CI/CD performance and provide optimization recommendations:
+            
+            **Current Metrics:**
+            - Average CI/CD Duration: ${avgDuration} minutes
+            - Claude Invocations (last 50 runs): ${claudeUsage}
+            - Analysis Type: ${analysisType}
+            
+            **Analysis Request:**
+            ${prompts[analysisType] || prompts.general}
+            
+            **Specific Areas to Review:**
+            1. Workflow execution patterns
+            2. Resource utilization efficiency
+            3. Cost optimization opportunities
+            4. VSM feedback loop performance
+            5. Emergence vs control balance
+            
+            **Deliverables:**
+            1. Identify top 3 performance bottlenecks
+            2. Provide specific optimization recommendations
+            3. Estimate potential time/cost savings
+            4. Suggest implementation priority
+            
+            Please use the GitHub API to analyze our recent workflow runs and provide data-driven recommendations.`,
+            labels: ['performance', 'optimization', 'claude-analysis']
+          });
+          
+          console.log(`Created performance analysis issue #${issue.data.number}`);
+
+  # Monitor Claude usage efficiency
+  claude-usage-monitor:
+    name: Claude Usage Efficiency Monitor
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push'
+    
+    steps:
+    - name: Analyze Claude Efficiency
+      uses: actions/github-script@v7
+      with:
+        script: |
+          // Get Claude-related workflow runs from the last week
+          const oneWeekAgo = new Date();
+          oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
+          
+          const runs = await github.rest.actions.listWorkflowRunsForRepo({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            created: `>=${oneWeekAgo.toISOString()}`,
+            per_page: 100
+          });
+          
+          const claudeRuns = runs.data.workflow_runs.filter(run => 
+            run.name.includes('Claude') || 
+            run.name.includes('VSM') ||
+            run.name.includes('PR Assistant')
+          );
+          
+          // Calculate OAuth vs API usage
+          let oauthCount = 0;
+          let apiCount = 0;
+          
+          // This is approximate - in reality you'd check the logs
+          claudeRuns.forEach(run => {
+            if (run.head_branch === 'main' || run.head_branch === 'master') {
+              apiCount++;
+            } else {
+              oauthCount++;
+            }
+          });
+          
+          const totalCost = (oauthCount * 0) + (apiCount * 0.03); // Rough estimate
+          
+          // If costs are high, create an alert
+          if (totalCost > 10 || claudeRuns.length > 100) {
+            const comment = `## ⚠️ Claude Usage Alert
+            
+            **Weekly Claude Usage Summary:**
+            - Total Claude Invocations: ${claudeRuns.length}
+            - OAuth (Max Subscription): ${oauthCount}
+            - API Key Usage: ${apiCount}
+            - Estimated API Cost: $${totalCost.toFixed(2)}
+            
+            **Recommendations:**
+            - Consider batching Claude requests
+            - Review if all Claude invocations are necessary
+            - Optimize prompt sizes to reduce token usage
+            - Cache Claude responses where appropriate
+            
+            @claude Please review our usage patterns and suggest optimization strategies.`;
+            
+            // Find or create a tracking issue
+            const issues = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              labels: 'claude-usage-tracking',
+              state: 'open'
+            });
+            
+            if (issues.data.length > 0) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issues.data[0].number,
+                body: comment
+              });
+            } else {
+              await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title: 'Claude Usage Optimization Tracking',
+                body: comment,
+                labels: ['claude-usage-tracking', 'cost-optimization']
+              });
+            }
+          }
+
+  # Emergency performance response
+  emergency-response:
+    name: Emergency Performance Response
+    runs-on: ubuntu-latest
+    if: failure() && contains(github.ref, 'main')
+    needs: [collect-metrics, performance-analysis]
+    
+    steps:
+    - name: Trigger Emergency Analysis
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const issue = await github.rest.issues.create({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            title: '🚨 EMERGENCY: CI/CD Performance Degradation',
+            body: `@claude **URGENT: Performance degradation detected on main branch**
+            
+            The performance monitoring system has detected a critical issue:
+            - Workflow: ${context.workflow}
+            - Run: ${context.runId}
+            - Ref: ${context.ref}
+            
+            **Immediate Analysis Required:**
+            1. Identify the root cause of the performance degradation
+            2. Suggest immediate remediation steps
+            3. Recommend rollback if necessary
+            4. Provide long-term fix strategy
+            
+            **VSM Algedonic Response:**
+            This is a pain signal requiring immediate attention to maintain system viability.
+            
+            Please analyze the failing workflow and provide emergency recommendations.`,
+            labels: ['emergency', 'performance', 'algedonic-pain', 'p0']
+          });
+          
+          console.log(`Created emergency issue #${issue.data.number}`);

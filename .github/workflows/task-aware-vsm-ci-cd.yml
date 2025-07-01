@@ -1,0 +1,254 @@
+name: Task-Aware VSM CI/CD Pipeline
+
+on:
+  push:
+    branches: [ 'task/**', 'feat/**', 'fix/**', main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+env:
+  MIX_ENV: test
+  ELIXIR_VERSION: 1.16.3
+  OTP_VERSION: 26.2.5
+
+jobs:
+  # Extract task context from branch/commit
+  task-context-extraction:
+    name: Extract Task Context
+    runs-on: ubuntu-latest
+    outputs:
+      task_id: ${{ steps.extract.outputs.task_id }}
+      phase: ${{ steps.extract.outputs.phase }}
+      vsm_component: ${{ steps.extract.outputs.vsm_component }}
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Extract Task Information
+      id: extract
+      run: |
+        # Extract from branch name (e.g., task/1.1-circuit-breaker)
+        if [[ "${{ github.ref }}" =~ task/([0-9.]+)- ]]; then
+          TASK_ID="${BASH_REMATCH[1]}"
+          echo "task_id=$TASK_ID" >> $GITHUB_OUTPUT
+        fi
+        
+        # Extract from commit message
+        COMMIT_MSG=$(git log -1 --pretty=%B)
+        if [[ "$COMMIT_MSG" =~ Task:\ #([0-9.]+) ]]; then
+          TASK_ID="${BASH_REMATCH[1]}"
+          echo "task_id=$TASK_ID" >> $GITHUB_OUTPUT
+        fi
+        
+        if [[ "$COMMIT_MSG" =~ Phase:\ ([0-9]+) ]]; then
+          PHASE="${BASH_REMATCH[1]}"
+          echo "phase=$PHASE" >> $GITHUB_OUTPUT
+        fi
+        
+        # Detect VSM component
+        if [[ "$COMMIT_MSG" =~ \(S([1-5])\) ]] || [[ "$COMMIT_MSG" =~ S([1-5]) ]]; then
+          echo "vsm_component=S${BASH_REMATCH[1]}" >> $GITHUB_OUTPUT
+        elif [[ "$COMMIT_MSG" =~ algedonic ]]; then
+          echo "vsm_component=Algedonic" >> $GITHUB_OUTPUT
+        fi
+        
+        echo "::notice::Task Context - ID: $TASK_ID, Phase: $PHASE, Component: ${{ steps.extract.outputs.vsm_component }}"
+
+  # Enhanced S4 Intelligence with task awareness
+  intelligence-analysis:
+    name: S4 - Task-Aware Intelligence
+    runs-on: ubuntu-latest
+    needs: task-context-extraction
+    outputs:
+      quality_trend: ${{ steps.analyze.outputs.quality_trend }}
+      risk_level: ${{ steps.analyze.outputs.risk_level }}
+      task_complexity: ${{ steps.analyze.outputs.task_complexity }}
+    
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+    
+    - name: Task-Aware Analysis
+      id: analyze
+      run: |
+        TASK_ID="${{ needs.task-context-extraction.outputs.task_id }}"
+        PHASE="${{ needs.task-context-extraction.outputs.phase }}"
+        VSM_COMPONENT="${{ needs.task-context-extraction.outputs.vsm_component }}"
+        
+        echo "::notice::S4 Intelligence - Analyzing Task $TASK_ID in Phase $PHASE"
+        
+        # Adjust risk based on phase
+        case "$PHASE" in
+          "0") 
+            BASE_RISK="medium"  # Stabilization phase
+            echo "::notice::Phase 0 - Component stabilization, moderate risk"
+            ;;
+          "1") 
+            BASE_RISK="high"    # VSM foundation is critical
+            echo "::notice::Phase 1 - VSM foundation, elevated risk"
+            ;;
+          "2") 
+            BASE_RISK="high"    # Distributed systems are complex
+            echo "::notice::Phase 2 - Distributed VSM, high complexity"
+            ;;
+          "3") 
+            BASE_RISK="very-high" # AI amplification is cutting edge
+            echo "::notice::Phase 3 - AI amplification, maximum risk"
+            ;;
+          *)
+            BASE_RISK="medium"
+            ;;
+        esac
+        
+        # Adjust based on VSM component
+        if [[ "$VSM_COMPONENT" == "Algedonic" ]]; then
+          echo "::warning::Algedonic system changes require <100ms validation"
+          echo "task_complexity=critical" >> $GITHUB_OUTPUT
+        elif [[ "$VSM_COMPONENT" =~ S[4-5] ]]; then
+          echo "task_complexity=high" >> $GITHUB_OUTPUT
+        else
+          echo "task_complexity=medium" >> $GITHUB_OUTPUT
+        fi
+        
+        echo "risk_level=$BASE_RISK" >> $GITHUB_OUTPUT
+        echo "quality_trend=task-focused" >> $GITHUB_OUTPUT
+
+  # Enhanced S5 Policy based on task context
+  policy-management:
+    name: S5 - Task-Aware Policy
+    runs-on: ubuntu-latest
+    needs: [task-context-extraction, intelligence-analysis]
+    outputs:
+      coverage_threshold: ${{ steps.policy.outputs.coverage }}
+      test_strategy: ${{ steps.policy.outputs.strategy }}
+    
+    steps:
+    - name: Task-Based Policy Decision
+      id: policy
+      run: |
+        PHASE="${{ needs.task-context-extraction.outputs.phase }}"
+        TASK_COMPLEXITY="${{ needs.intelligence-analysis.outputs.task_complexity }}"
+        
+        # Phase-specific policies
+        case "$PHASE" in
+          "0")  # Stabilization
+            echo "coverage=60" >> $GITHUB_OUTPUT
+            echo "strategy=comprehensive" >> $GITHUB_OUTPUT
+            ;;
+          "1")  # VSM Foundation
+            echo "coverage=70" >> $GITHUB_OUTPUT
+            echo "strategy=vsm-focused" >> $GITHUB_OUTPUT
+            ;;
+          "2")  # Distributed
+            echo "coverage=75" >> $GITHUB_OUTPUT
+            echo "strategy=distributed-testing" >> $GITHUB_OUTPUT
+            ;;
+          "3")  # AI Amplification
+            echo "coverage=80" >> $GITHUB_OUTPUT
+            echo "strategy=performance-critical" >> $GITHUB_OUTPUT
+            ;;
+          *)
+            echo "coverage=65" >> $GITHUB_OUTPUT
+            echo "strategy=standard" >> $GITHUB_OUTPUT
+            ;;
+        esac
+        
+        echo "::notice::S5 Policy - Phase $PHASE requires ${{ steps.policy.outputs.coverage }}% coverage"
+
+  # Task validation job
+  task-validation:
+    name: Validate Task Implementation
+    runs-on: ubuntu-latest
+    needs: [task-context-extraction, policy-management]
+    if: needs.task-context-extraction.outputs.task_id != ''
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Validate Against Task Requirements
+      run: |
+        TASK_ID="${{ needs.task-context-extraction.outputs.task_id }}"
+        
+        echo "::notice::Validating implementation for Task $TASK_ID"
+        
+        # Here you would integrate with your task-master system
+        # For now, we'll create validation markers
+        
+        cat > task-validation-report.md <<EOF
+        # Task Validation Report
+        
+        **Task ID**: $TASK_ID
+        **Phase**: ${{ needs.task-context-extraction.outputs.phase }}
+        **VSM Component**: ${{ needs.task-context-extraction.outputs.vsm_component }}
+        
+        ## Validation Checklist
+        - [ ] Implements task requirements
+        - [ ] Follows VSM principles
+        - [ ] Meets coverage threshold (${{ needs.policy-management.outputs.coverage }}%)
+        - [ ] Includes wisdom preservation comments
+        - [ ] Updates relevant documentation
+        EOF
+    
+    - name: Upload Task Report
+      uses: actions/upload-artifact@v4
+      with:
+        name: task-validation-${{ needs.task-context-extraction.outputs.task_id }}
+        path: task-validation-report.md
+
+  # Standard CI/CD jobs continue...
+  # (Include all your existing jobs here)
+
+  # Enhanced VSM Synthesis with task tracking
+  vsm-synthesis:
+    name: VSM Synthesis with Task Progress
+    runs-on: ubuntu-latest
+    if: always()
+    needs: [task-context-extraction, intelligence-analysis, policy-management, task-validation]
+    
+    steps:
+    - name: Generate Task-Aware Synthesis
+      run: |
+        cat > vsm-task-synthesis.md <<EOF
+        # VSM Task-Aware Synthesis Report
+        
+        ## Task Context
+        - **Task ID**: ${{ needs.task-context-extraction.outputs.task_id || 'No task context' }}
+        - **Phase**: ${{ needs.task-context-extraction.outputs.phase || 'Unknown' }}
+        - **VSM Component**: ${{ needs.task-context-extraction.outputs.vsm_component || 'General' }}
+        
+        ## Phase Progress Indicators
+        $(case "${{ needs.task-context-extraction.outputs.phase }}" in
+          "0") echo "- Phase 0: Component Stabilization 🔧";;
+          "1") echo "- Phase 1: VSM Foundation 🏗️";;
+          "2") echo "- Phase 2: Distributed VSM 🌐";;
+          "3") echo "- Phase 3: AI Amplification 🚀";;
+          *) echo "- Phase: General Development";;
+        esac)
+        
+        ## Task Implementation Quality
+        - **Risk Assessment**: ${{ needs.intelligence-analysis.outputs.risk_level }}
+        - **Required Coverage**: ${{ needs.policy-management.outputs.coverage }}%
+        - **Test Strategy**: ${{ needs.policy-management.outputs.test_strategy }}
+        - **Complexity**: ${{ needs.intelligence-analysis.outputs.task_complexity }}
+        
+        ## Recommendations
+        1. Update task status in task-master upon successful merge
+        2. Document any architectural decisions in CLAUDE.md
+        3. Create follow-up tasks for any discovered issues
+        
+        ## Command to Update Task Status
+        \`\`\`bash
+        # After successful merge:
+        task-master set-status --id=${{ needs.task-context-extraction.outputs.task_id }} --status=done
+        
+        # Check next task:
+        task-master next --tag=phase-${{ needs.task-context-extraction.outputs.phase }}
+        \`\`\`
+        EOF
+    
+    - name: Upload Synthesis
+      uses: actions/upload-artifact@v4
+      with:
+        name: vsm-task-synthesis-${{ github.run_number }}
+        path: vsm-task-synthesis.md

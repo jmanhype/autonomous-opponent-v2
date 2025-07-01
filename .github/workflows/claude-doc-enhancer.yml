@@ -1,0 +1,292 @@
+name: Claude Documentation Enhancer
+
+on:
+  # Trigger on documentation changes
+  pull_request:
+    paths: ['docs/**', '*.md', 'README.md', 'CLAUDE.md']
+  
+  # Scheduled documentation review
+  schedule:
+    - cron: '0 9 * * 1'  # Weekly on Monday at 9 AM UTC
+  
+  # Manual trigger for specific documentation requests
+  workflow_dispatch:
+    inputs:
+      enhancement_type:
+        description: 'Type of documentation enhancement needed'
+        required: true
+        type: choice
+        options:
+          - improve-clarity
+          - add-examples
+          - architecture-docs
+          - api-documentation
+          - emergence-patterns
+          - vsm-documentation
+
+jobs:
+  # Analyze documentation quality and request Claude help
+  doc-analysis:
+    name: Documentation Analysis
+    runs-on: ubuntu-latest
+    outputs:
+      needs_enhancement: ${{ steps.analyze.outputs.needs_enhancement }}
+      enhancement_areas: ${{ steps.analyze.outputs.areas }}
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Analyze Documentation Quality
+      id: analyze
+      run: |
+        echo "::notice::Analyzing documentation quality and completeness"
+        
+        # Check for common documentation issues
+        ISSUES_FOUND=false
+        AREAS=""
+        
+        # Check for missing examples
+        if grep -r "TODO.*example" docs/ *.md 2>/dev/null || grep -r "FIXME.*example" docs/ *.md 2>/dev/null; then
+          ISSUES_FOUND=true
+          AREAS="$AREAS,missing-examples"
+        fi
+        
+        # Check for incomplete sections
+        if grep -r "TBD\|TODO\|FIXME\|XXX" docs/ *.md 2>/dev/null | grep -v "TODO.md"; then
+          ISSUES_FOUND=true
+          AREAS="$AREAS,incomplete-sections"
+        fi
+        
+        # Check for outdated references
+        if grep -r "DEPRECATED\|OUTDATED" docs/ *.md 2>/dev/null; then
+          ISSUES_FOUND=true
+          AREAS="$AREAS,outdated-content"
+        fi
+        
+        # Check CLAUDE.md staleness
+        CLAUDE_AGE=$(find CLAUDE.md -mtime +30 2>/dev/null | wc -l)
+        if [ "$CLAUDE_AGE" -gt 0 ]; then
+          ISSUES_FOUND=true
+          AREAS="$AREAS,stale-claude-md"
+        fi
+        
+        echo "needs_enhancement=$ISSUES_FOUND" >> $GITHUB_OUTPUT
+        echo "areas=$AREAS" >> $GITHUB_OUTPUT
+
+  # Request Claude enhancement for PR documentation
+  claude-pr-enhancement:
+    name: Claude PR Documentation Enhancement
+    runs-on: ubuntu-latest
+    needs: doc-analysis
+    if: |
+      github.event_name == 'pull_request' && 
+      needs.doc-analysis.outputs.needs_enhancement == 'true'
+    
+    steps:
+    - name: Request Documentation Enhancement
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const areas = '${{ needs.doc-analysis.outputs.areas }}'.split(',').filter(Boolean);
+          const pr = context.payload.pull_request;
+          
+          let areasText = areas.map(area => {
+            switch(area) {
+              case 'missing-examples': return '- Add code examples where marked TODO';
+              case 'incomplete-sections': return '- Complete sections marked as TBD/TODO';
+              case 'outdated-content': return '- Update deprecated/outdated references';
+              case 'stale-claude-md': return '- Review and update CLAUDE.md with latest patterns';
+              default: return `- Address ${area}`;
+            }
+          }).join('\n');
+          
+          const comment = `@claude I've detected documentation that needs enhancement in this PR:
+
+          **Documentation Enhancement Request:**
+          ${areasText}
+          
+          Please review the changed documentation files and suggest:
+          1. Specific improvements for clarity and completeness
+          2. Additional examples where helpful
+          3. Better explanations of complex concepts
+          4. Consistency with VSM principles where applicable
+          
+          Focus on making the documentation more helpful for future developers.`;
+          
+          await github.rest.issues.createComment({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            issue_number: pr.number,
+            body: comment
+          });
+
+  # Weekly documentation review
+  weekly-doc-review:
+    name: Weekly Documentation Review
+    runs-on: ubuntu-latest
+    if: github.event_name == 'schedule'
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Create Weekly Review Issue
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const issue = await github.rest.issues.create({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            title: `Weekly Documentation Review - ${new Date().toLocaleDateString()}`,
+            body: `@claude Please perform our weekly documentation review:
+            
+            **Documentation Health Check:**
+            1. Review all README files for accuracy and completeness
+            2. Check if CLAUDE.md reflects current codebase reality
+            3. Identify any documentation drift from implementation
+            4. Suggest priority areas for documentation improvement
+            
+            **Emergence Patterns:**
+            - What documentation patterns are emerging from recent PRs?
+            - Are there repeated questions that documentation should address?
+            - What new patterns deserve documentation?
+            
+            **VSM Documentation:**
+            - Is our VSM implementation properly documented?
+            - Are the S1-S5 subsystems clearly explained?
+            - Do we need more diagrams or examples?
+            
+            **Recommendations:**
+            1. Top 3 documentation improvements needed
+            2. Any critical missing documentation
+            3. Suggestions for better knowledge preservation
+            
+            Please analyze our docs/ directory and all markdown files.`,
+            labels: ['documentation', 'weekly-review', 'claude-review']
+          });
+          
+          console.log(`Created documentation review issue #${issue.data.number}`);
+
+  # Manual enhancement requests
+  manual-enhancement:
+    name: Manual Documentation Enhancement
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch'
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Create Enhancement Issue
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const enhancementType = '${{ inputs.enhancement_type }}';
+          
+          const prompts = {
+            'improve-clarity': `Please review our documentation for clarity improvements:
+              - Simplify complex explanations
+              - Add visual aids where helpful
+              - Improve readability scores
+              - Make technical concepts more accessible`,
+            
+            'add-examples': `Please add practical examples to our documentation:
+              - Code snippets for common use cases
+              - Step-by-step tutorials
+              - Real-world scenarios
+              - Best practice examples`,
+            
+            'architecture-docs': `Please enhance our architecture documentation:
+              - Update C4 model diagrams
+              - Document design decisions
+              - Explain component interactions
+              - Add sequence diagrams for key flows`,
+            
+            'api-documentation': `Please improve our API documentation:
+              - Document all endpoints
+              - Add request/response examples
+              - Include error scenarios
+              - Provide integration guides`,
+            
+            'emergence-patterns': `Please document emergence patterns:
+              - Identify self-organizing behaviors
+              - Document unexpected beneficial patterns
+              - Explain how to cultivate emergence
+              - Add examples from our codebase`,
+            
+            'vsm-documentation': `Please enhance VSM documentation:
+              - Explain each subsystem (S1-S5) clearly
+              - Document variety engineering
+              - Add cybernetic feedback examples
+              - Include implementation guidelines`
+          };
+          
+          const issue = await github.rest.issues.create({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            title: `Documentation Enhancement Request: ${enhancementType.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}`,
+            body: `@claude We need your help with documentation enhancement:
+            
+            **Enhancement Type**: ${enhancementType}
+            
+            ${prompts[enhancementType]}
+            
+            **Deliverables:**
+            1. Specific documentation improvements
+            2. New content where needed
+            3. Updated examples and diagrams
+            4. Pull request with changes
+            
+            Please analyze our current documentation and provide comprehensive enhancements.`,
+            labels: ['documentation', 'enhancement', enhancementType]
+          });
+          
+          console.log(`Created enhancement issue #${issue.data.number}`);
+
+  # Documentation consistency check
+  consistency-check:
+    name: Documentation Consistency Check
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+    
+    - name: Check Documentation Consistency
+      id: consistency
+      run: |
+        echo "::notice::Checking documentation consistency"
+        
+        # Check if code changes have corresponding doc updates
+        CHANGED_CODE=$(git diff --name-only origin/${{ github.base_ref }}...HEAD | grep -E '\.(ex|exs)$' | wc -l)
+        CHANGED_DOCS=$(git diff --name-only origin/${{ github.base_ref }}...HEAD | grep -E '\.(md)$' | wc -l)
+        
+        if [ "$CHANGED_CODE" -gt 5 ] && [ "$CHANGED_DOCS" -eq 0 ]; then
+          echo "needs_doc_update=true" >> $GITHUB_OUTPUT
+        else
+          echo "needs_doc_update=false" >> $GITHUB_OUTPUT
+        fi
+    
+    - name: Request Documentation Update
+      if: steps.consistency.outputs.needs_doc_update == 'true'
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const pr = context.payload.pull_request;
+          
+          const comment = `@claude This PR contains significant code changes but no documentation updates.
+          
+          Please review the code changes and suggest:
+          1. What documentation needs to be updated
+          2. New documentation that should be created
+          3. Examples that should be added
+          4. Any CLAUDE.md updates needed
+          
+          Help us maintain documentation consistency with the implementation.`;
+          
+          await github.rest.issues.createComment({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            issue_number: pr.number,
+            body: comment
+          });
