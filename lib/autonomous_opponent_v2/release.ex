@@ -23,13 +23,13 @@ defmodule AutonomousOpponentV2.Release do
     # Get all configured repos from both umbrella apps
     core_repos = Application.get_env(:autonomous_opponent_core, :ecto_repos, [])
     web_repos = Application.get_env(:autonomous_opponent_web, :ecto_repos, [])
-    
+
     Enum.uniq(core_repos ++ web_repos)
   end
 
   defp load_app do
     Application.load(@app)
-    
+
     # Ensure all apps in the umbrella are loaded
     Application.load(:autonomous_opponent_core)
     Application.load(:autonomous_opponent_web)
