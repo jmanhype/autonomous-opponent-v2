@@ -119,15 +119,15 @@ jobs:
       run: mix ecto.setup
       env:
         DATABASE_URL: postgres://postgres:postgres@localhost:5432/autonomous_opponent_test
-      AUTONOMOUS_OPPONENT_V2_DATABASE_URL: postgres://postgres:postgres@localhost:5432/autonomous_opponent_test
-      AUTONOMOUS_OPPONENT_CORE_DATABASE_URL: postgres://postgres:postgres@localhost:5432/autonomous_opponent_core_test
+        AUTONOMOUS_OPPONENT_V2_DATABASE_URL: postgres://postgres:postgres@localhost:5432/autonomous_opponent_test
+        AUTONOMOUS_OPPONENT_CORE_DATABASE_URL: postgres://postgres:postgres@localhost:5432/autonomous_opponent_core_test
       
     - name: Run tests with coverage
       run: mix test --cover
       env:
         DATABASE_URL: postgres://postgres:postgres@localhost:5432/autonomous_opponent_test
-      AUTONOMOUS_OPPONENT_V2_DATABASE_URL: postgres://postgres:postgres@localhost:5432/autonomous_opponent_test
-      AUTONOMOUS_OPPONENT_CORE_DATABASE_URL: postgres://postgres:postgres@localhost:5432/autonomous_opponent_core_test
+        AUTONOMOUS_OPPONENT_V2_DATABASE_URL: postgres://postgres:postgres@localhost:5432/autonomous_opponent_test
+        AUTONOMOUS_OPPONENT_CORE_DATABASE_URL: postgres://postgres:postgres@localhost:5432/autonomous_opponent_core_test
       
     - name: Upload coverage reports
       uses: codecov/codecov-action@v3
