@@ -3,6 +3,10 @@
 # help of the Config module.
 import Config
 
+# Configure Ecto repos for the umbrella apps
+config :autonomous_opponent_core, ecto_repos: [AutonomousOpponentV2Core.Repo]
+config :autonomous_opponent_web, ecto_repos: [AutonomousOpponentV2Web.Repo]
+
 # Sample configuration:
 #
 #     config :logger, :console,

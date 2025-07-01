@@ -8,7 +8,7 @@
 import Config
 
 config :autonomous_opponent_web,
-  ecto_repos: [AutonomousOpponentV2.Repo],
+  ecto_repos: [AutonomousOpponentV2Web.Repo],
   generators: [timestamp_type: :utc_datetime_usec]
 
 # Configures the endpoint
@@ -19,7 +19,7 @@ config :autonomous_opponent_web, AutonomousOpponentV2Web.Endpoint,
     formats: [html: AutonomousOpponentV2Web.ErrorHTML, json: AutonomousOpponentV2Web.ErrorJSON],
     layout: false
   ],
-  pubsub_server: AutonomousOpponentV2.PubSub,
+  pubsub_server: AutonomousOpponentV2Web.PubSub,
   live_view: [signing_salt: "aBcDeFgH"]
 
 # Configures Elixir's Logger

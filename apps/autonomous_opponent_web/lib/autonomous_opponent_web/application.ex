@@ -9,9 +9,10 @@ defmodule AutonomousOpponentV2Web.Application do
   def start(_type, _args) do
     children = [
       # Start the Ecto repository
-      # AutonomousOpponentV2Web.Repo,
-      # Start the Telemetry supervisor
-      AutonomousOpponentV2Web.Telemetry,
+      AutonomousOpponentV2Web.Repo,
+      # Start the Telemetry reporter
+      # Uncomment when properly configured:
+      # {Telemetry.Supervisor, metrics: AutonomousOpponentV2Web.Telemetry.metrics()},
       # Start the PubSub system
       {Phoenix.PubSub, name: AutonomousOpponentV2Web.PubSub},
       # Start the Endpoint (http/https)

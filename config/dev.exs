@@ -1,16 +1,7 @@
 import Config
 
 # Configure your database
-config :autonomous_opponent_v2, AutonomousOpponent.Repo,
-  username: "postgres",
-  password: "postgres",
-  hostname: "localhost",
-  database: "autonomous_opponent_dev",
-  stacktrace: true,
-  show_sensitive_data_on_connection_error: true,
-  pool_size: 10
-
-config :autonomous_opponent_core, AutonomousOpponentCore.Repo,
+config :autonomous_opponent_core, AutonomousOpponentV2Core.Repo,
   username: "postgres",
   password: "postgres",
   hostname: "localhost",
@@ -19,9 +10,18 @@ config :autonomous_opponent_core, AutonomousOpponentCore.Repo,
   show_sensitive_data_on_connection_error: true,
   pool_size: 10
 
+config :autonomous_opponent_web, AutonomousOpponentV2Web.Repo,
+  username: "postgres",
+  password: "postgres",
+  hostname: "localhost",
+  database: "autonomous_opponent_web_dev",
+  stacktrace: true,
+  show_sensitive_data_on_connection_error: true,
+  pool_size: 10
+
 # For development, we disable any cache and enable
 # debugging and code reloading.
-config :autonomous_opponent_web, AutonomousOpponentWeb.Endpoint,
+config :autonomous_opponent_web, AutonomousOpponentV2Web.Endpoint,
   # Binding to loopback ipv4 address prevents access from other machines.
   # Change to `ip: {0, 0, 0, 0}` to allow access from other machines.
   http: [ip: {127, 0, 0, 1}, port: 4000],
@@ -32,7 +32,7 @@ config :autonomous_opponent_web, AutonomousOpponentWeb.Endpoint,
   watchers: []
 
 # Watch static and templates for browser reloading.
-config :autonomous_opponent_web, AutonomousOpponentWeb.Endpoint,
+config :autonomous_opponent_web, AutonomousOpponentV2Web.Endpoint,
   live_reload: [
     patterns: [
       ~r"priv/static/.*(js|css|png|jpeg|jpg|gif|svg)$",

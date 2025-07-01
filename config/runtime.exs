@@ -17,20 +17,20 @@ import Config
 # Alternatively, you can use `mix phx.gen.release` to generate a `bin/server`
 # script that automatically sets the env var above.
 if System.get_env("PHX_SERVER") do
-  config :autonomous_opponent_web, AutonomousOpponentWeb.Endpoint, server: true
+  config :autonomous_opponent_web, AutonomousOpponentV2Web.Endpoint, server: true
 end
 
 # Configure databases from environment variables
 if database_url =
-     System.get_env("AUTONOMOUS_OPPONENT_V2_DATABASE_URL") || System.get_env("DATABASE_URL") do
-  config :autonomous_opponent_v2, AutonomousOpponent.Repo,
+     System.get_env("AUTONOMOUS_OPPONENT_CORE_DATABASE_URL") || System.get_env("DATABASE_URL") do
+  config :autonomous_opponent_core, AutonomousOpponentV2Core.Repo,
     url: database_url,
     pool_size: String.to_integer(System.get_env("POOL_SIZE") || "10")
 end
 
 if database_url =
-     System.get_env("AUTONOMOUS_OPPONENT_CORE_DATABASE_URL") || System.get_env("DATABASE_URL") do
-  config :autonomous_opponent_core, AutonomousOpponentCore.Repo,
+     System.get_env("AUTONOMOUS_OPPONENT_WEB_DATABASE_URL") || System.get_env("DATABASE_URL") do
+  config :autonomous_opponent_web, AutonomousOpponentV2Web.Repo,
     url: database_url,
     pool_size: String.to_integer(System.get_env("POOL_SIZE") || "10")
 end
@@ -45,12 +45,12 @@ if config_env() == :prod do
 
   maybe_ipv6 = if System.get_env("ECTO_IPV6") in ~w(true 1), do: [:inet6], else: []
 
-  config :autonomous_opponent_v2, AutonomousOpponent.Repo,
+  config :autonomous_opponent_core, AutonomousOpponentV2Core.Repo,
     url: database_url,
     pool_size: String.to_integer(System.get_env("POOL_SIZE") || "10"),
     socket_options: maybe_ipv6
 
-  config :autonomous_opponent_core, AutonomousOpponentCore.Repo,
+  config :autonomous_opponent_web, AutonomousOpponentV2Web.Repo,
     url: database_url,
     pool_size: String.to_integer(System.get_env("POOL_SIZE") || "10"),
     socket_options: maybe_ipv6
@@ -70,7 +70,7 @@ if config_env() == :prod do
   host = System.get_env("PHX_HOST") || "example.com"
   port = String.to_integer(System.get_env("PORT") || "4000")
 
-  config :autonomous_opponent_web, AutonomousOpponentWeb.Endpoint,
+  config :autonomous_opponent_web, AutonomousOpponentV2Web.Endpoint,
     url: [host: host, port: 443, scheme: "https"],
     http: [
       # Enable IPv6 and bind on all interfaces.

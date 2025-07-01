@@ -6,7 +6,7 @@ import Config
 # The watchers configuration can be used to run external
 # watchers to your application. For example, we use it
 # with esbuild to bundle .js and .css sources.
-config :autonomous_opponent_v2, AutonomousOpponentV2Web.Endpoint,
+config :autonomous_opponent_web, AutonomousOpponentWeb.Endpoint,
   # Binding to loopback ipv4 address prevents access from other machines.
   # Change to `ip: {0, 0, 0, 0}` to allow access from other machines.
   http: [ip: {127, 0, 0, 1}, port: 4000],
@@ -44,7 +44,7 @@ config :autonomous_opponent_v2, AutonomousOpponentV2Web.Endpoint,
 # different ports.
 
 # Watch static and templates for browser reloading.
-config :autonomous_opponent_v2, AutonomousOpponentV2Web.Endpoint,
+config :autonomous_opponent_web, AutonomousOpponentWeb.Endpoint,
   live_reload: [
     patterns: [
       ~r"priv/static/(?!uploads/).*(js|css|png|jpeg|jpg|gif|svg)$",
@@ -54,7 +54,7 @@ config :autonomous_opponent_v2, AutonomousOpponentV2Web.Endpoint,
   ]
 
 # Enable dev routes for dashboard
-config :autonomous_opponent_v2, :dev_routes, true
+config :autonomous_opponent_web, :dev_routes, true
 
 # Do not include metadata nor timestamps in development logs
 config :logger, :console, format: "[$level] $message\n"
@@ -67,11 +67,11 @@ config :phoenix, :stacktrace_depth, 20
 config :phoenix, :plug_init_mode, :runtime
 
 # Configure your database
-config :autonomous_opponent_v2, AutonomousOpponentV2.Repo,
+config :autonomous_opponent_web, AutonomousOpponentV2Web.Repo,
   username: "postgres",
   password: "postgres",
   hostname: "localhost",
-  database: "autonomous_opponent_v2_dev",
+  database: "autonomous_opponent_web_dev",
   stacktrace: true,
   show_sensitive_data_on_connection_error: true,
   pool_size: 10
