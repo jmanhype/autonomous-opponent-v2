@@ -9,7 +9,7 @@ defmodule AutonomousOpponent.VSM.S2.DampingController do
 
   use GenServer
   require Logger
-  
+
   alias AutonomousOpponent.EventBus
   
   defstruct [

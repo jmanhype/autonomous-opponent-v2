@@ -13,11 +13,10 @@ defmodule AutonomousOpponentV2Core.Application do
       # Start the VSM Registry (must be started before VSM Supervisor)
       AutonomousOpponentV2Core.VSM.Registry,
       # Start the VSM Supervisor, which dynamically manages VSM components
-      AutonomousOpponentV2Core.VSM.Supervisor,
-      # Start the AMCP Connection Manager for RabbitMQ
-      AutonomousOpponentV2Core.AMCP.ConnectionManager,
-      # Start the AMCP Router
-      AutonomousOpponentV2Core.AMCP.Router
+      AutonomousOpponentV2Core.VSM.Supervisor
+      # AMQP temporarily disabled - uncomment when library supports OTP 27+
+      # AutonomousOpponentV2Core.AMCP.ConnectionManager,
+      # AutonomousOpponentV2Core.AMCP.Router
       # Add your core application children here
     ]
 
