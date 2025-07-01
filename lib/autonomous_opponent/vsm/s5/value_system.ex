@@ -298,8 +298,8 @@ defmodule AutonomousOpponent.VSM.S5.ValueSystem do
     if env_data[:market_conditions] do
       market = env_data.market_conditions
       pressures = Map.merge(pressures, %{
-        efficiency: if market.competition == :high, do: 0.8, else: 0.5,
-        innovation: if market.opportunities > 3, do: 0.9, else: 0.4
+        efficiency: (if market.competition == :high, do: 0.8, else: 0.5),
+        innovation: (if market.opportunities > 3, do: 0.9, else: 0.4)
       })
     end
     
