@@ -1,0 +1,76 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: postgres
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./scripts/init-db.sql:/docker-entrypoint-initdb.d/init-db.sql:ro
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      # Database URLs
+      DATABASE_URL: "postgresql://postgres:postgres@postgres:5432/autonomous_opponent_prod"
+      AUTONOMOUS_OPPONENT_CORE_DATABASE_URL: "postgresql://postgres:postgres@postgres:5432/autonomous_opponent_core_prod"
+      AUTONOMOUS_OPPONENT_V2_DATABASE_URL: "postgresql://postgres:postgres@postgres:5432/autonomous_opponent_web_prod"
+      
+      # Phoenix configuration
+      SECRET_KEY_BASE: "your-secret-key-base-at-least-64-characters-long-generate-with-mix-phx-gen-secret"
+      PHX_HOST: "localhost"
+      PORT: "4000"
+      PHX_SERVER: "true"
+      
+      # Pool configuration
+      POOL_SIZE: "10"
+      
+      # Optional: AMQP configuration (if using RabbitMQ)
+      # AMQP_ENABLED: "true"
+      # AMQP_URL: "amqp://rabbitmq:5672"
+    ports:
+      - "4000:4000"
+    command: >
+      sh -c "
+        echo 'Running database migrations...' &&
+        ./bin/migrate &&
+        echo 'Starting Phoenix server...' &&
+        ./bin/server
+      "
+    healthcheck:
+      test: ["CMD", "./bin/autonomous_opponent_v2", "eval", "AutonomousOpponentV2Web.HealthCheck.check()"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Optional: RabbitMQ service if AMQP is enabled
+  # rabbitmq:
+  #   image: rabbitmq:3-management-alpine
+  #   ports:
+  #     - "5672:5672"
+  #     - "15672:15672"
+  #   volumes:
+  #     - rabbitmq_data:/var/lib/rabbitmq
+  #   environment:
+  #     RABBITMQ_DEFAULT_USER: guest
+  #     RABBITMQ_DEFAULT_PASS: guest
+
+volumes:
+  postgres_data:
+  # rabbitmq_data:

@@ -1,0 +1,61 @@
+# Dependencies
+deps/
+_build/
+.elixir_ls/
+
+# Static artifacts
+apps/*/priv/static/assets/
+apps/*/priv/static/cache_manifest.json
+
+# Node
+node_modules/
+npm-debug.log
+
+# Testing
+cover/
+test/
+.dialyzer/
+.credo/
+
+# Development files
+.gitignore
+.git/
+.github/
+.vscode/
+.idea/
+*.iml
+.DS_Store
+Thumbs.db
+erl_crash.dump
+*.ez
+
+# Documentation
+doc/
+docs/
+README.md
+CLAUDE.md
+C4_MODEL.md
+*.md
+
+# Environment files
+.env
+.env.*
+
+# Logs
+logs/
+*.log
+
+# Temporary files
+*.tmp
+*.temp
+.tool-versions
+
+# CI/CD
+.gitlab-ci.yml
+.travis.yml
+.circleci/
+
+# Local configuration overrides
+config/*.local.exs
+config/dev.secret.exs
+config/test.secret.exs

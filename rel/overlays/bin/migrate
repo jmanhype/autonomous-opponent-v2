@@ -1,0 +1,5 @@
+#!/bin/sh
+set -eu
+
+cd -P -- "$(dirname -- "$0")"
+exec ./autonomous_opponent_v2 eval "AutonomousOpponentV2.Release.migrate()"
