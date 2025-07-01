@@ -277,7 +277,7 @@ defmodule AutonomousOpponent.VSM.S3.Control do
 
       # WISDOM: 10000 variety units/second - derived from S1 capacity
       # Must exceed environment's variety generation rate
-      variety_capacity: %{total: 10000, available: 10000, reserved: 0},
+      variety_capacity: %{total: 10_000, available: 10_000, reserved: 0},
 
       # WISDOM: 100 slots = max parallel variety streams
       # More slots = more parallelism but also more coordination overhead

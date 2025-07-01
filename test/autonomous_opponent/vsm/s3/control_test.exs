@@ -22,7 +22,7 @@ defmodule AutonomousOpponent.VSM.S3.ControlTest do
 
     test "denies allocation when insufficient resources", %{pid: pid} do
       # Request more than available
-      huge_request = %{cpu: 10000, memory: 99999}
+      huge_request = %{cpu: 10_000, memory: 99_999}
 
       assert {:error, :insufficient_resources} =
                Control.request_resources(pid, "greedy_unit", huge_request)

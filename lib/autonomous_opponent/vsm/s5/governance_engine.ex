@@ -104,7 +104,7 @@ defmodule AutonomousOpponent.VSM.S5.GovernanceEngine do
       resource_allocation: %{
         type: :resource_management,
         # 1 hour
-        duration: 3600_000,
+        duration: 3_600_000,
         # 5 minutes
         review_interval: 300_000,
         directives: [:optimize, :balance, :prioritize]
@@ -112,7 +112,7 @@ defmodule AutonomousOpponent.VSM.S5.GovernanceEngine do
       emergency_response: %{
         type: :crisis_management,
         # 30 minutes
-        duration: 1800_000,
+        duration: 1_800_000,
         # 1 minute
         review_interval: 60_000,
         directives: [:mitigate, :isolate, :recover]
@@ -122,7 +122,7 @@ defmodule AutonomousOpponent.VSM.S5.GovernanceEngine do
         # Permanent
         duration: nil,
         # 1 hour
-        review_interval: 3600_000,
+        review_interval: 3_600_000,
         directives: [:learn, :adapt, :evolve]
       }
     }
@@ -399,13 +399,13 @@ defmodule AutonomousOpponent.VSM.S5.GovernanceEngine do
   defp define_success_criteria(action, _analysis) do
     case action do
       :optimize_allocation ->
-        %{metric: :resource_efficiency, target: 0.8, timeframe: 3600_000}
+        %{metric: :resource_efficiency, target: 0.8, timeframe: 3_600_000}
 
       :activate_defenses ->
         %{metric: :threat_mitigation, target: 1.0, timeframe: 300_000}
 
       _ ->
-        %{metric: :completion, target: 1.0, timeframe: 7200_000}
+        %{metric: :completion, target: 1.0, timeframe: 7_200_000}
     end
   end
 

@@ -232,7 +232,7 @@ defmodule AutonomousOpponent.VSM.S4.ScenarioModeler do
     Enum.map(current_values, fn {var, value} ->
       trend = Map.get(trends, var, 0)
       # per hour
-      projected_value = value + trend * horizon / 3600_000
+      projected_value = value + trend * horizon / 3_600_000
 
       {var,
        %{

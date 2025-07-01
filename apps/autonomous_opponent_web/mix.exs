@@ -48,7 +48,7 @@ defmodule AutonomousOpponentV2Web.MixProject do
       {:gettext, "~> 0.20"},
       {:heroicons, "~> 0.5"},
       {:swoosh, "~> 1.5"},
-      {:floki, ">= 0.30.0", only: :test},
+      # {:floki, ">= 0.30.0", only: :test},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:dialyxir, "~> 1.4", only: [:dev], runtime: false},
       {:mix_audit, "~> 2.1", only: [:dev, :test], runtime: false},

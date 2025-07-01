@@ -771,7 +771,7 @@ defmodule AutonomousOpponent.VSM.S5.Policy do
             threat: threat,
             directives: generate_emergency_directives(threat),
             # 1 hour
-            expires_at: System.monotonic_time(:millisecond) + 3600_000
+            expires_at: System.monotonic_time(:millisecond) + 3_600_000
           }
         end
     }

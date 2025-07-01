@@ -65,7 +65,7 @@ defmodule AutonomousOpponent.VSM.S4.IntelligenceTest do
     test "generates future scenarios", %{pid: pid} do
       params = %{
         # 1 hour
-        horizon: 3600_000,
+        horizon: 3_600_000,
         count: 3
       }
 
@@ -82,7 +82,7 @@ defmodule AutonomousOpponent.VSM.S4.IntelligenceTest do
 
     test "quantifies uncertainty in scenarios", %{pid: pid} do
       # 2 hours - higher uncertainty
-      params = %{horizon: 7200_000}
+      params = %{horizon: 7_200_000}
 
       assert {:ok, scenarios} = Intelligence.model_scenarios(pid, params)
 

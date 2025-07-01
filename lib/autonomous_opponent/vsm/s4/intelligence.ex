@@ -61,7 +61,7 @@ defmodule AutonomousOpponent.VSM.S4.Intelligence do
   # WISDOM: 1 hour - the "actionable future" window
   # Tomorrow is S5's problem, next hour is S4's responsibility
   # 1 hour future modeling horizon
-  @scenario_horizon 3600_000
+  @scenario_horizon 3_600_000
 
   defstruct [
     :id,

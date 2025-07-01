@@ -123,7 +123,7 @@ defmodule AutonomousOpponent.VSMTest do
     test "gets future scenarios" do
       params = %{
         # 1 hour
-        horizon: 3600_000,
+        horizon: 3_600_000,
         count: 3
       }
 
