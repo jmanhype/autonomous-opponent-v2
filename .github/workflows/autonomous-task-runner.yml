@@ -81,6 +81,10 @@ jobs:
     - name: Create Task Branch
       id: branch
       run: |
+        # Configure git
+        git config user.name "Autonomous Task Runner"
+        git config user.email "action@github.com"
+        
         TASK_ID="${{ matrix.task.id }}"
         BRANCH_NAME="task/${TASK_ID}-autonomous"
         
@@ -201,7 +205,12 @@ jobs:
       uses: actions/github-script@v7
       with:
         script: |
-          const tasks = JSON.parse('${{ needs.find-tasks.outputs.tasks }}');
+          let tasks = [];
+          try {
+            tasks = JSON.parse(`${{ needs.find-tasks.outputs.tasks }}`);
+          } catch (e) {
+            console.log('Failed to parse tasks, using empty array');
+          }
           
           const issue = await github.rest.issues.create({
             owner: context.repo.owner,
