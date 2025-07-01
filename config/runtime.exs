@@ -24,22 +24,30 @@ end
 # This applies to all environments including test
 if database_url = System.get_env("AUTONOMOUS_OPPONENT_CORE_DATABASE_URL") do
   pool_opts = if config_env() == :test, do: [pool: Ecto.Adapters.SQL.Sandbox], else: []
-  
-  config :autonomous_opponent_core, AutonomousOpponentV2Core.Repo,
-    Keyword.merge([
-      url: database_url,
-      pool_size: String.to_integer(System.get_env("POOL_SIZE") || "10")
-    ], pool_opts)
+
+  config :autonomous_opponent_core,
+         AutonomousOpponentV2Core.Repo,
+         Keyword.merge(
+           [
+             url: database_url,
+             pool_size: String.to_integer(System.get_env("POOL_SIZE") || "10")
+           ],
+           pool_opts
+         )
 end
 
 if database_url = System.get_env("AUTONOMOUS_OPPONENT_V2_DATABASE_URL") do
   pool_opts = if config_env() == :test, do: [pool: Ecto.Adapters.SQL.Sandbox], else: []
-  
-  config :autonomous_opponent_web, AutonomousOpponentV2Web.Repo,
-    Keyword.merge([
-      url: database_url,
-      pool_size: String.to_integer(System.get_env("POOL_SIZE") || "10")
-    ], pool_opts)
+
+  config :autonomous_opponent_web,
+         AutonomousOpponentV2Web.Repo,
+         Keyword.merge(
+           [
+             url: database_url,
+             pool_size: String.to_integer(System.get_env("POOL_SIZE") || "10")
+           ],
+           pool_opts
+         )
 end
 
 if config_env() == :prod do
