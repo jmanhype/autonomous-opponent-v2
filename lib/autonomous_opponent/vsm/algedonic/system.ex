@@ -348,21 +348,23 @@ defmodule AutonomousOpponent.VSM.Algedonic.System do
   
   defp should_process_signal?(signal, filter_state) do
     # Critical signals always pass
-    return true if signal[:severity] == :critical
-    
-    # Check occurrence threshold
-    key = {signal.type, signal.source, signal.reason}
-    count = Map.get(filter_state.signal_counts, key, 0)
-    
-    # Check time-based filtering
-    if count >= @filter_threshold do
+    if signal[:severity] == :critical do
       true
     else
-      # Allow first occurrence or time-spaced occurrences
-      last_time = Map.get(filter_state.time_windows, key, 0)
-      current_time = System.monotonic_time(:millisecond)
+      # Check occurrence threshold
+      key = {signal.type, signal.source, signal.reason}
+      count = Map.get(filter_state.signal_counts, key, 0)
       
-      (current_time - last_time) > 60_000  # 1 minute spacing
+      # Check time-based filtering
+      if count >= @filter_threshold do
+        true
+      else
+        # Allow first occurrence or time-spaced occurrences
+        last_time = Map.get(filter_state.time_windows, key, 0)
+        current_time = System.monotonic_time(:millisecond)
+        
+        (current_time - last_time) > 60_000  # 1 minute spacing
+      end
     end
   end
   

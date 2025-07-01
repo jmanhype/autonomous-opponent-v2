@@ -43,7 +43,7 @@ defmodule AutonomousOpponentV2Core.MixProject do
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:dialyxir, "~> 1.4", only: [:dev], runtime: false},
       {:mix_audit, "~> 2.1", only: [:dev, :test], runtime: false},
-      {:amqp, "~> 3.0"}
+      {:amqp, "~> 3.3"}
     ]
   end
 end
