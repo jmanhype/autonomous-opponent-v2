@@ -1,0 +1,186 @@
+name: Claude OAuth Setup & Monitoring
+
+on:
+  workflow_dispatch:
+    inputs:
+      operation_type:
+        description: 'Operation type'
+        required: true
+        default: 'check'
+        type: choice
+        options:
+          - check
+          - test
+          - initial-setup
+  schedule:
+    # Daily health check (less frequent since auto-refresh handles most issues)
+    - cron: '0 12 * * *'
+
+env:
+  MAX_SUBSCRIPTION_COST: 200
+  API_MONTHLY_ESTIMATE: 60
+
+jobs:
+  oauth-health-check:
+    name: OAuth Health Check
+    runs-on: ubuntu-latest
+    if: github.event_name == 'schedule' || inputs.operation_type == 'check'
+    
+    steps:
+    - name: Check OAuth Configuration
+      run: |
+        echo "## 🔍 OAuth Configuration Check"
+        echo "Timestamp: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+        echo ""
+        
+        # Check required secrets
+        MISSING_SECRETS=""
+        
+        if [ -z "${{ secrets.CLAUDE_ACCESS_TOKEN }}" ]; then
+          MISSING_SECRETS="$MISSING_SECRETS CLAUDE_ACCESS_TOKEN"
+        fi
+        
+        if [ -z "${{ secrets.CLAUDE_REFRESH_TOKEN }}" ]; then
+          MISSING_SECRETS="$MISSING_SECRETS CLAUDE_REFRESH_TOKEN"
+        fi
+        
+        if [ -z "${{ secrets.CLAUDE_EXPIRES_AT }}" ]; then
+          MISSING_SECRETS="$MISSING_SECRETS CLAUDE_EXPIRES_AT"
+        fi
+        
+        if [ -z "${{ secrets.SECRETS_ADMIN_PAT }}" ]; then
+          MISSING_SECRETS="$MISSING_SECRETS SECRETS_ADMIN_PAT"
+        fi
+        
+        if [ -n "$MISSING_SECRETS" ]; then
+          echo "❌ Missing secrets:$MISSING_SECRETS"
+          echo "::error::OAuth configuration incomplete"
+          exit 1
+        else
+          echo "✅ All OAuth secrets configured"
+          echo "✅ Auto-refresh enabled (PAT present)"
+        fi
+        
+        # API key fallback check
+        if [ -n "${{ secrets.ANTHROPIC_API_KEY }}" ]; then
+          echo "✅ API key fallback configured"
+        else
+          echo "⚠️ No API key fallback - consider adding for redundancy"
+        fi
+
+  oauth-test:
+    name: Test OAuth Authentication
+    runs-on: ubuntu-latest
+    if: inputs.operation_type == 'test'
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Test OAuth with Claude
+      uses: grll/claude-code-action@beta
+      with:
+        use_oauth: true
+        claude_access_token: ${{ secrets.CLAUDE_ACCESS_TOKEN }}
+        claude_refresh_token: ${{ secrets.CLAUDE_REFRESH_TOKEN }}
+        claude_expires_at: ${{ secrets.CLAUDE_EXPIRES_AT }}
+        secrets_admin_pat: ${{ secrets.SECRETS_ADMIN_PAT }}
+        direct_prompt: |
+          Reply with "OAuth authentication successful! Auto-refresh is enabled." and nothing else.
+        max_turns: 1
+
+  initial-setup-guide:
+    name: Initial Setup Guide
+    runs-on: ubuntu-latest
+    if: inputs.operation_type == 'initial-setup'
+    
+    steps:
+    - name: Generate Setup Instructions
+      run: |
+        cat << 'EOF' > oauth-setup-guide.md
+        # Claude OAuth Initial Setup Guide
+        
+        ## Prerequisites
+        - Active Claude Max subscription ($200/month)
+        - GitHub repository admin access
+        
+        ## Step 1: Install Claude GitHub App
+        Visit: https://github.com/apps/claude
+        
+        ## Step 2: Create GitHub Personal Access Token (PAT)
+        1. Go to GitHub Settings → Developer settings → Personal access tokens
+        2. Generate new token (classic) with:
+           - `repo` scope (includes secrets:write)
+           - No expiration (or long expiration)
+        3. Save token value
+        
+        ## Step 3: Run Installer Script
+        ```bash
+        cd your-repo
+        bash <(curl -fsSL https://raw.githubusercontent.com/grll/claude-code-action/main/scripts/installer.sh)
+        ```
+        
+        The installer will:
+        - Guide you through OAuth setup
+        - Create necessary workflows
+        - Configure auto-refresh
+        
+        ## Step 4: Add Repository Secrets
+        
+        ### Required Secrets:
+        1. `SECRETS_ADMIN_PAT` - Your GitHub PAT from Step 2
+        2. `CLAUDE_ACCESS_TOKEN` - From OAuth setup
+        3. `CLAUDE_REFRESH_TOKEN` - From OAuth setup  
+        4. `CLAUDE_EXPIRES_AT` - From OAuth setup
+        
+        ### Optional (Fallback):
+        5. `ANTHROPIC_API_KEY` - For API fallback
+        
+        ## Step 5: Test Your Setup
+        ```bash
+        gh workflow run claude-oauth-setup.yml -f operation_type=test
+        ```
+        
+        ## That's It!
+        - Tokens will auto-refresh (no manual rotation needed)
+        - OAuth session is independent from your local Claude
+        - Use @claude in PRs/issues to activate
+        
+        ## Cost Savings
+        - Development: $0 (uses Max subscription)
+        - Production: ~$60/month (if using API fallback)
+        - Total: ~$260/month vs $460 pure API
+        EOF
+        
+        echo "::notice::Setup guide generated - see artifacts"
+    
+    - name: Upload Setup Guide
+      uses: actions/upload-artifact@v4
+      with:
+        name: oauth-setup-guide
+        path: oauth-setup-guide.md
+
+  cost-analysis:
+    name: Cost Analysis Summary
+    runs-on: ubuntu-latest
+    if: github.event_name == 'schedule' || inputs.operation_type == 'check'
+    
+    steps:
+    - name: Generate Cost Report
+      run: |
+        echo "# Claude Integration Cost Analysis"
+        echo ""
+        echo "## With OAuth Auto-Refresh"
+        echo "- Claude Max Subscription: $200/month"
+        echo "- Development CI/CD: $0 (uses subscription)"
+        echo "- Production API Usage: ~$60/month"
+        echo "- **Total: ~$260/month**"
+        echo ""
+        echo "## Without OAuth (Pure API)"
+        echo "- All Environments: ~$460/month"
+        echo ""
+        echo "## Monthly Savings: $200 (43%)"
+        echo "## Annual Savings: $2,400"
+        echo ""
+        echo "✅ OAuth auto-refresh eliminates manual token rotation"
+        echo "✅ No more 8-hour token expiration issues"
+        echo "✅ Independent CI/CD OAuth session"

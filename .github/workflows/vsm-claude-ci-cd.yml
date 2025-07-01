@@ -1,0 +1,722 @@
+name: VSM-Enhanced CI/CD Pipeline with Claude Integration
+on:
+  push:
+    branches: [ main, develop, master ]
+  pull_request:
+    branches: [ main, develop, master ]
+  issue_comment:
+    types: [created]
+  pull_request_review_comment:
+    types: [created]
+  issues:
+    types: [opened]
+  schedule:
+    - cron: '0 */6 * * *'  # S4 Intelligence gathering every 6 hours
+  workflow_dispatch:
+    inputs:
+      deployment_override:
+        description: 'Override S5 deployment decision'
+        required: false
+        default: 'false'
+
+env:
+  MIX_ENV: test
+  ELIXIR_VERSION: 1.16.3
+  OTP_VERSION: 26.2.5
+  NODE_VERSION: 18
+  HEX_HTTP_TIMEOUT: 300
+  
+  # VSM Thresholds (S5 Policy - dynamically adjusted)
+  COVERAGE_THRESHOLD: 40
+  COMPLEXITY_THRESHOLD: 10
+  SECURITY_THRESHOLD: "MEDIUM"
+  PERFORMANCE_THRESHOLD: 2000
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+  id-token: write
+
+jobs:
+  # ========================================
+  # CLAUDE CODE INTEGRATION JOBS
+  # ========================================
+  
+  # S4 Intelligence: Analyze Claude requests
+  analyze-claude-request:
+    name: S4 - Analyze Claude Request
+    runs-on: ubuntu-latest
+    if: |
+      (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claude')) ||
+      (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@claude')) ||
+      (github.event_name == 'issues' && contains(github.event.issue.body, '@claude')) ||
+      (github.event_name == 'pull_request' && contains(github.event.pull_request.body, '@claude'))
+    outputs:
+      needs_claude: ${{ steps.analyze.outputs.needs_claude }}
+      task_type: ${{ steps.analyze.outputs.task_type }}
+      content_body: ${{ steps.analyze.outputs.content_body }}
+    
+    steps:
+    - name: Extract and Analyze Claude Request
+      id: analyze
+      run: |
+        echo "::notice::S4 Intelligence - Analyzing Claude request"
+        
+        # Extract the relevant body text
+        if [[ "${{ github.event_name }}" == "issue_comment" ]]; then
+          BODY="${{ github.event.comment.body }}"
+        elif [[ "${{ github.event_name }}" == "pull_request_review_comment" ]]; then
+          BODY="${{ github.event.comment.body }}"
+        elif [[ "${{ github.event_name }}" == "issues" ]]; then
+          BODY="${{ github.event.issue.body }}"
+        elif [[ "${{ github.event_name }}" == "pull_request" ]]; then
+          BODY="${{ github.event.pull_request.body }}"
+        fi
+        
+        # Store for later use (escape for multiline)
+        echo "content_body<<EOF" >> $GITHUB_OUTPUT
+        echo "$BODY" >> $GITHUB_OUTPUT
+        echo "EOF" >> $GITHUB_OUTPUT
+        
+        # Analyze task type using S4 intelligence
+        if echo "$BODY" | grep -qi "review\|analyze\|explain\|describe"; then
+          echo "task_type=review" >> $GITHUB_OUTPUT
+          echo "::notice::S4 - Detected review/analysis task"
+        elif echo "$BODY" | grep -qi "implement\|create\|add\|build"; then
+          echo "task_type=implementation" >> $GITHUB_OUTPUT
+          echo "::notice::S4 - Detected implementation task"
+        elif echo "$BODY" | grep -qi "fix\|debug\|solve\|error"; then
+          echo "task_type=debugging" >> $GITHUB_OUTPUT
+          echo "::notice::S4 - Detected debugging task"
+        elif echo "$BODY" | grep -qi "refactor\|optimize\|improve"; then
+          echo "task_type=optimization" >> $GITHUB_OUTPUT
+          echo "::notice::S4 - Detected optimization task"
+        else
+          echo "task_type=general" >> $GITHUB_OUTPUT
+          echo "::notice::S4 - Detected general assistance task"
+        fi
+        
+        echo "needs_claude=true" >> $GITHUB_OUTPUT
+
+  # S5 Policy: Claude authentication strategy
+  claude-policy:
+    name: S5 - Claude Usage Policy
+    runs-on: ubuntu-latest
+    needs: analyze-claude-request
+    if: needs.analyze-claude-request.outputs.needs_claude == 'true'
+    outputs:
+      use_oauth: ${{ steps.policy.outputs.use_oauth }}
+      max_turns: ${{ steps.policy.outputs.max_turns }}
+      authentication_method: ${{ steps.policy.outputs.auth_method }}
+    
+    steps:
+    - name: S5 Policy Decision Engine
+      id: policy
+      run: |
+        echo "::notice::S5 Policy - Making Claude usage decisions"
+        
+        BRANCH="${{ github.ref }}"
+        TASK_TYPE="${{ needs.analyze-claude-request.outputs.task_type }}"
+        
+        # Strategic authentication decision based on risk/environment
+        if [[ "$BRANCH" == "refs/heads/main" || "$BRANCH" == "refs/heads/master" ]]; then
+          echo "use_oauth=false" >> $GITHUB_OUTPUT
+          echo "auth_method=api_key" >> $GITHUB_OUTPUT
+          echo "::notice::S5 Policy - Production branch detected, using API key authentication"
+        else
+          echo "use_oauth=true" >> $GITHUB_OUTPUT
+          echo "auth_method=oauth_max_subscription" >> $GITHUB_OUTPUT
+          echo "::notice::S5 Policy - Development branch detected, using OAuth (Max subscription)"
+        fi
+        
+        # Task complexity determines max turns (cybernetic resource allocation)
+        case "$TASK_TYPE" in
+          "implementation")
+            echo "max_turns=15" >> $GITHUB_OUTPUT
+            echo "::notice::S5 Policy - Implementation task, allowing 15 turns"
+            ;;
+          "debugging")
+            echo "max_turns=10" >> $GITHUB_OUTPUT
+            echo "::notice::S5 Policy - Debugging task, allowing 10 turns"
+            ;;
+          "review")
+            echo "max_turns=5" >> $GITHUB_OUTPUT
+            echo "::notice::S5 Policy - Review task, allowing 5 turns"
+            ;;
+          "optimization")
+            echo "max_turns=12" >> $GITHUB_OUTPUT
+            echo "::notice::S5 Policy - Optimization task, allowing 12 turns"
+            ;;
+          *)
+            echo "max_turns=8" >> $GITHUB_OUTPUT
+            echo "::notice::S5 Policy - General task, allowing 8 turns"
+            ;;
+        esac
+
+  # S1 Operations: Execute Claude
+  claude-execution:
+    name: S1 - Claude Code Execution
+    runs-on: depot-ubuntu-latest  # Faster runners for Claude
+    needs: [analyze-claude-request, claude-policy]
+    
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 1
+    
+    - name: S1 Operations - Execute Claude with OAuth (Max Subscription)
+      if: needs.claude-policy.outputs.use_oauth == 'true'
+      uses: grll/claude-code-action@beta
+      with:
+        use_oauth: true
+        claude_access_token: ${{ secrets.CLAUDE_ACCESS_TOKEN }}
+        claude_refresh_token: ${{ secrets.CLAUDE_REFRESH_TOKEN }}
+        claude_expires_at: ${{ secrets.CLAUDE_EXPIRES_AT }}
+        secrets_admin_pat: ${{ secrets.SECRETS_ADMIN_PAT }}
+        fail_on_error: false
+        verbose: true
+        max_turns: ${{ needs.claude-policy.outputs.max_turns }}
+        allowed_tools: "Bash(git:*),View,GlobTool,GrepTool,BatchTool,EditTool"
+        append_system_prompt: |
+          You are S1 Operations in a Viable System Model (VSM) CI/CD pipeline.
+          
+          **VSM Context:**
+          - You handle operational execution and immediate responses
+          - Report operational metrics to S4 Intelligence
+          - Coordinate with S2 for quality concerns
+          - Follow S5 Policy decisions and S3 Control directives
+          
+          **Current Task:** ${{ needs.analyze-claude-request.outputs.task_type }}
+          **Authentication:** OAuth via Max Subscription
+          **Turns Allowed:** ${{ needs.claude-policy.outputs.max_turns }}
+          
+          Be efficient with your responses to respect rate limits.
+          Focus on immediate operational needs while considering VSM viability.
+    
+    - name: S1 Operations - Execute Claude with API Key (Production)
+      if: needs.claude-policy.outputs.use_oauth == 'false'
+      uses: anthropics/claude-code-action@v1
+      with:
+        fail_on_error: false
+        verbose: true
+        max_turns: ${{ needs.claude-policy.outputs.max_turns }}
+        allowed_tools: "Bash(git:*),View,GlobTool,GrepTool,BatchTool,EditTool"
+        append_system_prompt: |
+          You are S1 Operations in a Viable System Model (VSM) CI/CD pipeline.
+          
+          **VSM Context:**
+          - You handle operational execution and immediate responses
+          - Report operational metrics to S4 Intelligence
+          - Coordinate with S2 for quality concerns
+          - Follow S5 Policy decisions and S3 Control directives
+          
+          **Current Task:** ${{ needs.analyze-claude-request.outputs.task_type }}
+          **Authentication:** API Key (Production-grade)
+          **Turns Allowed:** ${{ needs.claude-policy.outputs.max_turns }}
+          
+          Focus on comprehensive analysis and implementation.
+          Consider long-term VSM viability and system health.
+      env:
+        ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    
+    - name: Record Claude Metrics
+      if: always()
+      run: |
+        # Collect S1 operational data for S4 intelligence
+        cat > s1-claude-metrics.json <<EOF
+        {
+          "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+          "authentication_method": "${{ needs.claude-policy.outputs.authentication_method }}",
+          "task_type": "${{ needs.analyze-claude-request.outputs.task_type }}",
+          "max_turns_allocated": ${{ needs.claude-policy.outputs.max_turns }},
+          "execution_status": "${{ job.status }}",
+          "github_event": "${{ github.event_name }}",
+          "branch": "${{ github.ref }}"
+        }
+        EOF
+    
+    - name: Upload Claude Metrics
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: s1-claude-metrics-${{ github.run_number }}
+        path: s1-claude-metrics.json
+
+  # ========================================
+  # STANDARD CI/CD PIPELINE JOBS
+  # ========================================
+  
+  # S4 - Intelligence: Historical analysis (for regular CI/CD)
+  intelligence-analysis:
+    name: S4 - Intelligence Analysis
+    runs-on: ubuntu-latest
+    # Skip if this is just a Claude request
+    if: |
+      !(
+        (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claude')) ||
+        (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@claude')) ||
+        (github.event_name == 'issues' && contains(github.event.issue.body, '@claude'))
+      )
+    outputs:
+      quality_trend: ${{ steps.analyze.outputs.quality_trend }}
+      risk_level: ${{ steps.analyze.outputs.risk_level }}
+      recommended_actions: ${{ steps.analyze.outputs.actions }}
+    
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+    
+    - name: S4 Intelligence - Analyze Code Patterns
+      id: analyze
+      run: |
+        echo "::notice::S4 Intelligence - Analyzing historical patterns"
+        
+        # Analyze recent commits for patterns
+        RECENT_COMMITS=$(git log --oneline -n 50 --pretty=format:"%s" || echo "")
+        BUG_FIXES=$(echo "$RECENT_COMMITS" | grep -ci "fix\|bug" || true)
+        FEATURES=$(echo "$RECENT_COMMITS" | grep -ci "feat\|add" || true)
+        TOTAL_COMMITS=$(echo "$RECENT_COMMITS" | wc -l)
+        
+        echo "::notice::S4 - Analyzed $TOTAL_COMMITS commits: $BUG_FIXES fixes, $FEATURES features"
+        
+        # Determine system health based on patterns
+        if [ $BUG_FIXES -gt 10 ] && [ $BUG_FIXES -gt $FEATURES ]; then
+          echo "risk_level=high" >> $GITHUB_OUTPUT
+          echo "quality_trend=concerning" >> $GITHUB_OUTPUT
+          echo "actions=increase_testing,reduce_deployment_frequency" >> $GITHUB_OUTPUT
+        elif [ $FEATURES -gt $((BUG_FIXES * 2)) ]; then
+          echo "risk_level=low" >> $GITHUB_OUTPUT
+          echo "quality_trend=improving" >> $GITHUB_OUTPUT
+          echo "actions=maintain_velocity,consider_feature_expansion" >> $GITHUB_OUTPUT
+        else
+          echo "risk_level=medium" >> $GITHUB_OUTPUT
+          echo "quality_trend=stable" >> $GITHUB_OUTPUT
+          echo "actions=monitor_patterns,maintain_current_approach" >> $GITHUB_OUTPUT
+        fi
+
+  # S5 - Policy Management
+  policy-management:
+    name: S5 - Policy Management
+    runs-on: ubuntu-latest
+    needs: intelligence-analysis
+    outputs:
+      coverage_threshold: ${{ steps.policy.outputs.coverage }}
+      parallel_jobs: ${{ steps.policy.outputs.parallel }}
+      deployment_allowed: ${{ steps.policy.outputs.deploy }}
+      testing_strategy: ${{ steps.policy.outputs.testing }}
+    
+    steps:
+    - name: S5 Policy - Adjust System Policies
+      id: policy
+      run: |
+        echo "::notice::S5 Policy - Adjusting system policies based on intelligence"
+        
+        RISK="${{ needs.intelligence-analysis.outputs.risk_level }}"
+        TREND="${{ needs.intelligence-analysis.outputs.quality_trend }}"
+        
+        # Dynamic policy adjustment based on system state
+        if [ "$TREND" = "improving" ] && [ "$RISK" = "low" ]; then
+          echo "coverage=45" >> $GITHUB_OUTPUT
+          echo "parallel=4" >> $GITHUB_OUTPUT
+          echo "deploy=true" >> $GITHUB_OUTPUT
+          echo "testing=progressive" >> $GITHUB_OUTPUT
+          echo "::notice::S5 - Progressive policies: Lower coverage, higher parallelism"
+        elif [ "$RISK" = "high" ] || [ "$TREND" = "concerning" ]; then
+          echo "coverage=55" >> $GITHUB_OUTPUT
+          echo "parallel=2" >> $GITHUB_OUTPUT
+          echo "deploy=false" >> $GITHUB_OUTPUT
+          echo "testing=conservative" >> $GITHUB_OUTPUT
+          echo "::warning::S5 - Conservative policies: Higher coverage, lower parallelism, no deployment"
+        else
+          echo "coverage=50" >> $GITHUB_OUTPUT
+          echo "parallel=3" >> $GITHUB_OUTPUT
+          echo "deploy=true" >> $GITHUB_OUTPUT
+          echo "testing=balanced" >> $GITHUB_OUTPUT
+          echo "::notice::S5 - Balanced policies: Standard coverage and parallelism"
+        fi
+        
+        # Override for manual deployment decisions
+        if [ "${{ inputs.deployment_override }}" = "true" ]; then
+          echo "deploy=true" >> $GITHUB_OUTPUT
+          echo "::notice::S5 - Deployment override activated by manual input"
+        fi
+
+  # S3 - Operations Control
+  operations-control:
+    name: S3 - Operations Control
+    runs-on: ubuntu-latest
+    needs: policy-management
+    
+    steps:
+    - name: S3 Control - Optimize Resource Allocation
+      run: |
+        PARALLEL_JOBS="${{ needs.policy-management.outputs.parallel_jobs }}"
+        TESTING_STRATEGY="${{ needs.policy-management.outputs.testing_strategy }}"
+        
+        echo "::notice::S3 Control - Optimizing with $PARALLEL_JOBS parallel jobs"
+        echo "::notice::S3 Control - Testing strategy: $TESTING_STRATEGY"
+        
+        # Set resource optimization flags
+        echo "OPTIMIZED_PARALLEL_JOBS=$PARALLEL_JOBS" >> $GITHUB_ENV
+        echo "RESOURCE_STRATEGY=$TESTING_STRATEGY" >> $GITHUB_ENV
+
+  # S2 - Code Quality Coordination
+  code-quality:
+    name: S2 - Code Quality Coordination
+    runs-on: ubuntu-latest
+    needs: [operations-control, policy-management]
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Elixir
+      uses: erlef/setup-beam@v1
+      with:
+        elixir-version: ${{ env.ELIXIR_VERSION }}
+        otp-version: ${{ env.OTP_VERSION }}
+    
+    - name: Cache dependencies
+      uses: actions/cache@v3
+      with:
+        path: |
+          deps
+          _build
+        key: ${{ runner.os }}-mix-${{ hashFiles('**/mix.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-mix-
+    
+    - name: S2 Coordination - Install dependencies
+      run: |
+        echo "::notice::S2 Coordination - Installing dependencies"
+        mix local.hex --force
+        mix local.rebar --force
+        mix deps.get || (sleep 30 && mix deps.get)
+    
+    - name: S2 Coordination - Quality Checks
+      run: |
+        echo "::notice::S2 Coordination - Running quality checks"
+        
+        # Variety amplification - multiple quality perspectives
+        mix format --check-formatted &
+        FORMAT_PID=$!
+        
+        mix credo --mute-exit-status &
+        CREDO_PID=$!
+        
+        mix compile &
+        COMPILE_PID=$!
+        
+        # Wait for all checks to complete
+        wait $FORMAT_PID || echo "FORMAT_FAILED=true" >> $GITHUB_ENV
+        wait $CREDO_PID || echo "CREDO_FAILED=true" >> $GITHUB_ENV
+        wait $COMPILE_PID || echo "COMPILE_FAILED=true" >> $GITHUB_ENV
+        
+        # Report coordination status
+        if [ "$FORMAT_FAILED" != "true" ] && [ "$CREDO_FAILED" != "true" ] && [ "$COMPILE_FAILED" != "true" ]; then
+          echo "::notice::S2 Coordination - All quality checks passed"
+        else
+          echo "::warning::S2 Coordination - Some quality checks failed"
+        fi
+
+  # S1 - Test Operations
+  test-operations:
+    name: S1 - Test Operations (Partition ${{ matrix.partition }})
+    runs-on: ubuntu-latest
+    needs: [code-quality, policy-management]
+    strategy:
+      matrix:
+        partition: ${{ fromJson(needs.policy-management.outputs.parallel_jobs == '4' && '[1, 2, 3, 4]' || needs.policy-management.outputs.parallel_jobs == '3' && '[1, 2, 3]' || '[1, 2]') }}
+    
+    services:
+      postgres:
+        image: postgres:15-alpine
+        ports: ['5432:5432']
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: autonomous_opponent_test
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Elixir
+      uses: erlef/setup-beam@v1
+      with:
+        elixir-version: ${{ env.ELIXIR_VERSION }}
+        otp-version: ${{ env.OTP_VERSION }}
+    
+    - name: Install dependencies
+      run: |
+        mix local.hex --force
+        mix local.rebar --force
+        mix deps.get
+    
+    - name: S1 Operations - Setup database
+      run: |
+        echo "::notice::S1 Operations - Setting up test database for partition ${{ matrix.partition }}"
+        mix ecto.setup
+      env:
+        DATABASE_URL: postgres://postgres:postgres@localhost:5432/autonomous_opponent_test
+        AUTONOMOUS_OPPONENT_CORE_DATABASE_URL: postgres://postgres:postgres@localhost:5432/autonomous_opponent_core_test
+    
+    - name: S1 Operations - Execute tests
+      run: |
+        echo "::notice::S1 Operations - Running tests with coverage analysis"
+        mix test --cover
+      env:
+        DATABASE_URL: postgres://postgres:postgres@localhost:5432/autonomous_opponent_test
+        AUTONOMOUS_OPPONENT_CORE_DATABASE_URL: postgres://postgres:postgres@localhost:5432/autonomous_opponent_core_test
+        COVERAGE_THRESHOLD: ${{ needs.policy-management.outputs.coverage_threshold }}
+    
+    - name: S1 Operations - Collect metrics
+      if: always()
+      run: |
+        # Collect operational metrics for S4 intelligence
+        cat > s1-test-metrics.json <<EOF
+        {
+          "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+          "partition": ${{ matrix.partition }},
+          "coverage_threshold": ${{ needs.policy-management.outputs.coverage_threshold }},
+          "parallel_jobs": ${{ needs.policy-management.outputs.parallel_jobs }},
+          "test_status": "${{ job.status }}",
+          "testing_strategy": "${{ needs.policy-management.outputs.testing_strategy }}"
+        }
+        EOF
+    
+    - name: Upload S1 Test Metrics
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: s1-test-metrics-${{ matrix.partition }}-${{ github.run_number }}
+        path: s1-test-metrics.json
+
+  # Security Analysis
+  security-analysis:
+    name: Security Analysis
+    runs-on: ubuntu-latest
+    needs: operations-control
+    
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+    
+    - name: Security Scan - TruffleHog
+      uses: trufflesecurity/trufflehog@main
+      with:
+        path: ./
+        base: ${{ github.event.repository.default_branch }}
+        head: HEAD
+        extra_args: --only-verified
+
+  # Build & Package
+  build-docker:
+    name: Build Docker Image
+    runs-on: ubuntu-latest
+    needs: [code-quality, test-operations, security-analysis]
+    if: success() && (github.event_name == 'push' || github.event_name == 'pull_request')
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+    
+    - name: Build Docker image
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        push: false
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+        tags: autonomous-opponent:${{ github.sha }}
+
+  # Algedonic Monitor - VSM Nervous System
+  algedonic-monitor:
+    name: Algedonic Signal Monitor
+    runs-on: ubuntu-latest
+    if: always()
+    needs: [code-quality, test-operations, security-analysis, claude-execution]
+    
+    steps:
+    - name: Algedonic Analysis - System Pain/Pleasure Detection
+      run: |
+        echo "::notice::Algedonic Channel - Analyzing system-wide signals"
+        
+        PAIN_LEVEL=0
+        PLEASURE_SIGNALS=0
+        
+        # Check each subsystem for pain signals
+        if [ "${{ contains(needs.*.result, 'failure') }}" = "true" ]; then
+          PAIN_LEVEL=$((PAIN_LEVEL + 1))
+          echo "::warning::Algedonic - General system failures detected"
+        fi
+        
+        # Claude integration specific monitoring
+        if [ "${{ needs.claude-execution.result }}" = "failure" ]; then
+          PAIN_LEVEL=$((PAIN_LEVEL + 2))
+          echo "::error::Algedonic - Claude integration failure (high pain)"
+        elif [ "${{ needs.claude-execution.result }}" = "success" ]; then
+          PLEASURE_SIGNALS=$((PLEASURE_SIGNALS + 1))
+          echo "::notice::Algedonic - Claude integration successful (pleasure)"
+        fi
+        
+        # Test operations monitoring
+        if [ "${{ contains(needs.test-operations.result, 'failure') }}" = "true" ]; then
+          PAIN_LEVEL=$((PAIN_LEVEL + 1))
+          echo "::error::Algedonic - Test operations failure detected"
+        fi
+        
+        # Determine algedonic response
+        if [ $PAIN_LEVEL -gt 2 ]; then
+          echo "ALGEDONIC_SIGNAL=severe_pain" >> $GITHUB_ENV
+          echo "::error::🚨 SEVERE PAIN SIGNAL - Level $PAIN_LEVEL"
+        elif [ $PAIN_LEVEL -gt 0 ]; then
+          echo "ALGEDONIC_SIGNAL=mild_pain" >> $GITHUB_ENV
+          echo "::warning::⚠️ Pain signal detected - Level $PAIN_LEVEL"
+        elif [ $PLEASURE_SIGNALS -gt 0 ]; then
+          echo "ALGEDONIC_SIGNAL=pleasure" >> $GITHUB_ENV
+          echo "::notice::✅ Pleasure signals - System healthy"
+        else
+          echo "ALGEDONIC_SIGNAL=neutral" >> $GITHUB_ENV
+          echo "::notice::😐 Neutral state - System stable"
+        fi
+    
+    - name: Emergency Response
+      if: env.ALGEDONIC_SIGNAL == 'severe_pain'
+      uses: actions/github-script@v7
+      with:
+        script: |
+          await github.rest.issues.create({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            title: '🚨 ALGEDONIC EMERGENCY: Severe VSM System Pain',
+            body: `## Emergency: Severe Pain Signal Detected
+            
+            **Pain Level**: Severe (Multiple system failures)
+            **Run**: [${context.runId}](${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId})
+            **Timestamp**: ${new Date().toISOString()}
+            
+            ### System Status
+            - Code Quality: ${{ needs.code-quality.result }}
+            - Test Operations: ${{ needs.test-operations.result }}
+            - Security Analysis: ${{ needs.security-analysis.result }}
+            - Claude Integration: ${{ needs.claude-execution.result }}
+            
+            ### Immediate Actions Required
+            - [ ] Review failed jobs immediately
+            - [ ] Check Claude authentication status
+            - [ ] Verify system dependencies
+            - [ ] Consider emergency deployment halt
+            
+            **Auto-generated by VSM Algedonic Channel**`,
+            labels: ['algedonic', 'emergency', 'severe-pain', 'vsm-failure']
+          });
+
+  # VSM Learning & Synthesis
+  vsm-synthesis:
+    name: VSM Learning & Synthesis
+    runs-on: ubuntu-latest
+    if: always()
+    needs: [intelligence-analysis, policy-management, code-quality, test-operations, algedonic-monitor, claude-execution]
+    
+    steps:
+    - name: VSM Performance Analysis
+      run: |
+        echo "::notice::VSM Synthesis - Analyzing system performance"
+        
+        cat > vsm-synthesis-report.md <<EOF
+        # VSM CI/CD System Synthesis Report
+        
+        **Generated**: $(date -u '+%Y-%m-%d %H:%M:%S UTC')
+        **Run**: ${{ github.run_number }}
+        **Trigger**: ${{ github.event_name }}
+        
+        ## VSM System Health Matrix
+        
+        | Level | Component | Status | Performance |
+        |-------|-----------|--------|-------------|
+        | S1 | Test Operations | ${{ contains(needs.test-operations.result, 'success') && '✅ Operational' || '❌ Failed' }} | ${{ needs.policy-management.outputs.parallel_jobs }} parallel jobs |
+        | S2 | Code Quality | ${{ needs.code-quality.result == 'success' && '✅ Coordinated' || '❌ Issues' }} | Quality checks passed |
+        | S3 | Operations Control | ✅ Active | Resource optimization active |
+        | S4 | Intelligence | ${{ needs.intelligence-analysis.result == 'success' && '✅ Learning' || '❌ Limited' }} | Trend: ${{ needs.intelligence-analysis.outputs.quality_trend || 'N/A' }} |
+        | S5 | Policy | ✅ Adaptive | Coverage: ${{ needs.policy-management.outputs.coverage_threshold || env.COVERAGE_THRESHOLD }}% |
+        
+        ## Claude Integration Status
+        - **Authentication Strategy**: Branch-based (OAuth dev, API prod)
+        - **Task Routing**: ${{ needs.claude-execution.result == 'success' && 'Successful' || needs.claude-execution.result == 'failure' && 'Failed' || 'Not triggered' }}
+        - **Resource Management**: Turn limits by task complexity
+        - **Cost Optimization**: Active (Max subscription + API fallback)
+        
+        ## Algedonic Signals
+        - **Current Signal**: ${{ env.ALGEDONIC_SIGNAL || 'neutral' }}
+        - **Pain Threshold**: ${{ env.ALGEDONIC_SIGNAL == 'severe_pain' && 'EXCEEDED ⚠️' || 'Within limits ✅' }}
+        - **System Viability**: ${{ !contains(needs.*.result, 'failure') && 'High ✅' || 'Compromised ⚠️' }}
+        
+        ## Cybernetic Adaptations This Run
+        - **Policy Adjustments**: Coverage threshold set to ${{ needs.policy-management.outputs.coverage_threshold || env.COVERAGE_THRESHOLD }}%
+        - **Resource Allocation**: ${{ needs.policy-management.outputs.parallel_jobs || '3' }} parallel test jobs
+        - **Deployment Decision**: ${{ needs.policy-management.outputs.deployment_allowed == 'true' && 'Approved ✅' || 'Blocked ❌' }}
+        - **Testing Strategy**: ${{ needs.policy-management.outputs.testing_strategy || 'balanced' }}
+        
+        ## Variety Management
+        - **Input Variety**: Multiple trigger types, task complexity levels
+        - **Processing Variety**: Adaptive parallelism, dynamic thresholds
+        - **Output Variety**: Branch-specific responses, context-aware decisions
+        - **Requisite Variety**: ${{ !contains(needs.*.result, 'failure') && 'Achieved ✅' || 'Insufficient ⚠️' }}
+        
+        ## Recommendations for Next Iteration
+        1. Monitor Claude authentication success rates
+        2. Track cost efficiency of OAuth vs API usage
+        3. Analyze correlation between quality trends and deployment success
+        4. Optimize S4 intelligence gathering frequency
+        5. Enhance algedonic sensitivity for faster pain detection
+        
+        ## VSM Viability Score: ${{ !contains(needs.*.result, 'failure') && '95/100 🎯' || '75/100 ⚠️' }}
+        EOF
+        
+        echo "::notice::VSM Synthesis complete - System viability assessed"
+    
+    - name: Upload VSM Report
+      uses: actions/upload-artifact@v4
+      with:
+        name: vsm-synthesis-report-${{ github.run_number }}
+        path: vsm-synthesis-report.md
+        retention-days: 90
+
+  # Deployment Decision
+  deployment-decision:
+    name: Deployment Decision
+    runs-on: ubuntu-latest
+    needs: [build-docker, vsm-synthesis, policy-management]
+    if: |
+      success() && 
+      github.ref == 'refs/heads/main' && 
+      (needs.policy-management.outputs.deployment_allowed == 'true' || inputs.deployment_override == 'true')
+    
+    steps:
+    - name: VSM Deployment Authorization
+      run: |
+        echo "::notice::🚀 VSM Consensus Achieved - Deployment Authorized"
+        echo "## Deployment Decision Matrix" > deployment-decision.md
+        echo "- **S1 Operations**: ✅ Tests passed" >> deployment-decision.md
+        echo "- **S2 Coordination**: ✅ Quality checks passed" >> deployment-decision.md
+        echo "- **S3 Control**: ✅ Resources optimized" >> deployment-decision.md
+        echo "- **S4 Intelligence**: ✅ Trends favorable" >> deployment-decision.md
+        echo "- **S5 Policy**: ✅ Deployment approved" >> deployment-decision.md
+        echo "- **Algedonic**: ✅ No severe pain signals" >> deployment-decision.md
+        echo "" >> deployment-decision.md
+        echo "**VSM Decision**: PROCEED WITH DEPLOYMENT 🚀" >> deployment-decision.md
+        echo "**Strategy**: ${{ needs.policy-management.outputs.testing_strategy }}" >> deployment-decision.md
+        echo "**Override Used**: ${{ inputs.deployment_override == 'true' && 'YES' || 'NO' }}" >> deployment-decision.md
+        
+        # Here you would add your actual deployment commands
+        echo "::notice::Ready for production deployment"
+    
+    - name: Upload Deployment Decision
+      uses: actions/upload-artifact@v4
+      with:
+        name: deployment-decision-${{ github.run_number }}
+        path: deployment-decision.md

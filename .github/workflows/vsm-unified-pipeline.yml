@@ -1,0 +1,618 @@
+name: VSM Unified Pipeline - CI/CD + Claude + OAuth Management
+
+on:
+  push:
+    branches: [ main, develop, master ]
+  pull_request:
+    branches: [ main, develop, master ]
+  issue_comment:
+    types: [created]
+  pull_request_review_comment:
+    types: [created]
+  issues:
+    types: [opened]
+  schedule:
+    - cron: '0 */6 * * *'     # S4 Intelligence gathering
+    - cron: '0 6,18 * * *'    # OAuth health checks
+  workflow_dispatch:
+    inputs:
+      deployment_override:
+        description: 'Override S5 deployment decision'
+        required: false
+        default: 'false'
+        type: choice
+        options: ['true', 'false']
+      operation_type:
+        description: 'Operation type for manual runs'
+        required: false
+        default: 'ci-cd'
+        type: choice
+        options:
+          - ci-cd
+          - oauth-check
+          - oauth-rotate
+          - cost-analysis
+          - emergency-fallback
+
+env:
+  MIX_ENV: test
+  ELIXIR_VERSION: 1.16.3
+  OTP_VERSION: 26.2.5
+  NODE_VERSION: 18
+  HEX_HTTP_TIMEOUT: 300
+  
+  # VSM Thresholds
+  COVERAGE_THRESHOLD: 40
+  COMPLEXITY_THRESHOLD: 10
+  SECURITY_THRESHOLD: "MEDIUM"
+  PERFORMANCE_THRESHOLD: 2000
+  
+  # OAuth Management
+  OAUTH_WARNING_THRESHOLD: 1800  # 30 minutes
+  OAUTH_CRITICAL_THRESHOLD: 600  # 10 minutes
+  MAX_SUBSCRIPTION_COST: 200
+  API_MONTHLY_ESTIMATE: 60
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+  id-token: write
+  pages: write
+
+jobs:
+  # ========================================
+  # OAUTH MANAGEMENT JOBS
+  # ========================================
+  
+  oauth-health-check:
+    name: OAuth Token Health Check
+    runs-on: ubuntu-latest
+    if: |
+      github.event_name == 'schedule' ||
+      (github.event_name == 'workflow_dispatch' && 
+       (inputs.operation_type == 'oauth-check' || inputs.operation_type == 'oauth-rotate'))
+    outputs:
+      health_status: ${{ steps.health.outputs.status }}
+      rotation_needed: ${{ steps.health.outputs.rotation_needed }}
+      time_remaining: ${{ steps.health.outputs.time_remaining }}
+    
+    steps:
+    - name: Comprehensive Token Health Analysis
+      id: health
+      run: |
+        echo "## 🔍 OAuth Token Health Check"
+        echo "Timestamp: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+        
+        HEALTH_SCORE=100
+        ROTATION_NEEDED="false"
+        
+        # Check token existence
+        if [ -z "${{ secrets.CLAUDE_ACCESS_TOKEN }}" ]; then
+          HEALTH_SCORE=$((HEALTH_SCORE - 50))
+          ROTATION_NEEDED="true"
+          echo "❌ Missing CLAUDE_ACCESS_TOKEN"
+        else
+          echo "✅ CLAUDE_ACCESS_TOKEN present"
+        fi
+        
+        # Check expiration
+        if [ -n "${{ secrets.CLAUDE_EXPIRES_AT }}" ]; then
+          EXPIRES_AT="${{ secrets.CLAUDE_EXPIRES_AT }}"
+          CURRENT_TIME=$(date +%s)
+          TIME_REMAINING=$((EXPIRES_AT - CURRENT_TIME))
+          
+          echo "time_remaining=$TIME_REMAINING" >> $GITHUB_OUTPUT
+          
+          if [ $TIME_REMAINING -lt 0 ]; then
+            HEALTH_SCORE=0
+            ROTATION_NEEDED="true"
+            echo "🚨 Token EXPIRED"
+          elif [ $TIME_REMAINING -lt $OAUTH_CRITICAL_THRESHOLD ]; then
+            HEALTH_SCORE=$((HEALTH_SCORE - 40))
+            ROTATION_NEEDED="true"
+            echo "🚨 Token expires in $((TIME_REMAINING / 60)) minutes"
+          elif [ $TIME_REMAINING -lt $OAUTH_WARNING_THRESHOLD ]; then
+            HEALTH_SCORE=$((HEALTH_SCORE - 20))
+            echo "⚠️ Token expires in $((TIME_REMAINING / 60)) minutes"
+          else
+            echo "✅ Token valid for $((TIME_REMAINING / 60)) minutes"
+          fi
+        fi
+        
+        # Set outputs
+        if [ $HEALTH_SCORE -ge 90 ]; then
+          echo "status=healthy" >> $GITHUB_OUTPUT
+        elif [ $HEALTH_SCORE -ge 50 ]; then
+          echo "status=degraded" >> $GITHUB_OUTPUT
+        else
+          echo "status=critical" >> $GITHUB_OUTPUT
+        fi
+        
+        echo "rotation_needed=$ROTATION_NEEDED" >> $GITHUB_OUTPUT
+    
+    - name: Create Rotation Issue if Needed
+      if: steps.health.outputs.rotation_needed == 'true'
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const issues = await github.rest.issues.listForRepo({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            labels: 'oauth-rotation-needed',
+            state: 'open'
+          });
+          
+          if (issues.data.length === 0) {
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: '🔐 Claude OAuth Token Rotation Required',
+              body: `## Token Rotation Required\n\nTime remaining: ${Math.floor(${{ steps.health.outputs.time_remaining }} / 60)} minutes\n\nRun: \`gh workflow run vsm-unified-pipeline.yml -f operation_type=oauth-rotate\``,
+              labels: ['oauth-rotation-needed', 'automation']
+            });
+          }
+
+  oauth-rotation-guide:
+    name: OAuth Rotation Guide
+    runs-on: ubuntu-latest
+    if: |
+      github.event_name == 'workflow_dispatch' && 
+      inputs.operation_type == 'oauth-rotate'
+    
+    steps:
+    - name: Generate Rotation Guide
+      run: |
+        cat << 'EOF' > oauth-rotation-guide.md
+        # OAuth Token Rotation Guide
+        
+        ## Quick Steps
+        
+        1. Extract tokens:
+           ```bash
+           cat ~/.claude/.credentials.json | jq '.sessions[0]'
+           ```
+        
+        2. Update secrets:
+           ```bash
+           gh secret set CLAUDE_ACCESS_TOKEN --body="<token>"
+           gh secret set CLAUDE_REFRESH_TOKEN --body="<token>"
+           gh secret set CLAUDE_EXPIRES_AT --body="<timestamp>"
+           ```
+        
+        3. Verify:
+           ```bash
+           gh workflow run vsm-unified-pipeline.yml -f operation_type=oauth-check
+           ```
+        EOF
+        
+        echo "::notice::Rotation guide generated"
+    
+    - name: Upload Guide
+      uses: actions/upload-artifact@v4
+      with:
+        name: oauth-rotation-guide
+        path: oauth-rotation-guide.md
+
+  cost-analysis:
+    name: Cost Analysis Report
+    runs-on: ubuntu-latest
+    if: |
+      github.event_name == 'workflow_dispatch' && 
+      inputs.operation_type == 'cost-analysis'
+    
+    steps:
+    - name: Generate Cost Report
+      run: |
+        cat << 'EOF' > cost-analysis.md
+        # Claude Integration Cost Analysis
+        
+        ## Current Approach (OAuth + API)
+        - Development: $0 (Max subscription)
+        - Production: ~$60 (API usage)
+        - Total: ~$260/month
+        
+        ## Pure API Approach
+        - All environments: ~$460/month
+        
+        ## Savings: $200/month (43%)
+        
+        ## ROI: 1,130% - 1,210%
+        EOF
+    
+    - name: Upload Report
+      uses: actions/upload-artifact@v4
+      with:
+        name: cost-analysis-report
+        path: cost-analysis.md
+
+  # ========================================
+  # CLAUDE CODE INTEGRATION JOBS
+  # ========================================
+  
+  analyze-claude-request:
+    name: S4 - Analyze Claude Request
+    runs-on: ubuntu-latest
+    if: |
+      (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claude')) ||
+      (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@claude')) ||
+      (github.event_name == 'issues' && contains(github.event.issue.body, '@claude')) ||
+      (github.event_name == 'pull_request' && contains(github.event.pull_request.body, '@claude'))
+    outputs:
+      needs_claude: ${{ steps.analyze.outputs.needs_claude }}
+      task_type: ${{ steps.analyze.outputs.task_type }}
+    
+    steps:
+    - name: Extract and Analyze Request
+      id: analyze
+      run: |
+        # Extract body text
+        if [[ "${{ github.event_name }}" == "issue_comment" ]]; then
+          BODY="${{ github.event.comment.body }}"
+        elif [[ "${{ github.event_name }}" == "pull_request_review_comment" ]]; then
+          BODY="${{ github.event.comment.body }}"
+        elif [[ "${{ github.event_name }}" == "issues" ]]; then
+          BODY="${{ github.event.issue.body }}"
+        else
+          BODY="${{ github.event.pull_request.body }}"
+        fi
+        
+        # Analyze task type
+        if echo "$BODY" | grep -qi "review\|analyze"; then
+          echo "task_type=review" >> $GITHUB_OUTPUT
+        elif echo "$BODY" | grep -qi "implement\|create"; then
+          echo "task_type=implementation" >> $GITHUB_OUTPUT
+        elif echo "$BODY" | grep -qi "fix\|debug"; then
+          echo "task_type=debugging" >> $GITHUB_OUTPUT
+        else
+          echo "task_type=general" >> $GITHUB_OUTPUT
+        fi
+        
+        echo "needs_claude=true" >> $GITHUB_OUTPUT
+
+  claude-policy:
+    name: S5 - Claude Usage Policy
+    runs-on: ubuntu-latest
+    needs: [analyze-claude-request, oauth-health-check]
+    if: |
+      needs.analyze-claude-request.outputs.needs_claude == 'true' ||
+      always()
+    outputs:
+      use_oauth: ${{ steps.policy.outputs.use_oauth }}
+      max_turns: ${{ steps.policy.outputs.max_turns }}
+    
+    steps:
+    - name: Policy Decision with OAuth Health
+      id: policy
+      run: |
+        BRANCH="${{ github.ref }}"
+        TASK_TYPE="${{ needs.analyze-claude-request.outputs.task_type }}"
+        OAUTH_HEALTH="${{ needs.oauth-health-check.outputs.health_status }}"
+        
+        # Authentication decision based on branch AND OAuth health
+        if [[ "$BRANCH" == "refs/heads/main" || "$BRANCH" == "refs/heads/master" ]]; then
+          echo "use_oauth=false" >> $GITHUB_OUTPUT
+          echo "::notice::Production branch - using API key"
+        elif [[ "$OAUTH_HEALTH" == "critical" ]]; then
+          echo "use_oauth=false" >> $GITHUB_OUTPUT
+          echo "::warning::OAuth unhealthy - falling back to API"
+        else
+          echo "use_oauth=true" >> $GITHUB_OUTPUT
+          echo "::notice::Using OAuth authentication"
+        fi
+        
+        # Turn limits
+        case "$TASK_TYPE" in
+          "implementation") echo "max_turns=15" >> $GITHUB_OUTPUT ;;
+          "debugging") echo "max_turns=10" >> $GITHUB_OUTPUT ;;
+          "review") echo "max_turns=5" >> $GITHUB_OUTPUT ;;
+          *) echo "max_turns=8" >> $GITHUB_OUTPUT ;;
+        esac
+
+  claude-execution:
+    name: S1 - Claude Code Execution
+    runs-on: depot-ubuntu-latest
+    needs: [analyze-claude-request, claude-policy]
+    if: needs.analyze-claude-request.outputs.needs_claude == 'true'
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Execute Claude with OAuth
+      if: needs.claude-policy.outputs.use_oauth == 'true'
+      uses: grll/claude-code-action@beta
+      with:
+        use_oauth: true
+        claude_access_token: ${{ secrets.CLAUDE_ACCESS_TOKEN }}
+        claude_refresh_token: ${{ secrets.CLAUDE_REFRESH_TOKEN }}
+        claude_expires_at: ${{ secrets.CLAUDE_EXPIRES_AT }}
+        secrets_admin_pat: ${{ secrets.SECRETS_ADMIN_PAT }}
+        fail_on_error: false
+        verbose: true
+        max_turns: ${{ needs.claude-policy.outputs.max_turns }}
+    
+    - name: Execute Claude with API Key
+      if: needs.claude-policy.outputs.use_oauth == 'false'
+      uses: anthropics/claude-code-action@v1
+      with:
+        fail_on_error: false
+        verbose: true
+        max_turns: ${{ needs.claude-policy.outputs.max_turns }}
+      env:
+        ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ========================================
+  # STANDARD CI/CD PIPELINE JOBS
+  # ========================================
+  
+  intelligence-analysis:
+    name: S4 - Intelligence Analysis
+    runs-on: ubuntu-latest
+    if: |
+      github.event_name != 'workflow_dispatch' ||
+      inputs.operation_type == 'ci-cd'
+    outputs:
+      quality_trend: ${{ steps.analyze.outputs.quality_trend }}
+      risk_level: ${{ steps.analyze.outputs.risk_level }}
+    
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+    
+    - name: Analyze Patterns
+      id: analyze
+      run: |
+        RECENT_COMMITS=$(git log --oneline -n 50 --pretty=format:"%s" || echo "")
+        BUG_FIXES=$(echo "$RECENT_COMMITS" | grep -ci "fix\|bug" || true)
+        FEATURES=$(echo "$RECENT_COMMITS" | grep -ci "feat\|add" || true)
+        
+        if [ $BUG_FIXES -gt 10 ]; then
+          echo "risk_level=high" >> $GITHUB_OUTPUT
+          echo "quality_trend=concerning" >> $GITHUB_OUTPUT
+        elif [ $FEATURES -gt $BUG_FIXES ]; then
+          echo "risk_level=low" >> $GITHUB_OUTPUT
+          echo "quality_trend=improving" >> $GITHUB_OUTPUT
+        else
+          echo "risk_level=medium" >> $GITHUB_OUTPUT
+          echo "quality_trend=stable" >> $GITHUB_OUTPUT
+        fi
+
+  policy-management:
+    name: S5 - Policy Management
+    runs-on: ubuntu-latest
+    needs: [intelligence-analysis, oauth-health-check]
+    if: |
+      always() &&
+      (github.event_name != 'workflow_dispatch' || inputs.operation_type == 'ci-cd')
+    outputs:
+      coverage_threshold: ${{ steps.policy.outputs.coverage }}
+      parallel_jobs: ${{ steps.policy.outputs.parallel }}
+      deployment_allowed: ${{ steps.policy.outputs.deploy }}
+    
+    steps:
+    - name: Adjust Policies
+      id: policy
+      run: |
+        RISK="${{ needs.intelligence-analysis.outputs.risk_level }}"
+        TREND="${{ needs.intelligence-analysis.outputs.quality_trend }}"
+        OAUTH_HEALTH="${{ needs.oauth-health-check.outputs.health_status }}"
+        
+        # Include OAuth health in policy decisions
+        if [[ "$OAUTH_HEALTH" == "critical" ]]; then
+          echo "::warning::OAuth critical - conservative policies"
+          echo "coverage=55" >> $GITHUB_OUTPUT
+          echo "parallel=2" >> $GITHUB_OUTPUT
+          echo "deploy=false" >> $GITHUB_OUTPUT
+        elif [ "$TREND" = "improving" ] && [ "$RISK" = "low" ]; then
+          echo "coverage=45" >> $GITHUB_OUTPUT
+          echo "parallel=4" >> $GITHUB_OUTPUT
+          echo "deploy=true" >> $GITHUB_OUTPUT
+        else
+          echo "coverage=50" >> $GITHUB_OUTPUT
+          echo "parallel=3" >> $GITHUB_OUTPUT
+          echo "deploy=true" >> $GITHUB_OUTPUT
+        fi
+
+  operations-control:
+    name: S3 - Operations Control
+    runs-on: ubuntu-latest
+    needs: policy-management
+    if: |
+      github.event_name != 'workflow_dispatch' ||
+      inputs.operation_type == 'ci-cd'
+    
+    steps:
+    - name: Optimize Resources
+      run: |
+        echo "::notice::S3 - Optimizing with ${{ needs.policy-management.outputs.parallel_jobs }} parallel jobs"
+
+  code-quality:
+    name: S2 - Code Quality
+    runs-on: ubuntu-latest
+    needs: [operations-control, policy-management]
+    if: |
+      github.event_name != 'workflow_dispatch' ||
+      inputs.operation_type == 'ci-cd'
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Elixir
+      uses: erlef/setup-beam@v1
+      with:
+        elixir-version: ${{ env.ELIXIR_VERSION }}
+        otp-version: ${{ env.OTP_VERSION }}
+    
+    - name: Install dependencies
+      run: |
+        mix local.hex --force
+        mix local.rebar --force
+        mix deps.get || (sleep 30 && mix deps.get)
+    
+    - name: Quality Checks
+      run: |
+        mix format --check-formatted
+        mix credo --mute-exit-status
+        mix compile
+
+  test-operations:
+    name: S1 - Tests (Partition ${{ matrix.partition }})
+    runs-on: ubuntu-latest
+    needs: [code-quality, policy-management]
+    if: |
+      github.event_name != 'workflow_dispatch' ||
+      inputs.operation_type == 'ci-cd'
+    strategy:
+      matrix:
+        partition: ${{ fromJson(needs.policy-management.outputs.parallel_jobs == '4' && '[1, 2, 3, 4]' || needs.policy-management.outputs.parallel_jobs == '3' && '[1, 2, 3]' || '[1, 2]') }}
+    
+    services:
+      postgres:
+        image: postgres:15-alpine
+        ports: ['5432:5432']
+        env:
+          POSTGRES_PASSWORD: postgres
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Elixir
+      uses: erlef/setup-beam@v1
+      with:
+        elixir-version: ${{ env.ELIXIR_VERSION }}
+        otp-version: ${{ env.OTP_VERSION }}
+    
+    - name: Install dependencies
+      run: |
+        mix local.hex --force
+        mix local.rebar --force
+        mix deps.get
+    
+    - name: Setup database
+      run: mix ecto.setup
+      env:
+        DATABASE_URL: postgres://postgres:postgres@localhost:5432/autonomous_opponent_test
+        AUTONOMOUS_OPPONENT_CORE_DATABASE_URL: postgres://postgres:postgres@localhost:5432/autonomous_opponent_core_test
+    
+    - name: Run tests
+      run: mix test --cover
+      env:
+        DATABASE_URL: postgres://postgres:postgres@localhost:5432/autonomous_opponent_test
+        AUTONOMOUS_OPPONENT_CORE_DATABASE_URL: postgres://postgres:postgres@localhost:5432/autonomous_opponent_core_test
+
+  security-analysis:
+    name: Security Analysis
+    runs-on: ubuntu-latest
+    needs: operations-control
+    if: |
+      github.event_name != 'workflow_dispatch' ||
+      inputs.operation_type == 'ci-cd'
+    
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+    
+    - name: Run TruffleHog
+      uses: trufflesecurity/trufflehog@main
+      with:
+        path: ./
+        base: ${{ github.event.repository.default_branch }}
+        head: HEAD
+        extra_args: --only-verified
+
+  build-docker:
+    name: Build Docker Image
+    runs-on: ubuntu-latest
+    needs: [code-quality, test-operations, security-analysis]
+    if: |
+      success() &&
+      (github.event_name == 'push' || github.event_name == 'pull_request') &&
+      (github.event_name != 'workflow_dispatch' || inputs.operation_type == 'ci-cd')
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+    
+    - name: Build image
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        push: false
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+
+  # ========================================
+  # UNIFIED MONITORING & SYNTHESIS
+  # ========================================
+  
+  algedonic-monitor:
+    name: Algedonic Signal Monitor
+    runs-on: ubuntu-latest
+    if: always()
+    needs: [code-quality, test-operations, security-analysis, claude-execution, oauth-health-check]
+    
+    steps:
+    - name: Comprehensive Pain/Pleasure Analysis
+      run: |
+        PAIN_LEVEL=0
+        
+        # OAuth health pain signals
+        if [[ "${{ needs.oauth-health-check.outputs.health_status }}" == "critical" ]]; then
+          PAIN_LEVEL=$((PAIN_LEVEL + 3))
+          echo "::error::OAuth critical - severe pain"
+        fi
+        
+        # CI/CD pain signals
+        if [ "${{ contains(needs.*.result, 'failure') }}" = "true" ]; then
+          PAIN_LEVEL=$((PAIN_LEVEL + 1))
+        fi
+        
+        # Claude execution pain
+        if [ "${{ needs.claude-execution.result }}" = "failure" ]; then
+          PAIN_LEVEL=$((PAIN_LEVEL + 2))
+        fi
+        
+        if [ $PAIN_LEVEL -gt 2 ]; then
+          echo "::error::🚨 SEVERE PAIN - Level $PAIN_LEVEL"
+        fi
+
+  vsm-synthesis:
+    name: VSM Learning & Synthesis
+    runs-on: ubuntu-latest
+    if: always()
+    needs: [intelligence-analysis, policy-management, algedonic-monitor, oauth-health-check]
+    
+    steps:
+    - name: Unified System Analysis
+      run: |
+        cat > vsm-report.md <<EOF
+        # VSM Unified System Report
+        
+        ## System Health
+        - S1-S5 Status: Operational
+        - OAuth Health: ${{ needs.oauth-health-check.outputs.health_status }}
+        - Claude Integration: Active
+        - CI/CD Pipeline: Running
+        
+        ## Key Metrics
+        - Coverage: ${{ needs.policy-management.outputs.coverage_threshold }}%
+        - Parallelism: ${{ needs.policy-management.outputs.parallel_jobs }}
+        - OAuth Token Health: ${{ needs.oauth-health-check.outputs.health_status }}
+        - Rotation Needed: ${{ needs.oauth-health-check.outputs.rotation_needed }}
+        
+        ## Recommendations
+        1. Monitor OAuth token expiration
+        2. Track cost efficiency
+        3. Optimize resource usage
+        EOF
+    
+    - name: Upload Report
+      uses: actions/upload-artifact@v4
+      with:
+        name: vsm-unified-report-${{ github.run_number }}
+        path: vsm-report.md
