@@ -9,6 +9,15 @@ defmodule AutonomousOpponentV2.MixProject do
       aliases: aliases(),
       test_coverage: [
         summary: [threshold: 40]
+      ],
+      releases: [
+        autonomous_opponent: [
+          applications: [
+            autonomous_opponent_core: :permanent,
+            autonomous_opponent_web: :permanent
+          ],
+          cookie: "#{:erlang.phash2(:erlang.monotonic_time())}"
+        ]
       ]
     ]
   end

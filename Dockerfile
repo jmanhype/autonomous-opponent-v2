@@ -44,7 +44,7 @@ RUN if [ -d "apps/autonomous_opponent_web/assets" ]; then \
 
 # Generate release
 COPY rel rel/
-RUN mix release
+RUN mix release autonomous_opponent
 
 # Stage 2: Create the runtime image
 FROM alpine:3.19 AS runtime
@@ -61,7 +61,7 @@ ENV PHX_SERVER=true
 
 # Copy release from build stage
 WORKDIR /app
-COPY --from=build --chown=app:app /app/_build/prod/rel/autonomous_opponent_v2 ./
+COPY --from=build --chown=app:app /app/_build/prod/rel/autonomous_opponent ./
 
 # Copy any runtime scripts if they exist
 RUN mkdir -p /app/bin
@@ -76,7 +76,7 @@ EXPOSE 4000
 
 # Set up health check
 HEALTHCHECK --interval=30s --timeout=3s --start-period=40s --retries=3 \
-  CMD /app/bin/autonomous_opponent_v2 eval "AutonomousOpponentV2Web.HealthCheck.check()" || exit 1
+  CMD /app/bin/autonomous_opponent eval "AutonomousOpponentV2Web.HealthCheck.check()" || exit 1
 
 # Start the Phoenix server
-CMD ["./bin/autonomous_opponent_v2", "start"]
+CMD ["./bin/autonomous_opponent", "start"]
