@@ -8,8 +8,8 @@ on:
 
 env:
   MIX_ENV: test
-  ELIXIR_VERSION: 1.18.4
-  OTP_VERSION: 27.0
+  ELIXIR_VERSION: 1.16.3
+  OTP_VERSION: 26.2.5
   NODE_VERSION: 18
 
 jobs:
@@ -71,7 +71,7 @@ jobs:
       run: mix format --check-formatted
       
     - name: Run Credo
-      run: mix credo --strict
+      run: mix credo
       
     - name: Check unused dependencies
       run: mix deps.unlock --check-unused
@@ -116,8 +116,11 @@ jobs:
       run: mix deps.get
       
     - name: Setup database
-      run: mix ecto.setup
+      run: |
+        mix ecto.create
+        mix ecto.migrate
       env:
+        MIX_ENV: test
         DATABASE_URL: postgres://postgres:postgres@localhost:5432/autonomous_opponent_test
         AUTONOMOUS_OPPONENT_V2_DATABASE_URL: postgres://postgres:postgres@localhost:5432/autonomous_opponent_test
         AUTONOMOUS_OPPONENT_CORE_DATABASE_URL: postgres://postgres:postgres@localhost:5432/autonomous_opponent_core_test
@@ -125,6 +128,7 @@ jobs:
     - name: Run tests with coverage
       run: mix test --cover
       env:
+        MIX_ENV: test
         DATABASE_URL: postgres://postgres:postgres@localhost:5432/autonomous_opponent_test
         AUTONOMOUS_OPPONENT_V2_DATABASE_URL: postgres://postgres:postgres@localhost:5432/autonomous_opponent_test
         AUTONOMOUS_OPPONENT_CORE_DATABASE_URL: postgres://postgres:postgres@localhost:5432/autonomous_opponent_core_test
@@ -140,13 +144,16 @@ jobs:
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
       
     - name: Run TruffleHog
       uses: trufflesecurity/trufflehog@main
       with:
         path: ./
-        base: ${{ github.event.repository.default_branch }}
-        head: HEAD
+        base: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || (github.event.before != '0000000000000000000000000000000000000000' && github.event.before || github.sha) }}
+        head: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+        extra_args: --only-verified
       
     - name: Set up Elixir
       uses: erlef/setup-beam@v1

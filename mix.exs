@@ -21,7 +21,7 @@ defmodule AutonomousOpponentV2.MixProject do
       {:jason, "~> 1.4"},
       {:plug_cowboy, "~> 2.7"},
       {:poolboy, "~> 1.5"},
-      {:handoff, "~> 0.1.0"},
+      # {:handoff, "~> 0.1.0"}, # Commented out - requires Elixir 1.18+
       {:instructor, "~> 0.1.0"},
       {:goldrush, "~> 0.1.9"},
       {:uuid, "~> 1.1"},
@@ -46,10 +46,10 @@ defmodule AutonomousOpponentV2.MixProject do
     [
       "deps.get": ["deps.get --only dev", "cmd mix deps.get"],
       "ecto.setup": [
-        "cmd --app autonomous_opponent_core mix ecto.create",
-        "cmd --app autonomous_opponent_web mix ecto.create",
-        "cmd --app autonomous_opponent_core mix ecto.migrate",
-        "cmd --app autonomous_opponent_web mix ecto.migrate"
+        "cmd --cd apps/autonomous_opponent_core mix ecto.create",
+        "cmd --cd apps/autonomous_opponent_web mix ecto.create",
+        "cmd --cd apps/autonomous_opponent_core mix ecto.migrate",
+        "cmd --cd apps/autonomous_opponent_web mix ecto.migrate"
       ],
       "ecto.reset": ["cmd mix ecto.reset"],
       test: ["cmd mix test"]

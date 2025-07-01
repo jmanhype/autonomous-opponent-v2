@@ -9,7 +9,7 @@ defmodule AutonomousOpponentV2Core.MixProject do
       config_path: "config/config.exs",
       deps_path: "../../deps",
       lockfile: "../../mix.lock",
-      elixir: "~> 1.18",
+      elixir: "~> 1.16",
       start_permanent: Mix.env() == :prod,
       deps: deps()
     ]
@@ -29,7 +29,7 @@ defmodule AutonomousOpponentV2Core.MixProject do
       {:ecto_sql, "~> 3.11"},
       {:postgrex, "~> 0.18"},
       {:poolboy, "~> 1.5"},
-      {:handoff, "~> 0.1.0"},
+      # {:handoff, "~> 0.1.0"}, # Commented out - requires Elixir 1.18+
       {:instructor, "~> 0.1.0"},
       {:goldrush, "~> 0.1.9"},
       {:uuid, "~> 1.1"},
