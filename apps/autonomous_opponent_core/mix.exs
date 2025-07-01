@@ -18,7 +18,7 @@ defmodule AutonomousOpponentV2Core.MixProject do
   # Run "mix help compile.app" to learn about applications.
   def application do
     [
-      extra_applications: [:logger, :runtime_tools, :amqp],
+      extra_applications: [:logger, :runtime_tools],
       mod: {AutonomousOpponentV2Core.Application, []}
     ]
   end
@@ -42,8 +42,9 @@ defmodule AutonomousOpponentV2Core.MixProject do
       {:telemetry_poller, "~> 1.0"},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:dialyxir, "~> 1.4", only: [:dev], runtime: false},
-      {:mix_audit, "~> 2.1", only: [:dev, :test], runtime: false},
-      {:amqp, "~> 3.3"}
+      {:mix_audit, "~> 2.1", only: [:dev, :test], runtime: false}
+      # Temporarily disabled - AMQP doesn't support OTP 27+ yet
+      # {:amqp, "~> 3.3"}
     ]
   end
 end

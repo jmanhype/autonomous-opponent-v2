@@ -6,7 +6,7 @@ defmodule AutonomousOpponent.VSM.S2.DampingController do
   in the VSM system. Provides adaptive damping based on oscillation
   characteristics.
   """
-  
+
   use GenServer
   require Logger
   
