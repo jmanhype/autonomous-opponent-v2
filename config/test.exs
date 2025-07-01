@@ -20,17 +20,17 @@ config :autonomous_opponent_web, AutonomousOpponentV2Web.Repo,
   pool: Ecto.Adapters.SQL.Sandbox,
   pool_size: 10
 
-# Override with DATABASE_URL if provided (for CI/CD environments)
-if database_url = System.get_env("DATABASE_URL") do
+# Override with specific DATABASE_URLs if provided (for CI/CD environments)
+if core_url = System.get_env("AUTONOMOUS_OPPONENT_CORE_DATABASE_URL") do
   config :autonomous_opponent_core, AutonomousOpponentV2Core.Repo,
-    url: database_url,
-    database: "autonomous_opponent_core_test#{System.get_env("MIX_TEST_PARTITION")}",
+    url: core_url,
     pool: Ecto.Adapters.SQL.Sandbox,
     pool_size: 10
+end
 
+if web_url = System.get_env("AUTONOMOUS_OPPONENT_V2_DATABASE_URL") do
   config :autonomous_opponent_web, AutonomousOpponentV2Web.Repo,
-    url: database_url,
-    database: "autonomous_opponent_web_test#{System.get_env("MIX_TEST_PARTITION")}",
+    url: web_url,
     pool: Ecto.Adapters.SQL.Sandbox,
     pool_size: 10
 end

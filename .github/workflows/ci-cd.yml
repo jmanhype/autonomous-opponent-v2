@@ -123,9 +123,7 @@ jobs:
         mix deps.get || (sleep 30 && mix deps.get) || (sleep 60 && mix deps.get)
       
     - name: Setup database
-      run: |
-        mix ecto.create
-        mix ecto.migrate
+      run: mix ecto.setup
       env:
         MIX_ENV: test
         DATABASE_URL: postgres://postgres:postgres@localhost:5432/autonomous_opponent_test
