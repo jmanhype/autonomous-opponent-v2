@@ -12,6 +12,7 @@ defmodule AutonomousOpponentV2.MixProject do
       ],
       releases: [
         autonomous_opponent: [
+          version: "0.1.0",
           applications: [
             autonomous_opponent_core: :permanent,
             autonomous_opponent_web: :permanent
