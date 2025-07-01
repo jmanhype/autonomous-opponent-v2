@@ -7,12 +7,12 @@
 # General application configuration
 import Config
 
-config :autonomous_opponent_v2,
+config :autonomous_opponent_web,
   ecto_repos: [AutonomousOpponentV2.Repo],
   generators: [timestamp_type: :utc_datetime_usec]
 
 # Configures the endpoint
-config :autonomous_opponent_v2, AutonomousOpponentV2Web.Endpoint,
+config :autonomous_opponent_web, AutonomousOpponentV2Web.Endpoint,
   url: [host: "localhost"],
   adapter: Phoenix.Endpoint.Cowboy2Adapter,
   render_errors: [
