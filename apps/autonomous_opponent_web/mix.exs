@@ -15,7 +15,10 @@ defmodule AutonomousOpponentV2Web.MixProject do
       compilers: Mix.compilers(),
       aliases: aliases(),
       test_paths: ["test/"],
-      elixirc_paths: elixirc_paths(Mix.env())
+      elixirc_paths: elixirc_paths(Mix.env()),
+      test_coverage: [
+        summary: [threshold: 40]
+      ]
     ]
   end
 

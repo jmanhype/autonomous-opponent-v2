@@ -12,7 +12,10 @@ defmodule AutonomousOpponentV2Core.MixProject do
       elixir: "~> 1.16",
       start_permanent: Mix.env() == :prod,
       deps: deps(),
-      aliases: aliases()
+      aliases: aliases(),
+      test_coverage: [
+        summary: [threshold: 40]
+      ]
     ]
   end
 
