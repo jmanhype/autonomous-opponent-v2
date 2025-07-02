@@ -10,6 +10,7 @@ defmodule AutonomousOpponent.VSM.S3.ControlTest do
       nil -> {:ok, _} = EventBus.start_link()
       _ -> :ok
     end
+
     {:ok, pid} = Control.start_link(id: "test_s3")
 
     {:ok, pid: pid}

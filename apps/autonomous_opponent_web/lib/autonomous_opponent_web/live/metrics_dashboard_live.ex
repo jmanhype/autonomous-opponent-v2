@@ -5,8 +5,6 @@ defmodule AutonomousOpponentV2Web.MetricsDashboardLive do
   """
   use AutonomousOpponentV2Web, :live_view
   
-  alias AutonomousOpponent.Core.Metrics
-  alias AutonomousOpponent.EventBus
   
   @refresh_interval 1000 # Update every second
   
@@ -14,8 +12,8 @@ defmodule AutonomousOpponentV2Web.MetricsDashboardLive do
   def mount(_params, _session, socket) do
     if connected?(socket) do
       # Subscribe to real-time updates
-      EventBus.subscribe(:metrics_updated)
-      EventBus.subscribe(:alert_triggered)
+      AutonomousOpponentV2Core.EventBus.subscribe(:metrics_updated)
+      AutonomousOpponentV2Core.EventBus.subscribe(:alert_triggered)
       
       # Schedule periodic refresh
       :timer.send_interval(@refresh_interval, self(), :refresh)
@@ -193,11 +191,11 @@ defmodule AutonomousOpponentV2Web.MetricsDashboardLive do
   # Private functions
   
   defp fetch_dashboard_data do
-    case Process.whereis(AutonomousOpponent.Core.Metrics) do
+    case Process.whereis(AutonomousOpponentV2Core.Core.Metrics) do
       nil -> default_dashboard_data()
       _pid -> 
         try do
-          Metrics.get_vsm_dashboard(AutonomousOpponent.Core.Metrics)
+          AutonomousOpponentV2Core.Core.Metrics.get_vsm_dashboard(AutonomousOpponentV2Core.Core.Metrics)
         rescue
           _ -> default_dashboard_data()
         end
@@ -205,11 +203,11 @@ defmodule AutonomousOpponentV2Web.MetricsDashboardLive do
   end
   
   defp fetch_alerts do
-    case Process.whereis(AutonomousOpponent.Core.Metrics) do
+    case Process.whereis(AutonomousOpponentV2Core.Core.Metrics) do
       nil -> []
       _pid ->
         try do
-          Metrics.check_alerts(AutonomousOpponent.Core.Metrics)
+          AutonomousOpponentV2Core.Core.Metrics.check_alerts(AutonomousOpponentV2Core.Core.Metrics)
         rescue
           _ -> []
         end

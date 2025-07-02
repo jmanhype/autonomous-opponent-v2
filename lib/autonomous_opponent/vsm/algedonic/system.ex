@@ -530,10 +530,10 @@ end
 defmodule PriorityQueue do
   @moduledoc """
   A simple priority queue implementation for managing algedonic signals.
-  
+
   Provides basic operations for priority-based signal processing in the VSM algedonic system.
   """
-  
+
   def new, do: []
 
   def insert(queue, priority, item) do

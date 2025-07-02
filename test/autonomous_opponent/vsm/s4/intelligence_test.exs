@@ -10,6 +10,7 @@ defmodule AutonomousOpponent.VSM.S4.IntelligenceTest do
       nil -> {:ok, _} = EventBus.start_link()
       _ -> :ok
     end
+
     {:ok, pid} = Intelligence.start_link(id: "test_s4")
 
     {:ok, pid: pid}

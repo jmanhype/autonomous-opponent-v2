@@ -1,4 +1,4 @@
-defmodule AutonomousOpponent.Core.Metrics do
+defmodule AutonomousOpponentV2Core.Core.Metrics do
   @moduledoc """
   Comprehensive metrics collection system for VSM subsystem monitoring and cybernetic feedback loops.
   
@@ -37,7 +37,7 @@ defmodule AutonomousOpponent.Core.Metrics do
   use GenServer
   require Logger
   
-  alias AutonomousOpponent.EventBus
+  alias AutonomousOpponentV2Core.EventBus
   
   # Metric types
   @type metric_type :: :counter | :gauge | :histogram | :summary
@@ -453,7 +453,7 @@ defmodule AutonomousOpponent.Core.Metrics do
     "#{key} #{value}"
   end
   
-  defp format_prometheus_metric({key, %{count: count, sum: sum, min: min, max: max, buckets: buckets}}) do
+  defp format_prometheus_metric({key, %{count: count, sum: sum, min: _min, max: _max, buckets: buckets}}) do
     # Format histogram
     base_name = String.replace(key, ~r/\{.*\}/, "")
     
@@ -538,9 +538,9 @@ defmodule AutonomousOpponent.Core.Metrics do
   
   defp build_variety_flow_metrics(table) do
     # Get variety flow metrics
-    absorbed = :ets.match_object(table, {"vsm.variety_absorbed" <> :_, :_})
-    generated = :ets.match_object(table, {"vsm.variety_generated" <> :_, :_})
-    attenuation = :ets.match_object(table, {"vsm.variety_attenuation" <> :_, :_})
+    absorbed = :ets.match_object(table, {:_, :_}) |> Enum.filter(fn {k, _} -> String.starts_with?(k, "vsm.variety_absorbed") end)
+    generated = :ets.match_object(table, {:_, :_}) |> Enum.filter(fn {k, _} -> String.starts_with?(k, "vsm.variety_generated") end)
+    attenuation = :ets.match_object(table, {:_, :_}) |> Enum.filter(fn {k, _} -> String.starts_with?(k, "vsm.variety_attenuation") end)
     
     %{
       total_absorbed: sum_metric_values(absorbed),
@@ -561,7 +561,7 @@ defmodule AutonomousOpponent.Core.Metrics do
     Enum.sum(values) / length(values)
   end
   
-  defp build_loop_metrics(table) do
+  defp build_loop_metrics(_table) do
     # Placeholder for cybernetic loop metrics
     %{
       feedback_loops_active: 5,

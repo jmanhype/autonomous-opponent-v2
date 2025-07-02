@@ -1,4 +1,4 @@
-defmodule AutonomousOpponent.EventBus do
+defmodule AutonomousOpponentV2Core.EventBus do
   @moduledoc """
   Central event bus for the Autonomous Opponent system.
 

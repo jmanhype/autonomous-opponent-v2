@@ -10,6 +10,7 @@ defmodule AutonomousOpponent.VSM.S5.PolicyTest do
       nil -> {:ok, _} = EventBus.start_link()
       _ -> :ok
     end
+
     {:ok, pid} = Policy.start_link(id: "test_s5")
 
     {:ok, pid: pid}

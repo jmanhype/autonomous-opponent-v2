@@ -5,17 +5,16 @@ defmodule AutonomousOpponentV2Web.MetricsController do
   """
   use AutonomousOpponentV2Web, :controller
 
-  alias AutonomousOpponent.Core.Metrics
 
   def index(conn, _params) do
     prometheus_text =
-      case Process.whereis(AutonomousOpponent.Core.Metrics) do
+      case Process.whereis(AutonomousOpponentV2Core.Core.Metrics) do
         nil ->
           # Return empty metrics if metrics system not running
           "# No metrics available - metrics system not running\n"
         _pid ->
           try do
-            Metrics.prometheus_format(AutonomousOpponent.Core.Metrics)
+            AutonomousOpponentV2Core.Core.Metrics.prometheus_format(AutonomousOpponentV2Core.Core.Metrics)
           rescue
             _ -> "# Error retrieving metrics\n"
           end

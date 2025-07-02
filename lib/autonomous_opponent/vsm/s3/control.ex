@@ -102,7 +102,7 @@ defmodule AutonomousOpponent.VSM.S3.Control do
 
   @doc """
   Get the current resource status and allocation summary.
-  
+
   Returns a summary of the current resource pool state and active allocations.
   """
   def get_resource_status(server \\ __MODULE__) do
@@ -207,12 +207,13 @@ defmodule AutonomousOpponent.VSM.S3.Control do
   @impl true
   def handle_call(:get_resource_status, _from, state) do
     # Calculate current resource utilization
-    total_allocated = Enum.reduce(state.allocations, %{}, fn {_unit_id, allocation}, acc ->
-      Enum.reduce(allocation.resources, acc, fn {resource, amount}, acc ->
-        Map.update(acc, resource, amount, &(&1 + amount))
+    total_allocated =
+      Enum.reduce(state.allocations, %{}, fn {_unit_id, allocation}, acc ->
+        Enum.reduce(allocation.resources, acc, fn {resource, amount}, acc ->
+          Map.update(acc, resource, amount, &(&1 + amount))
+        end)
       end)
-    end)
-    
+
     # Build status summary
     status = %{
       resource_pool: state.resource_pool,
@@ -226,7 +227,7 @@ defmodule AutonomousOpponent.VSM.S3.Control do
         reallocations: state.metrics.reallocations
       }
     }
-    
+
     {:reply, status, state}
   end
 
