@@ -1,4 +1,4 @@
-defmodule AutonomousOpponent.Core.RateLimiter do
+defmodule AutonomousOpponentV2Core.Core.RateLimiter do
   @moduledoc """
   Token bucket rate limiter for variety flow control in VSM subsystems.
   Implements per-client and global rate limiting with burst handling.
@@ -45,7 +45,7 @@ defmodule AutonomousOpponent.Core.RateLimiter do
   use GenServer
   require Logger
 
-  alias AutonomousOpponentV2.EventBus
+  alias AutonomousOpponentV2Core.EventBus
 
   # Client API
 

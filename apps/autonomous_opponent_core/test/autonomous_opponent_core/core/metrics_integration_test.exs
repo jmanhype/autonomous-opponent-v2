@@ -1,16 +1,17 @@
-defmodule AutonomousOpponent.Core.MetricsIntegrationTest do
+defmodule AutonomousOpponentV2Core.Core.MetricsIntegrationTest do
   use ExUnit.Case, async: false
 
-  alias AutonomousOpponent.Core.{Metrics, CircuitBreaker, RateLimiter}
-  alias AutonomousOpponent.EventBus
+  alias AutonomousOpponentV2Core.Core.Metrics
+  alias AutonomousOpponentV2Core.Core.{CircuitBreaker, RateLimiter}
+  alias AutonomousOpponentV2Core.EventBus
 
   @moduletag :integration
   @moduletag :metrics
 
   setup do
     # Start EventBus if not already started
-    case Process.whereis(AutonomousOpponent.EventBus) do
-      nil -> {:ok, _} = EventBus.start_link()
+    case Process.whereis(AutonomousOpponentV2Core.EventBus) do
+      nil -> {:ok, _} = EventBus.start_link(name: AutonomousOpponentV2Core.EventBus)
       _ -> :ok
     end
 
@@ -277,7 +278,7 @@ defmodule AutonomousOpponent.Core.MetricsIntegrationTest do
     } do
       # Spawn concurrent workers
       tasks =
-        for i <- 1..10 do
+        for _i <- 1..10 do
           Task.async(fn ->
             for j <- 1..100 do
               # Mix of operations

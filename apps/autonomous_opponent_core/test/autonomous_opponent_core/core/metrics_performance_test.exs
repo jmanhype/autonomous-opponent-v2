@@ -1,7 +1,7 @@
-defmodule AutonomousOpponent.Core.MetricsPerformanceTest do
+defmodule AutonomousOpponentV2Core.Core.MetricsPerformanceTest do
   use ExUnit.Case, async: false
 
-  alias AutonomousOpponent.Core.Metrics
+  alias AutonomousOpponentV2Core.Core.Metrics
 
   @moduletag :performance
   @moduletag :metrics
@@ -224,7 +224,7 @@ defmodule AutonomousOpponent.Core.MetricsPerformanceTest do
       # Generate metrics that might trigger alerts
       Metrics.algedonic_signal(metrics, :pain, 60, "test")
 
-      for i <- 1..200 do
+      for _i <- 1..200 do
         Metrics.counter(metrics, "rate_limiter.limited", 1)
       end
 

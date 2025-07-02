@@ -332,7 +332,13 @@ defmodule AutonomousOpponentV2Core.Core.Metrics do
     # Handle EventBus events
     case event_name do
       :algedonic_pain ->
-        algedonic_signal(state.name, :pain, data.severity, data.source)
+        intensity = case data.severity do
+          :high -> 10
+          :medium -> 5
+          :low -> 2
+          _ -> 5
+        end
+        algedonic_signal(state.name, :pain, intensity, data.source)
         
       :algedonic_pleasure ->
         algedonic_signal(state.name, :pleasure, data.intensity, data.source)
