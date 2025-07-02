@@ -103,12 +103,12 @@ td.source {
 </head>
 <body>
 <h1><code>cover/Elixir.AutonomousOpponentV2Web.Router.html</code></h1>
-<footer><p>File generated from <code>/home/batmanosama/autonomous-opponent-proper/autonomous_opponent_v2/apps/autonomous_opponent_web/lib/autonomous_opponent_web/router.ex</code> by <a href="http://erlang.org/doc/man/cover.html">cover</a> at 2025-07-01 at 11:20:59</p></footer>
+<footer><p>File generated from <code>/home/batmanosama/autonomous-opponent-proper/autonomous_opponent_v2/apps/autonomous_opponent_web/lib/autonomous_opponent_web/router.ex</code> by <a href="http://erlang.org/doc/man/cover.html">cover</a> at 2025-07-02 at 13:06:15</p></footer>
 <table>
 <tbody>
-<tr class="miss">
+<tr class="hit">
 <td class="line" id="L1"><a href="#L1">1</a></td>
-<td class="hits"><pre style="display: inline;">:-(</pre></td>
+<td class="hits">10</td>
 <td class="source"><code>defmodule AutonomousOpponentV2Web.Router do</code></td>
 </tr>
 <tr>
@@ -131,9 +131,9 @@ td.source {
 <td class="hits"></td>
 <td class="source"><code></code></td>
 </tr>
-<tr class="miss">
+<tr class="hit">
 <td class="line" id="L6"><a href="#L6">6</a></td>
-<td class="hits"><pre style="display: inline;">:-(</pre></td>
+<td class="hits">1</td>
 <td class="source"><code>  pipeline :browser do</code></td>
 </tr>
 <tr>
@@ -176,9 +176,9 @@ td.source {
 <td class="hits"></td>
 <td class="source"><code></code></td>
 </tr>
-<tr class="miss">
+<tr class="hit">
 <td class="line" id="L15"><a href="#L15">15</a></td>
-<td class="hits"><pre style="display: inline;">:-(</pre></td>
+<td class="hits">1</td>
 <td class="source"><code>  pipeline :api do</code></td>
 </tr>
 <tr>
@@ -211,163 +211,233 @@ td.source {
 <td class="hits"></td>
 <td class="source"><code></code></td>
 </tr>
-<tr class="miss">
+<tr class="hit">
 <td class="line" id="L22"><a href="#L22">22</a></td>
-<td class="hits"><pre style="display: inline;">:-(</pre></td>
+<td class="hits">1</td>
 <td class="source"><code>    get "/", PageController, :home</code></td>
 </tr>
 <tr>
 <td class="line" id="L23"><a href="#L23">23</a></td>
 <td class="hits"></td>
-<td class="source"><code>  end</code></td>
+<td class="source"><code>    </code></td>
 </tr>
 <tr>
 <td class="line" id="L24"><a href="#L24">24</a></td>
 <td class="hits"></td>
-<td class="source"><code></code></td>
+<td class="source"><code>    # VSM Metrics Dashboard</code></td>
 </tr>
-<tr>
+<tr class="miss">
 <td class="line" id="L25"><a href="#L25">25</a></td>
-<td class="hits"></td>
-<td class="source"><code>  # Other scopes may use the generated code from Phoenix</code></td>
+<td class="hits"><pre style="display: inline;">:-(</pre></td>
+<td class="source"><code>    live "/metrics/dashboard", MetricsDashboardLive, :index</code></td>
 </tr>
 <tr>
 <td class="line" id="L26"><a href="#L26">26</a></td>
 <td class="hits"></td>
-<td class="source"><code>  # for controllers and views, but here you can control</code></td>
+<td class="source"><code>  end</code></td>
 </tr>
 <tr>
 <td class="line" id="L27"><a href="#L27">27</a></td>
 <td class="hits"></td>
-<td class="source"><code>  # any modules with the `AutonomousOpponentV2Web` namespace.</code></td>
+<td class="source"><code>  </code></td>
 </tr>
 <tr>
 <td class="line" id="L28"><a href="#L28">28</a></td>
 <td class="hits"></td>
-<td class="source"><code>  scope "/api", AutonomousOpponentV2Web do</code></td>
+<td class="source"><code>  # Prometheus metrics endpoint (no CSRF protection needed)</code></td>
 </tr>
 <tr>
 <td class="line" id="L29"><a href="#L29">29</a></td>
 <td class="hits"></td>
-<td class="source"><code>    pipe_through :api</code></td>
+<td class="source"><code>  scope "/", AutonomousOpponentV2Web do</code></td>
 </tr>
-<tr>
+<tr class="hit">
 <td class="line" id="L30"><a href="#L30">30</a></td>
-<td class="hits"></td>
-<td class="source"><code>  end</code></td>
+<td class="hits">1</td>
+<td class="source"><code>    get "/metrics", MetricsController, :index</code></td>
 </tr>
 <tr>
 <td class="line" id="L31"><a href="#L31">31</a></td>
 <td class="hits"></td>
-<td class="source"><code></code></td>
+<td class="source"><code>  end</code></td>
 </tr>
 <tr>
 <td class="line" id="L32"><a href="#L32">32</a></td>
 <td class="hits"></td>
-<td class="source"><code>  # Enables LiveDashboard only on development environment</code></td>
+<td class="source"><code>  </code></td>
 </tr>
 <tr>
 <td class="line" id="L33"><a href="#L33">33</a></td>
 <td class="hits"></td>
-<td class="source"><code>  # as it will show data from all your apps.</code></td>
+<td class="source"><code>  # Health check endpoint</code></td>
 </tr>
 <tr>
 <td class="line" id="L34"><a href="#L34">34</a></td>
 <td class="hits"></td>
-<td class="source"><code>  if Mix.env() in [:dev, :test] do</code></td>
+<td class="source"><code>  scope "/", AutonomousOpponentV2Web do</code></td>
 </tr>
 <tr>
 <td class="line" id="L35"><a href="#L35">35</a></td>
 <td class="hits"></td>
-<td class="source"><code>    scope "/dev/dashboard", host: "*" do</code></td>
+<td class="source"><code>    pipe_through :api</code></td>
 </tr>
-<tr>
+<tr class="hit">
 <td class="line" id="L36"><a href="#L36">36</a></td>
-<td class="hits"></td>
-<td class="source"><code>      pipe_through [:browser]</code></td>
+<td class="hits">1</td>
+<td class="source"><code>    get "/health", HealthCheckController, :index</code></td>
 </tr>
 <tr>
 <td class="line" id="L37"><a href="#L37">37</a></td>
 <td class="hits"></td>
-<td class="source"><code></code></td>
+<td class="source"><code>  end</code></td>
 </tr>
-<tr class="miss">
+<tr>
 <td class="line" id="L38"><a href="#L38">38</a></td>
-<td class="hits"><pre style="display: inline;">:-(</pre></td>
-<td class="source"><code>      live_dashboard("/",</code></td>
+<td class="hits"></td>
+<td class="source"><code></code></td>
 </tr>
 <tr>
 <td class="line" id="L39"><a href="#L39">39</a></td>
 <td class="hits"></td>
-<td class="source"><code>        metrics: {AutonomousOpponentV2Web.Telemetry, :metrics}</code></td>
+<td class="source"><code>  # Other scopes may use the generated code from Phoenix</code></td>
 </tr>
 <tr>
 <td class="line" id="L40"><a href="#L40">40</a></td>
 <td class="hits"></td>
-<td class="source"><code>      )</code></td>
+<td class="source"><code>  # for controllers and views, but here you can control</code></td>
 </tr>
 <tr>
 <td class="line" id="L41"><a href="#L41">41</a></td>
 <td class="hits"></td>
-<td class="source"><code>    end</code></td>
+<td class="source"><code>  # any modules with the `AutonomousOpponentV2Web` namespace.</code></td>
 </tr>
 <tr>
 <td class="line" id="L42"><a href="#L42">42</a></td>
 <td class="hits"></td>
-<td class="source"><code>  end</code></td>
+<td class="source"><code>  scope "/api", AutonomousOpponentV2Web do</code></td>
 </tr>
 <tr>
 <td class="line" id="L43"><a href="#L43">43</a></td>
 <td class="hits"></td>
-<td class="source"><code></code></td>
+<td class="source"><code>    pipe_through :api</code></td>
 </tr>
 <tr>
 <td class="line" id="L44"><a href="#L44">44</a></td>
 <td class="hits"></td>
-<td class="source"><code>  # Enables the Swoosh mailbox preview in development.</code></td>
+<td class="source"><code>  end</code></td>
 </tr>
 <tr>
 <td class="line" id="L45"><a href="#L45">45</a></td>
 <td class="hits"></td>
-<td class="source"><code>  #</code></td>
+<td class="source"><code></code></td>
 </tr>
 <tr>
 <td class="line" id="L46"><a href="#L46">46</a></td>
 <td class="hits"></td>
-<td class="source"><code>  # For more information see: https://hexdocs.pm/swoosh/Swoosh.html#mailbox_preview/1</code></td>
+<td class="source"><code>  # Enables LiveDashboard only on development environment</code></td>
 </tr>
 <tr>
 <td class="line" id="L47"><a href="#L47">47</a></td>
 <td class="hits"></td>
-<td class="source"><code>  if Mix.env() == :dev do</code></td>
+<td class="source"><code>  # as it will show data from all your apps.</code></td>
 </tr>
 <tr>
 <td class="line" id="L48"><a href="#L48">48</a></td>
 <td class="hits"></td>
-<td class="source"><code>    scope "/dev/mailbox" do</code></td>
+<td class="source"><code>  if Mix.env() in [:dev, :test] do</code></td>
 </tr>
 <tr>
 <td class="line" id="L49"><a href="#L49">49</a></td>
 <td class="hits"></td>
-<td class="source"><code>      pipe_through [:browser]</code></td>
+<td class="source"><code>    scope "/dev/dashboard", host: "*" do</code></td>
 </tr>
 <tr>
 <td class="line" id="L50"><a href="#L50">50</a></td>
 <td class="hits"></td>
-<td class="source"><code>      forward "/", Plug.Swoosh.MailboxPreview</code></td>
+<td class="source"><code>      pipe_through [:browser]</code></td>
 </tr>
 <tr>
 <td class="line" id="L51"><a href="#L51">51</a></td>
 <td class="hits"></td>
+<td class="source"><code></code></td>
+</tr>
+<tr class="miss">
+<td class="line" id="L52"><a href="#L52">52</a></td>
+<td class="hits"><pre style="display: inline;">:-(</pre></td>
+<td class="source"><code>      live_dashboard("/",</code></td>
+</tr>
+<tr>
+<td class="line" id="L53"><a href="#L53">53</a></td>
+<td class="hits"></td>
+<td class="source"><code>        metrics: {AutonomousOpponentV2Web.Telemetry, :metrics}</code></td>
+</tr>
+<tr>
+<td class="line" id="L54"><a href="#L54">54</a></td>
+<td class="hits"></td>
+<td class="source"><code>      )</code></td>
+</tr>
+<tr>
+<td class="line" id="L55"><a href="#L55">55</a></td>
+<td class="hits"></td>
 <td class="source"><code>    end</code></td>
 </tr>
 <tr>
-<td class="line" id="L52"><a href="#L52">52</a></td>
+<td class="line" id="L56"><a href="#L56">56</a></td>
 <td class="hits"></td>
 <td class="source"><code>  end</code></td>
 </tr>
 <tr>
-<td class="line" id="L53"><a href="#L53">53</a></td>
+<td class="line" id="L57"><a href="#L57">57</a></td>
+<td class="hits"></td>
+<td class="source"><code></code></td>
+</tr>
+<tr>
+<td class="line" id="L58"><a href="#L58">58</a></td>
+<td class="hits"></td>
+<td class="source"><code>  # Enables the Swoosh mailbox preview in development.</code></td>
+</tr>
+<tr>
+<td class="line" id="L59"><a href="#L59">59</a></td>
+<td class="hits"></td>
+<td class="source"><code>  #</code></td>
+</tr>
+<tr>
+<td class="line" id="L60"><a href="#L60">60</a></td>
+<td class="hits"></td>
+<td class="source"><code>  # For more information see: https://hexdocs.pm/swoosh/Swoosh.html#mailbox_preview/1</code></td>
+</tr>
+<tr>
+<td class="line" id="L61"><a href="#L61">61</a></td>
+<td class="hits"></td>
+<td class="source"><code>  if Mix.env() == :dev do</code></td>
+</tr>
+<tr>
+<td class="line" id="L62"><a href="#L62">62</a></td>
+<td class="hits"></td>
+<td class="source"><code>    scope "/dev/mailbox" do</code></td>
+</tr>
+<tr>
+<td class="line" id="L63"><a href="#L63">63</a></td>
+<td class="hits"></td>
+<td class="source"><code>      pipe_through [:browser]</code></td>
+</tr>
+<tr>
+<td class="line" id="L64"><a href="#L64">64</a></td>
+<td class="hits"></td>
+<td class="source"><code>      forward "/", Plug.Swoosh.MailboxPreview</code></td>
+</tr>
+<tr>
+<td class="line" id="L65"><a href="#L65">65</a></td>
+<td class="hits"></td>
+<td class="source"><code>    end</code></td>
+</tr>
+<tr>
+<td class="line" id="L66"><a href="#L66">66</a></td>
+<td class="hits"></td>
+<td class="source"><code>  end</code></td>
+</tr>
+<tr>
+<td class="line" id="L67"><a href="#L67">67</a></td>
 <td class="hits"></td>
 <td class="source"><code>end</code></td>
 </tr>

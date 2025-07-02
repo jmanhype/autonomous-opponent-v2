@@ -51,7 +51,8 @@ defmodule AutonomousOpponentV2.MixProject do
       {:mix_audit, "~> 2.1", only: [:dev, :test], runtime: false},
       {:phoenix_live_dashboard, "~> 0.8.0"},
       {:heroicons, "~> 0.5"},
-      {:swoosh, "~> 1.5"}
+      {:swoosh, "~> 1.5"},
+      {:floki, ">= 0.30.0", only: :test}
     ]
   end
 

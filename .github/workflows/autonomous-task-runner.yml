@@ -136,7 +136,9 @@ jobs:
     - name: Create Pull Request
       uses: actions/github-script@v7
       with:
-        github-token: ${{ secrets.GITHUB_TOKEN }}
+        # Use PAT to allow triggering Claude workflows
+        # GITHUB_TOKEN cannot trigger other workflows
+        github-token: ${{ secrets.AUTONOMOUS_PAT || secrets.GITHUB_TOKEN }}
         script: |
           const taskId = ${{ matrix.task.id }};
           const branchName = '${{ steps.branch.outputs.branch_name }}';

@@ -599,6 +599,7 @@ jobs:
       if: env.ALGEDONIC_SIGNAL == 'severe_pain'
       uses: actions/github-script@v7
       with:
+        github-token: ${{ secrets.AUTONOMOUS_PAT || secrets.GITHUB_TOKEN }}
         script: |
           await github.rest.issues.create({
             owner: context.repo.owner,

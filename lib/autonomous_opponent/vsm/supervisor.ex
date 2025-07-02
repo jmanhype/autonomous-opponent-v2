@@ -137,8 +137,8 @@ defmodule AutonomousOpponent.VSM.Supervisor do
             # Try to call subsystem
             try do
               case subsystem do
-                :s1 -> Operations.get_operational_metrics(pid)
-                :s2 -> Coordination.get_coordination_status(pid)
+                :s1 -> Operations.get_metrics(pid)
+                :s2 -> Coordination.get_coordination_state(pid)
                 :s3 -> Control.get_resource_status(pid)
                 :s4 -> Intelligence.get_environmental_model(pid)
                 :s5 -> Policy.get_system_identity(pid)

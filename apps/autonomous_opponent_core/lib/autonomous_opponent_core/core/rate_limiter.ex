@@ -1,4 +1,4 @@
-defmodule AutonomousOpponent.Core.RateLimiter do
+defmodule AutonomousOpponentV2Core.Core.RateLimiter do
   @moduledoc """
   Token bucket rate limiter for variety flow control in VSM subsystems.
   Implements per-client and global rate limiting with burst handling.
@@ -45,7 +45,7 @@ defmodule AutonomousOpponent.Core.RateLimiter do
   use GenServer
   require Logger
 
-  alias AutonomousOpponentV2.EventBus
+  alias AutonomousOpponentV2Core.EventBus
 
   # Client API
 
@@ -228,6 +228,14 @@ defmodule AutonomousOpponent.Core.RateLimiter do
           severity: :medium,
           reason: {:rate_limited, scope},
           requested_tokens: tokens,
+          timestamp: System.monotonic_time(:millisecond)
+        })
+        
+        # Also publish specific rate limited event for metrics
+        EventBus.publish(:rate_limited, %{
+          name: state.name,
+          scope: scope,
+          tokens_requested: tokens,
           timestamp: System.monotonic_time(:millisecond)
         })
 
@@ -421,6 +429,16 @@ defmodule AutonomousOpponent.Core.RateLimiter do
       end)
 
     :ets.insert(state.metrics_table, {:variety_flow, updated_flow})
+    
+    # Publish variety flow event for metrics
+    if result == :allowed do
+      EventBus.publish(:variety_absorbed, %{
+        subsystem: subsystem,
+        source: :rate_limiter,
+        name: state.name,
+        timestamp: System.monotonic_time(:millisecond)
+      })
+    end
   end
 
   defp update_variety_metrics(_state, _scope, _result), do: :ok

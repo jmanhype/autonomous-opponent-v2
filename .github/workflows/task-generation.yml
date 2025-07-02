@@ -113,6 +113,7 @@ jobs:
     - name: Create Pull Request
       uses: actions/github-script@v7
       with:
+        github-token: ${{ secrets.AUTONOMOUS_PAT || secrets.GITHUB_TOKEN }}
         script: |
           const branchName = '${{ steps.create-pr.outputs.branch_name }}';
           const generationType = '${{ inputs.generation_type || 'analyze-gaps' }}';
@@ -165,6 +166,7 @@ jobs:
     - name: Generate Backlog Report
       uses: actions/github-script@v7
       with:
+        github-token: ${{ secrets.AUTONOMOUS_PAT || secrets.GITHUB_TOKEN }}
         script: |
           const fs = require('fs');
           const tasksData = JSON.parse(fs.readFileSync('.taskmaster/tasks/tasks.json', 'utf8'));

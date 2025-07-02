@@ -34,6 +34,7 @@ jobs:
         id: check
         uses: actions/github-script@v7
         with:
+        github-token: ${{ secrets.AUTONOMOUS_PAT || secrets.GITHUB_TOKEN }}
           script: |
             const pr = context.payload.pull_request;
             const hasAcceptanceCriteria = pr.body.includes('## Acceptance Criteria') || pr.body.includes('acceptance criteria');
@@ -58,6 +59,7 @@ jobs:
     - name: Request Claude Assistance
       uses: actions/github-script@v7
       with:
+        github-token: ${{ secrets.AUTONOMOUS_PAT || secrets.GITHUB_TOKEN }}
         script: |
           const pr = context.payload.pull_request;
           const comment = `@claude This PR is missing required sections. Please help by:
