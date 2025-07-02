@@ -286,7 +286,7 @@ jobs:
             4. Keep iterating until all checks are green
             
             Common issues to watch for:
-            - Formatting: Run \`mix format\` before committing
+            - Formatting: Run 'mix format' before committing
             - Test failures: Ensure new code has tests
             - Coverage: Add tests if coverage drops below threshold
             - Credo: Fix any code style issues
