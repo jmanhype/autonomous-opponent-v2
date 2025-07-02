@@ -19,10 +19,9 @@ jobs:
       (github.event_name == 'pull_request' && contains(github.event.pull_request.body, '@claude'))
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write
       pull-requests: write
       issues: write
-      id-token: write
     
     steps:
       - uses: actions/checkout@v4
@@ -30,9 +29,5 @@ jobs:
       - name: Run Claude
         uses: grll/claude-code-action@beta
         with:
-          use_oauth: true
-          claude_access_token: ${{ secrets.CLAUDE_ACCESS_TOKEN }}
-          claude_refresh_token: ${{ secrets.CLAUDE_REFRESH_TOKEN }}
-          claude_expires_at: ${{ secrets.CLAUDE_EXPIRES_AT }}
-          secrets_admin_pat: ${{ secrets.SECRETS_ADMIN_PAT }}
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           timeout_minutes: "60"
