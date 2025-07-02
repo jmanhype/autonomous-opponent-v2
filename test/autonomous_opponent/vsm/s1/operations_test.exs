@@ -5,16 +5,16 @@ defmodule AutonomousOpponent.VSM.S1.OperationsTest do
   alias AutonomousOpponent.EventBus
 
   setup do
-    # Start EventBus for testing if not already started
+    # EventBus is already started by the application supervisor
+    # If not running, start it (for isolated tests)
     case Process.whereis(EventBus) do
-      nil -> 
-        {:ok, _} = EventBus.start_link()
-      _pid -> 
-        :ok
+      nil -> {:ok, _} = EventBus.start_link()
+      _pid -> :ok
     end
 
-    # Start S1 Operations
-    {:ok, pid} = Operations.start_link(id: "test_s1", name: nil)
+    # Start S1 Operations with a unique name to avoid conflicts
+    unique_name = :"test_s1_#{System.unique_integer()}"
+    {:ok, pid} = Operations.start_link(id: "test_s1", name: unique_name)
 
     {:ok, pid: pid}
   end
