@@ -9,7 +9,7 @@ defmodule AutonomousOpponent.Core.RateLimiterTest do
         name: :test_limiter,
         bucket_size: 10,
         refill_rate: 5,
-        refill_interval_ms: 100
+        refill_interval_ms: 100,
       )
 
     on_exit(fn ->

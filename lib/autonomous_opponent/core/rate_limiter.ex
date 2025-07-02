@@ -181,8 +181,8 @@ defmodule AutonomousOpponent.Core.RateLimiter do
       config: %{
         bucket_size: state.bucket_size,
         refill_rate: state.refill_rate,
-        refill_interval_ms: state.refill_interval_ms
-      }
+        refill_interval_ms: state.refill_interval_ms,
+      },
     })
 
     {:ok, state}
@@ -208,7 +208,7 @@ defmodule AutonomousOpponent.Core.RateLimiter do
           EventBus.publish(:rate_limit_allowed, %{
             name: state.name,
             scope: scope,
-            tokens_remaining: remaining
+            tokens_remaining: remaining,
           })
         end
 
@@ -228,7 +228,7 @@ defmodule AutonomousOpponent.Core.RateLimiter do
           severity: :medium,
           reason: {:rate_limited, scope},
           requested_tokens: tokens,
-          timestamp: System.monotonic_time(:millisecond)
+          timestamp: System.monotonic_time(:millisecond),
         })
 
         {:reply, {:error, :rate_limited}, state}
@@ -249,7 +249,7 @@ defmodule AutonomousOpponent.Core.RateLimiter do
     metrics = %{
       total_requests: :ets.lookup_element(state.metrics_table, :total_requests, 2),
       total_allowed: :ets.lookup_element(state.metrics_table, :total_allowed, 2),
-      total_limited: :ets.lookup_element(state.metrics_table, :total_limited, 2)
+      total_limited: :ets.lookup_element(state.metrics_table, :total_limited, 2),
     }
 
     reply = %{
@@ -257,7 +257,7 @@ defmodule AutonomousOpponent.Core.RateLimiter do
       subsystem_tokens: subsystem_tokens,
       bucket_size: state.bucket_size,
       refill_rate: state.refill_rate,
-      metrics: metrics
+      metrics: metrics,
     }
 
     {:reply, reply, state}
