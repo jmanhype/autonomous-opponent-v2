@@ -74,10 +74,10 @@ jobs:
           BODY="${{ github.event.pull_request.body }}"
         fi
         
-        # Store for later use (escape for multiline)
-        echo "content_body<<EOF" >> $GITHUB_OUTPUT
-        echo "$BODY" >> $GITHUB_OUTPUT
-        echo "EOF" >> $GITHUB_OUTPUT
+        # Store for later use (escape special characters)
+        # Use base64 encoding to safely store the body content
+        BODY_ENCODED=$(echo "$BODY" | base64 -w 0)
+        echo "content_body=$BODY_ENCODED" >> $GITHUB_OUTPUT
         
         # Analyze task type using S4 intelligence
         if echo "$BODY" | grep -qi "review\|analyze\|explain\|describe"; then
