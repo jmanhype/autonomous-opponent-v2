@@ -2,7 +2,7 @@
 <html>
 <head>
 <meta charset="utf-8">
-<title>cover/Elixir.AutonomousOpponentV2Web.CoreComponents.html</title>
+<title>cover/Elixir.AutonomousOpponentV2Core.AMCP.ConnectionManager.html</title>
 <style>body {
   font: 14px/1.6 "Helvetica Neue", Helvetica, Arial, sans-serif;
   margin: 0;
@@ -102,39 +102,39 @@ td.source {
 </style>
 </head>
 <body>
-<h1><code>cover/Elixir.AutonomousOpponentV2Web.CoreComponents.html</code></h1>
-<footer><p>File generated from <code>/home/batmanosama/autonomous-opponent-proper/autonomous_opponent_v2/apps/autonomous_opponent_web/lib/autonomous_opponent_web/core_components.ex</code> by <a href="http://erlang.org/doc/man/cover.html">cover</a> at 2025-07-02 at 12:27:52</p></footer>
+<h1><code>cover/Elixir.AutonomousOpponentV2Core.AMCP.ConnectionManager.html</code></h1>
+<footer><p>File generated from <code>/home/batmanosama/autonomous-opponent-proper/autonomous_opponent_v2/apps/autonomous_opponent_core/lib/autonomous_opponent_core/amcp/connection_manager.ex</code> by <a href="http://erlang.org/doc/man/cover.html">cover</a> at 2025-07-02 at 12:27:23</p></footer>
 <table>
 <tbody>
-<tr class="hit">
-<td class="line" id="L1"><a href="#L1">1</a></td>
-<td class="hits">2</td>
-<td class="source"><code>defmodule AutonomousOpponentV2Web.CoreComponents do</code></td>
-</tr>
 <tr>
-<td class="line" id="L2"><a href="#L2">2</a></td>
+<td class="line" id="L1"><a href="#L1">1</a></td>
 <td class="hits"></td>
-<td class="source"><code>  @moduledoc """</code></td>
+<td class="source"><code># This module is conditionally compiled based on AMQP availability</code></td>
+</tr>
+<tr class="miss">
+<td class="line" id="L2"><a href="#L2">2</a></td>
+<td class="hits"><pre style="display: inline;">:-(</pre></td>
+<td class="source"><code>if Code.ensure_loaded?(AMQP) do</code></td>
 </tr>
 <tr>
 <td class="line" id="L3"><a href="#L3">3</a></td>
 <td class="hits"></td>
-<td class="source"><code>  Provides core UI components.</code></td>
+<td class="source"><code>  defmodule AutonomousOpponentV2Core.AMCP.ConnectionManager do</code></td>
 </tr>
 <tr>
 <td class="line" id="L4"><a href="#L4">4</a></td>
 <td class="hits"></td>
-<td class="source"><code>  """</code></td>
+<td class="source"><code>    @moduledoc """</code></td>
 </tr>
 <tr>
 <td class="line" id="L5"><a href="#L5">5</a></td>
 <td class="hits"></td>
-<td class="source"><code>  use Phoenix.Component</code></td>
+<td class="source"><code>    Manages the AMQP connection and channel for the aMCP.</code></td>
 </tr>
 <tr>
 <td class="line" id="L6"><a href="#L6">6</a></td>
 <td class="hits"></td>
-<td class="source"><code>  use Gettext, backend: AutonomousOpponentV2Web.Gettext</code></td>
+<td class="source"><code>    Ensures a persistent and reliable connection to RabbitMQ.</code></td>
 </tr>
 <tr>
 <td class="line" id="L7"><a href="#L7">7</a></td>
@@ -144,27 +144,27 @@ td.source {
 <tr>
 <td class="line" id="L8"><a href="#L8">8</a></td>
 <td class="hits"></td>
-<td class="source"><code>  attr :flash, :map, required: true</code></td>
+<td class="source"><code>    **Wisdom Preservation:** Centralizing connection management prevents resource leaks,</code></td>
 </tr>
 <tr>
 <td class="line" id="L9"><a href="#L9">9</a></td>
 <td class="hits"></td>
-<td class="source"><code>  attr :kind, :atom, required: true</code></td>
+<td class="source"><code>    simplifies error handling, and provides a single point of control for RabbitMQ interactions.</code></td>
 </tr>
 <tr>
 <td class="line" id="L10"><a href="#L10">10</a></td>
 <td class="hits"></td>
-<td class="source"><code>  attr :title, :string, default: nil</code></td>
+<td class="source"><code>    """</code></td>
 </tr>
 <tr>
 <td class="line" id="L11"><a href="#L11">11</a></td>
 <td class="hits"></td>
-<td class="source"><code>  attr :class, :string, default: nil</code></td>
+<td class="source"><code>    use GenServer</code></td>
 </tr>
 <tr>
 <td class="line" id="L12"><a href="#L12">12</a></td>
 <td class="hits"></td>
-<td class="source"><code>  slot :inner_block</code></td>
+<td class="source"><code>    require Logger</code></td>
 </tr>
 <tr>
 <td class="line" id="L13"><a href="#L13">13</a></td>
@@ -174,107 +174,107 @@ td.source {
 <tr>
 <td class="line" id="L14"><a href="#L14">14</a></td>
 <td class="hits"></td>
-<td class="source"><code>  def flash_group(assigns) do</code></td>
+<td class="source"><code>    alias AMQP.Channel</code></td>
 </tr>
-<tr class="hit">
+<tr>
 <td class="line" id="L15"><a href="#L15">15</a></td>
-<td class="hits">1</td>
-<td class="source"><code>    ~H"""</code></td>
+<td class="hits"></td>
+<td class="source"><code>    alias AMQP.Connection</code></td>
 </tr>
-<tr class="miss">
+<tr>
 <td class="line" id="L16"><a href="#L16">16</a></td>
-<td class="hits"><pre style="display: inline;">:-(</pre></td>
-<td class="source"><code>    &lt;div</code></td>
+<td class="hits"></td>
+<td class="source"><code>    alias Application</code></td>
 </tr>
-<tr class="miss">
+<tr>
 <td class="line" id="L17"><a href="#L17">17</a></td>
-<td class="hits"><pre style="display: inline;">:-(</pre></td>
-<td class="source"><code>      :if={@flash}</code></td>
+<td class="hits"></td>
+<td class="source"><code>    alias AutonomousOpponentV2Core.AMCP.Topology</code></td>
 </tr>
 <tr>
 <td class="line" id="L18"><a href="#L18">18</a></td>
 <td class="hits"></td>
-<td class="source"><code>      id="flash-group"</code></td>
+<td class="source"><code></code></td>
 </tr>
-<tr class="miss">
+<tr>
 <td class="line" id="L19"><a href="#L19">19</a></td>
-<td class="hits"><pre style="display: inline;">:-(</pre></td>
-<td class="source"><code>      phx-click={Phoenix.LiveView.JS.hide(to: "#flash-group-alert-#{@kind}")}</code></td>
+<td class="hits"></td>
+<td class="source"><code>    def start_link(opts) do</code></td>
 </tr>
 <tr>
 <td class="line" id="L20"><a href="#L20">20</a></td>
 <td class="hits"></td>
-<td class="source"><code>      phx-target="window"</code></td>
+<td class="source"><code>      GenServer.start_link(__MODULE__, opts, name: __MODULE__)</code></td>
 </tr>
-<tr class="miss">
+<tr>
 <td class="line" id="L21"><a href="#L21">21</a></td>
-<td class="hits"><pre style="display: inline;">:-(</pre></td>
-<td class="source"><code>      class={["pointer-events-none fixed top-2 right-2 z-50 flex w-full max-w-sm flex-col space-y-4", @class]}</code></td>
+<td class="hits"></td>
+<td class="source"><code>    end</code></td>
 </tr>
 <tr>
 <td class="line" id="L22"><a href="#L22">22</a></td>
 <td class="hits"></td>
-<td class="source"><code>    &gt;</code></td>
+<td class="source"><code></code></td>
 </tr>
-<tr class="miss">
+<tr>
 <td class="line" id="L23"><a href="#L23">23</a></td>
-<td class="hits"><pre style="display: inline;">:-(</pre></td>
-<td class="source"><code>      &lt;.flash</code></td>
+<td class="hits"></td>
+<td class="source"><code>    @impl true</code></td>
 </tr>
-<tr class="miss">
+<tr>
 <td class="line" id="L24"><a href="#L24">24</a></td>
-<td class="hits"><pre style="display: inline;">:-(</pre></td>
-<td class="source"><code>        :if={@flash[@kind]}</code></td>
+<td class="hits"></td>
+<td class="source"><code>    def init(_opts) do</code></td>
 </tr>
-<tr class="miss">
+<tr>
 <td class="line" id="L25"><a href="#L25">25</a></td>
-<td class="hits"><pre style="display: inline;">:-(</pre></td>
-<td class="source"><code>        kind={@kind}</code></td>
+<td class="hits"></td>
+<td class="source"><code>      Logger.info("Connecting to RabbitMQ...")</code></td>
 </tr>
-<tr class="miss">
+<tr>
 <td class="line" id="L26"><a href="#L26">26</a></td>
-<td class="hits"><pre style="display: inline;">:-(</pre></td>
-<td class="source"><code>        title={@title}</code></td>
+<td class="hits"></td>
+<td class="source"><code>      connection_opts = Application.get_env(:autonomous_opponent_core, :amqp_connection)</code></td>
 </tr>
-<tr class="miss">
+<tr>
 <td class="line" id="L27"><a href="#L27">27</a></td>
-<td class="hits"><pre style="display: inline;">:-(</pre></td>
-<td class="source"><code>        flash={@flash}</code></td>
+<td class="hits"></td>
+<td class="source"><code>      {:ok, connection} = Connection.open(connection_opts)</code></td>
 </tr>
 <tr>
 <td class="line" id="L28"><a href="#L28">28</a></td>
 <td class="hits"></td>
-<td class="source"><code>        class="pointer-events-auto"</code></td>
+<td class="source"><code>      {:ok, channel} = Channel.open(connection)</code></td>
 </tr>
 <tr>
 <td class="line" id="L29"><a href="#L29">29</a></td>
 <td class="hits"></td>
-<td class="source"><code>      &gt;</code></td>
+<td class="source"><code></code></td>
 </tr>
-<tr class="miss">
+<tr>
 <td class="line" id="L30"><a href="#L30">30</a></td>
-<td class="hits"><pre style="display: inline;">:-(</pre></td>
-<td class="source"><code>        &lt;%= render_slot(@inner_block) || @flash[@kind] %&gt;</code></td>
+<td class="hits"></td>
+<td class="source"><code>      # Declare topology on startup</code></td>
 </tr>
 <tr>
 <td class="line" id="L31"><a href="#L31">31</a></td>
 <td class="hits"></td>
-<td class="source"><code>      &lt;/.flash&gt;</code></td>
+<td class="source"><code>      Topology.declare_topology(channel)</code></td>
 </tr>
 <tr>
 <td class="line" id="L32"><a href="#L32">32</a></td>
 <td class="hits"></td>
-<td class="source"><code>    &lt;/div&gt;</code></td>
+<td class="source"><code></code></td>
 </tr>
 <tr>
 <td class="line" id="L33"><a href="#L33">33</a></td>
 <td class="hits"></td>
-<td class="source"><code>    """</code></td>
+<td class="source"><code>      {:ok, %{connection: connection, channel: channel}}</code></td>
 </tr>
 <tr>
 <td class="line" id="L34"><a href="#L34">34</a></td>
 <td class="hits"></td>
-<td class="source"><code>  end</code></td>
+<td class="source"><code>    end</code></td>
 </tr>
 <tr>
 <td class="line" id="L35"><a href="#L35">35</a></td>
@@ -284,187 +284,187 @@ td.source {
 <tr>
 <td class="line" id="L36"><a href="#L36">36</a></td>
 <td class="hits"></td>
-<td class="source"><code>  attr :flash, :map, required: true</code></td>
+<td class="source"><code>    @impl true</code></td>
 </tr>
 <tr>
 <td class="line" id="L37"><a href="#L37">37</a></td>
 <td class="hits"></td>
-<td class="source"><code>  attr :kind, :atom, required: true</code></td>
+<td class="source"><code>    def handle_call(:get_channel, _from, state) do</code></td>
 </tr>
 <tr>
 <td class="line" id="L38"><a href="#L38">38</a></td>
 <td class="hits"></td>
-<td class="source"><code>  attr :title, :string, default: nil</code></td>
+<td class="source"><code>      {:reply, state.channel, state}</code></td>
 </tr>
 <tr>
 <td class="line" id="L39"><a href="#L39">39</a></td>
 <td class="hits"></td>
-<td class="source"><code>  attr :class, :string, default: nil</code></td>
+<td class="source"><code>    end</code></td>
 </tr>
 <tr>
 <td class="line" id="L40"><a href="#L40">40</a></td>
 <td class="hits"></td>
-<td class="source"><code>  slot :inner_block</code></td>
+<td class="source"><code></code></td>
 </tr>
 <tr>
 <td class="line" id="L41"><a href="#L41">41</a></td>
 <td class="hits"></td>
-<td class="source"><code></code></td>
+<td class="source"><code>    @impl true</code></td>
 </tr>
 <tr>
 <td class="line" id="L42"><a href="#L42">42</a></td>
 <td class="hits"></td>
-<td class="source"><code>  def flash(assigns) do</code></td>
+<td class="source"><code>    def terminate(_reason, state) do</code></td>
 </tr>
-<tr class="hit">
+<tr>
 <td class="line" id="L43"><a href="#L43">43</a></td>
-<td class="hits">1</td>
-<td class="source"><code>    ~H"""</code></td>
+<td class="hits"></td>
+<td class="source"><code>      Logger.info("Closing RabbitMQ connection...")</code></td>
 </tr>
 <tr>
 <td class="line" id="L44"><a href="#L44">44</a></td>
 <td class="hits"></td>
-<td class="source"><code>    &lt;div</code></td>
+<td class="source"><code>      Connection.close(state.connection)</code></td>
 </tr>
-<tr class="miss">
+<tr>
 <td class="line" id="L45"><a href="#L45">45</a></td>
-<td class="hits"><pre style="display: inline;">:-(</pre></td>
-<td class="source"><code>      id={"flash-group-alert-#{@kind}"}</code></td>
+<td class="hits"></td>
+<td class="source"><code>      :ok</code></td>
 </tr>
 <tr>
 <td class="line" id="L46"><a href="#L46">46</a></td>
 <td class="hits"></td>
-<td class="source"><code>      phx-leave-active="transition ease-in duration-150"</code></td>
+<td class="source"><code>    end</code></td>
 </tr>
 <tr>
 <td class="line" id="L47"><a href="#L47">47</a></td>
 <td class="hits"></td>
-<td class="source"><code>      phx-leave-from="opacity-100"</code></td>
+<td class="source"><code></code></td>
 </tr>
 <tr>
 <td class="line" id="L48"><a href="#L48">48</a></td>
 <td class="hits"></td>
-<td class="source"><code>      phx-leave-to="opacity-0"</code></td>
+<td class="source"><code>    @doc """</code></td>
 </tr>
 <tr>
 <td class="line" id="L49"><a href="#L49">49</a></td>
 <td class="hits"></td>
-<td class="source"><code>      role="alert"</code></td>
+<td class="source"><code>    Returns the AMQP channel for publishing and consuming messages.</code></td>
 </tr>
 <tr>
 <td class="line" id="L50"><a href="#L50">50</a></td>
 <td class="hits"></td>
-<td class="source"><code>      class={[</code></td>
+<td class="source"><code>    """</code></td>
 </tr>
 <tr>
 <td class="line" id="L51"><a href="#L51">51</a></td>
 <td class="hits"></td>
-<td class="source"><code>        "relative rounded-lg p-4 pr-10",</code></td>
+<td class="source"><code>    def get_channel do</code></td>
 </tr>
-<tr class="miss">
+<tr>
 <td class="line" id="L52"><a href="#L52">52</a></td>
-<td class="hits"><pre style="display: inline;">:-(</pre></td>
-<td class="source"><code>        @class,</code></td>
+<td class="hits"></td>
+<td class="source"><code>      GenServer.call(__MODULE__, :get_channel)</code></td>
 </tr>
-<tr class="miss">
+<tr>
 <td class="line" id="L53"><a href="#L53">53</a></td>
-<td class="hits"><pre style="display: inline;">:-(</pre></td>
-<td class="source"><code>        if(@kind == :info, do: " bg-green-50 text-green-800", else: ""),</code></td>
+<td class="hits"></td>
+<td class="source"><code>    end</code></td>
 </tr>
-<tr class="miss">
+<tr>
 <td class="line" id="L54"><a href="#L54">54</a></td>
-<td class="hits"><pre style="display: inline;">:-(</pre></td>
-<td class="source"><code>        if(@kind == :error, do: " bg-red-50 text-red-800", else: "")</code></td>
-</tr>
-<tr>
-<td class="line" id="L55"><a href="#L55">55</a></td>
-<td class="hits"></td>
-<td class="source"><code>      ]}</code></td>
-</tr>
-<tr>
-<td class="line" id="L56"><a href="#L56">56</a></td>
-<td class="hits"></td>
-<td class="source"><code>    &gt;</code></td>
-</tr>
-<tr class="miss">
-<td class="line" id="L57"><a href="#L57">57</a></td>
-<td class="hits"><pre style="display: inline;">:-(</pre></td>
-<td class="source"><code>      &lt;p :if={@title} class="font-semibold"&gt;&lt;%= @title %&gt;&lt;/p&gt;</code></td>
-</tr>
-<tr class="miss">
-<td class="line" id="L58"><a href="#L58">58</a></td>
-<td class="hits"><pre style="display: inline;">:-(</pre></td>
-<td class="source"><code>      &lt;p class="text-sm"&gt;&lt;%= render_slot(@inner_block) %&gt;&lt;/p&gt;</code></td>
-</tr>
-<tr class="miss">
-<td class="line" id="L59"><a href="#L59">59</a></td>
-<td class="hits"><pre style="display: inline;">:-(</pre></td>
-<td class="source"><code>      &lt;button</code></td>
-</tr>
-<tr>
-<td class="line" id="L60"><a href="#L60">60</a></td>
-<td class="hits"></td>
-<td class="source"><code>        type="button"</code></td>
-</tr>
-<tr>
-<td class="line" id="L61"><a href="#L61">61</a></td>
-<td class="hits"></td>
-<td class="source"><code>        class="absolute top-3 right-3"</code></td>
-</tr>
-<tr>
-<td class="line" id="L62"><a href="#L62">62</a></td>
-<td class="hits"></td>
-<td class="source"><code>        aria-label={gettext("Close")}</code></td>
-</tr>
-<tr class="miss">
-<td class="line" id="L63"><a href="#L63">63</a></td>
-<td class="hits"><pre style="display: inline;">:-(</pre></td>
-<td class="source"><code>        phx-click={Phoenix.LiveView.JS.hide(to: "#flash-group-alert-#{@kind}")}</code></td>
-</tr>
-<tr>
-<td class="line" id="L64"><a href="#L64">64</a></td>
-<td class="hits"></td>
-<td class="source"><code>      &gt;</code></td>
-</tr>
-<tr>
-<td class="line" id="L65"><a href="#L65">65</a></td>
-<td class="hits"></td>
-<td class="source"><code>        &lt;span class="h-5 w-5"&gt;&lt;/span&gt;</code></td>
-</tr>
-<tr>
-<td class="line" id="L66"><a href="#L66">66</a></td>
-<td class="hits"></td>
-<td class="source"><code>      &lt;/button&gt;</code></td>
-</tr>
-<tr>
-<td class="line" id="L67"><a href="#L67">67</a></td>
-<td class="hits"></td>
-<td class="source"><code>    &lt;/div&gt;</code></td>
-</tr>
-<tr>
-<td class="line" id="L68"><a href="#L68">68</a></td>
-<td class="hits"></td>
-<td class="source"><code>    """</code></td>
-</tr>
-<tr>
-<td class="line" id="L69"><a href="#L69">69</a></td>
 <td class="hits"></td>
 <td class="source"><code>  end</code></td>
 </tr>
 <tr>
-<td class="line" id="L70"><a href="#L70">70</a></td>
+<td class="line" id="L55"><a href="#L55">55</a></td>
+<td class="hits"></td>
+<td class="source"><code>else</code></td>
+</tr>
+<tr>
+<td class="line" id="L56"><a href="#L56">56</a></td>
+<td class="hits"></td>
+<td class="source"><code>  # Stub implementation when AMQP is not available</code></td>
+</tr>
+<tr>
+<td class="line" id="L57"><a href="#L57">57</a></td>
+<td class="hits"></td>
+<td class="source"><code>  defmodule AutonomousOpponentV2Core.AMCP.ConnectionManager do</code></td>
+</tr>
+<tr>
+<td class="line" id="L58"><a href="#L58">58</a></td>
+<td class="hits"></td>
+<td class="source"><code>    @moduledoc """</code></td>
+</tr>
+<tr>
+<td class="line" id="L59"><a href="#L59">59</a></td>
+<td class="hits"></td>
+<td class="source"><code>    Stub implementation of AMCP ConnectionManager when AMQP is not available.</code></td>
+</tr>
+<tr>
+<td class="line" id="L60"><a href="#L60">60</a></td>
+<td class="hits"></td>
+<td class="source"><code>    """</code></td>
+</tr>
+<tr>
+<td class="line" id="L61"><a href="#L61">61</a></td>
+<td class="hits"></td>
+<td class="source"><code>    use GenServer</code></td>
+</tr>
+<tr>
+<td class="line" id="L62"><a href="#L62">62</a></td>
+<td class="hits"></td>
+<td class="source"><code>    require Logger</code></td>
+</tr>
+<tr>
+<td class="line" id="L63"><a href="#L63">63</a></td>
 <td class="hits"></td>
 <td class="source"><code></code></td>
 </tr>
 <tr>
+<td class="line" id="L64"><a href="#L64">64</a></td>
+<td class="hits"></td>
+<td class="source"><code>    def start_link(opts) do</code></td>
+</tr>
+<tr class="miss">
+<td class="line" id="L65"><a href="#L65">65</a></td>
+<td class="hits"><pre style="display: inline;">:-(</pre></td>
+<td class="source"><code>      GenServer.start_link(__MODULE__, opts, name: __MODULE__)</code></td>
+</tr>
+<tr>
+<td class="line" id="L66"><a href="#L66">66</a></td>
+<td class="hits"></td>
+<td class="source"><code>    end</code></td>
+</tr>
+<tr>
+<td class="line" id="L67"><a href="#L67">67</a></td>
+<td class="hits"></td>
+<td class="source"><code></code></td>
+</tr>
+<tr>
+<td class="line" id="L68"><a href="#L68">68</a></td>
+<td class="hits"></td>
+<td class="source"><code>    @impl true</code></td>
+</tr>
+<tr>
+<td class="line" id="L69"><a href="#L69">69</a></td>
+<td class="hits"></td>
+<td class="source"><code>    def init(_opts) do</code></td>
+</tr>
+<tr class="miss">
+<td class="line" id="L70"><a href="#L70">70</a></td>
+<td class="hits"><pre style="display: inline;">:-(</pre></td>
+<td class="source"><code>      Logger.warning("AMQP ConnectionManager running in stub mode - AMQP not available")</code></td>
+</tr>
+<tr>
 <td class="line" id="L71"><a href="#L71">71</a></td>
 <td class="hits"></td>
-<td class="source"><code>  attr :name, :string, required: true</code></td>
+<td class="source"><code>      {:ok, %{}}</code></td>
 </tr>
 <tr>
 <td class="line" id="L72"><a href="#L72">72</a></td>
 <td class="hits"></td>
-<td class="source"><code>  attr :class, :string, default: nil</code></td>
+<td class="source"><code>    end</code></td>
 </tr>
 <tr>
 <td class="line" id="L73"><a href="#L73">73</a></td>
@@ -474,40 +474,75 @@ td.source {
 <tr>
 <td class="line" id="L74"><a href="#L74">74</a></td>
 <td class="hits"></td>
-<td class="source"><code>  def icon(assigns) do</code></td>
+<td class="source"><code>    @impl true</code></td>
 </tr>
-<tr class="miss">
+<tr>
 <td class="line" id="L75"><a href="#L75">75</a></td>
-<td class="hits"><pre style="display: inline;">:-(</pre></td>
-<td class="source"><code>    ~H"""</code></td>
+<td class="hits"></td>
+<td class="source"><code>    def handle_call(:get_channel, _from, state) do</code></td>
 </tr>
 <tr class="miss">
 <td class="line" id="L76"><a href="#L76">76</a></td>
 <td class="hits"><pre style="display: inline;">:-(</pre></td>
-<td class="source"><code>    &lt;span class={["inline-flex", @class]}&gt;</code></td>
+<td class="source"><code>      {:reply, {:error, :amqp_not_available}, state}</code></td>
 </tr>
-<tr class="miss">
+<tr>
 <td class="line" id="L77"><a href="#L77">77</a></td>
-<td class="hits"><pre style="display: inline;">:-(</pre></td>
-<td class="source"><code>      &lt;!-- Icon placeholder: &lt;%= @name %&gt; --&gt;</code></td>
+<td class="hits"></td>
+<td class="source"><code>    end</code></td>
 </tr>
 <tr>
 <td class="line" id="L78"><a href="#L78">78</a></td>
 <td class="hits"></td>
-<td class="source"><code>    &lt;/span&gt;</code></td>
+<td class="source"><code></code></td>
 </tr>
 <tr>
 <td class="line" id="L79"><a href="#L79">79</a></td>
 <td class="hits"></td>
-<td class="source"><code>    """</code></td>
+<td class="source"><code>    @impl true</code></td>
+</tr>
+<tr class="miss">
+<td class="line" id="L80"><a href="#L80">80</a></td>
+<td class="hits"><pre style="display: inline;">:-(</pre></td>
+<td class="source"><code>    def terminate(_reason, _state) do</code></td>
 </tr>
 <tr>
-<td class="line" id="L80"><a href="#L80">80</a></td>
+<td class="line" id="L81"><a href="#L81">81</a></td>
+<td class="hits"></td>
+<td class="source"><code>      :ok</code></td>
+</tr>
+<tr>
+<td class="line" id="L82"><a href="#L82">82</a></td>
+<td class="hits"></td>
+<td class="source"><code>    end</code></td>
+</tr>
+<tr>
+<td class="line" id="L83"><a href="#L83">83</a></td>
+<td class="hits"></td>
+<td class="source"><code></code></td>
+</tr>
+<tr>
+<td class="line" id="L84"><a href="#L84">84</a></td>
+<td class="hits"></td>
+<td class="source"><code>    def get_channel do</code></td>
+</tr>
+<tr class="miss">
+<td class="line" id="L85"><a href="#L85">85</a></td>
+<td class="hits"><pre style="display: inline;">:-(</pre></td>
+<td class="source"><code>      GenServer.call(__MODULE__, :get_channel)</code></td>
+</tr>
+<tr>
+<td class="line" id="L86"><a href="#L86">86</a></td>
+<td class="hits"></td>
+<td class="source"><code>    end</code></td>
+</tr>
+<tr>
+<td class="line" id="L87"><a href="#L87">87</a></td>
 <td class="hits"></td>
 <td class="source"><code>  end</code></td>
 </tr>
 <tr>
-<td class="line" id="L81"><a href="#L81">81</a></td>
+<td class="line" id="L88"><a href="#L88">88</a></td>
 <td class="hits"></td>
 <td class="source"><code>end</code></td>
 </tr>

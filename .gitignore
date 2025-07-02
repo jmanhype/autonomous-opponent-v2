@@ -3,6 +3,8 @@
 
 # If you run "mix test --cover", coverage assets end up here.
 /cover/
+*/cover/
+apps/*/cover/
 
 # The directory Mix downloads your dependencies sources to.
 /deps/
@@ -21,6 +23,9 @@ autonomous_opponent_v2-*.tar
 
 # Temporary files, for example, from tests.
 /tmp/
+*/tmp/
+apps/*/tmp/
+apps/*/priv/metrics/
 
 # Configuration files with secrets
 config/llm_config.json

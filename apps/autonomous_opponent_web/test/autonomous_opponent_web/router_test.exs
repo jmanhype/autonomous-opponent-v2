@@ -7,8 +7,7 @@ defmodule AutonomousOpponentV2Web.RouterTest do
   end
 
   test "unknown routes return 404", %{conn: conn} do
-    assert_error_sent 404, fn ->
-      get(conn, "/nonexistent")
-    end
+    conn = get(conn, "/nonexistent")
+    assert conn.status == 404
   end
 end

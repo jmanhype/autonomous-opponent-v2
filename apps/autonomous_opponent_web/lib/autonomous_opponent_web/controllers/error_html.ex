@@ -33,5 +33,5 @@ defmodule AutonomousOpponentV2Web.ErrorHTML do
   #       # your custom 403 page
   #     end
   #
-  embed_templates "controllers/error_html/*"
+  embed_templates "error_html/*"
 end

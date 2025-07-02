@@ -29,6 +29,12 @@ defmodule AutonomousOpponentV2Web.Router do
   scope "/", AutonomousOpponentV2Web do
     get "/metrics", MetricsController, :index
   end
+  
+  # Health check endpoint
+  scope "/", AutonomousOpponentV2Web do
+    pipe_through :api
+    get "/health", HealthCheckController, :index
+  end
 
   # Other scopes may use the generated code from Phoenix
   # for controllers and views, but here you can control

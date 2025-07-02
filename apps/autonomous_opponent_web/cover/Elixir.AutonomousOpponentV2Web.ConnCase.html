@@ -2,7 +2,7 @@
 <html>
 <head>
 <meta charset="utf-8">
-<title>cover/Elixir.AutonomousOpponentV2Web.Application.html</title>
+<title>cover/Elixir.AutonomousOpponentV2Web.ConnCase.html</title>
 <style>body {
   font: 14px/1.6 "Helvetica Neue", Helvetica, Arial, sans-serif;
   margin: 0;
@@ -102,29 +102,29 @@ td.source {
 </style>
 </head>
 <body>
-<h1><code>cover/Elixir.AutonomousOpponentV2Web.Application.html</code></h1>
-<footer><p>File generated from <code>/home/batmanosama/autonomous-opponent-proper/autonomous_opponent_v2/apps/autonomous_opponent_web/lib/autonomous_opponent_web/application.ex</code> by <a href="http://erlang.org/doc/man/cover.html">cover</a> at 2025-07-02 at 12:27:52</p></footer>
+<h1><code>cover/Elixir.AutonomousOpponentV2Web.ConnCase.html</code></h1>
+<footer><p>File generated from <code>/home/batmanosama/autonomous-opponent-proper/autonomous_opponent_v2/apps/autonomous_opponent_web/test/support/conn_case.ex</code> by <a href="http://erlang.org/doc/man/cover.html">cover</a> at 2025-07-02 at 12:27:52</p></footer>
 <table>
 <tbody>
-<tr>
+<tr class="hit">
 <td class="line" id="L1"><a href="#L1">1</a></td>
-<td class="hits"></td>
-<td class="source"><code>defmodule AutonomousOpponentV2Web.Application do</code></td>
+<td class="hits">10</td>
+<td class="source"><code>defmodule AutonomousOpponentV2Web.ConnCase do</code></td>
 </tr>
 <tr>
 <td class="line" id="L2"><a href="#L2">2</a></td>
 <td class="hits"></td>
-<td class="source"><code>  # See https://hexdocs.pm/elixir/Application.html</code></td>
+<td class="source"><code>  @moduledoc """</code></td>
 </tr>
 <tr>
 <td class="line" id="L3"><a href="#L3">3</a></td>
 <td class="hits"></td>
-<td class="source"><code>  # for more information on OTP Applications</code></td>
+<td class="source"><code>  This module defines the test case to be used by</code></td>
 </tr>
 <tr>
 <td class="line" id="L4"><a href="#L4">4</a></td>
 <td class="hits"></td>
-<td class="source"><code>  @moduledoc false</code></td>
+<td class="source"><code>  tests that require setting up a connection.</code></td>
 </tr>
 <tr>
 <td class="line" id="L5"><a href="#L5">5</a></td>
@@ -134,120 +134,160 @@ td.source {
 <tr>
 <td class="line" id="L6"><a href="#L6">6</a></td>
 <td class="hits"></td>
-<td class="source"><code>  use Application</code></td>
+<td class="source"><code>  Such tests rely on `Phoenix.ConnTest` and also</code></td>
 </tr>
 <tr>
 <td class="line" id="L7"><a href="#L7">7</a></td>
 <td class="hits"></td>
-<td class="source"><code></code></td>
+<td class="source"><code>  import other functionality to make it easier</code></td>
 </tr>
 <tr>
 <td class="line" id="L8"><a href="#L8">8</a></td>
 <td class="hits"></td>
-<td class="source"><code>  @impl true</code></td>
+<td class="source"><code>  to build common data structures and query the data layer.</code></td>
 </tr>
 <tr>
 <td class="line" id="L9"><a href="#L9">9</a></td>
 <td class="hits"></td>
-<td class="source"><code>  def start(_type, _args) do</code></td>
+<td class="source"><code></code></td>
 </tr>
-<tr class="hit">
+<tr>
 <td class="line" id="L10"><a href="#L10">10</a></td>
-<td class="hits">1</td>
-<td class="source"><code>    children = [</code></td>
+<td class="hits"></td>
+<td class="source"><code>  Finally, if the test case interacts with the database,</code></td>
 </tr>
 <tr>
 <td class="line" id="L11"><a href="#L11">11</a></td>
 <td class="hits"></td>
-<td class="source"><code>      # Start the Ecto repository</code></td>
+<td class="source"><code>  we enable the SQL sandbox, so changes done to the database</code></td>
 </tr>
 <tr>
 <td class="line" id="L12"><a href="#L12">12</a></td>
 <td class="hits"></td>
-<td class="source"><code>      AutonomousOpponentV2Web.Repo,</code></td>
+<td class="source"><code>  are reverted at the end of every test. If you are using</code></td>
 </tr>
 <tr>
 <td class="line" id="L13"><a href="#L13">13</a></td>
 <td class="hits"></td>
-<td class="source"><code>      # Start the Telemetry reporter</code></td>
+<td class="source"><code>  PostgreSQL, you can even run database tests asynchronously</code></td>
 </tr>
 <tr>
 <td class="line" id="L14"><a href="#L14">14</a></td>
 <td class="hits"></td>
-<td class="source"><code>      # Uncomment when properly configured:</code></td>
+<td class="source"><code>  by setting `use AutonomousOpponentV2Web.ConnCase, async: true`, although</code></td>
 </tr>
 <tr>
 <td class="line" id="L15"><a href="#L15">15</a></td>
 <td class="hits"></td>
-<td class="source"><code>      # {Telemetry.Supervisor, metrics: AutonomousOpponentV2Web.Telemetry.metrics()},</code></td>
+<td class="source"><code>  this option is not recommended for other databases.</code></td>
 </tr>
 <tr>
 <td class="line" id="L16"><a href="#L16">16</a></td>
 <td class="hits"></td>
-<td class="source"><code>      # Start the PubSub system</code></td>
+<td class="source"><code>  """</code></td>
 </tr>
 <tr>
 <td class="line" id="L17"><a href="#L17">17</a></td>
 <td class="hits"></td>
-<td class="source"><code>      {Phoenix.PubSub, name: AutonomousOpponentV2Web.PubSub},</code></td>
+<td class="source"><code></code></td>
 </tr>
 <tr>
 <td class="line" id="L18"><a href="#L18">18</a></td>
 <td class="hits"></td>
-<td class="source"><code>      # Start the Endpoint (http/https)</code></td>
+<td class="source"><code>  use ExUnit.CaseTemplate</code></td>
 </tr>
 <tr>
 <td class="line" id="L19"><a href="#L19">19</a></td>
 <td class="hits"></td>
-<td class="source"><code>      AutonomousOpponentV2Web.Endpoint</code></td>
+<td class="source"><code></code></td>
 </tr>
-<tr>
+<tr class="hit">
 <td class="line" id="L20"><a href="#L20">20</a></td>
-<td class="hits"></td>
-<td class="source"><code>      # Start a worker by calling: AutonomousOpponentV2Web.Worker.start_link(arg)</code></td>
+<td class="hits">4</td>
+<td class="source"><code>  using do</code></td>
 </tr>
 <tr>
 <td class="line" id="L21"><a href="#L21">21</a></td>
 <td class="hits"></td>
-<td class="source"><code>      # {AutonomousOpponentV2Web.Worker, arg}</code></td>
+<td class="source"><code>    quote do</code></td>
 </tr>
 <tr>
 <td class="line" id="L22"><a href="#L22">22</a></td>
 <td class="hits"></td>
-<td class="source"><code>    ]</code></td>
+<td class="source"><code>      # Import conveniences for testing with connections</code></td>
 </tr>
 <tr>
 <td class="line" id="L23"><a href="#L23">23</a></td>
 <td class="hits"></td>
-<td class="source"><code></code></td>
+<td class="source"><code>      import Plug.Conn</code></td>
 </tr>
 <tr>
 <td class="line" id="L24"><a href="#L24">24</a></td>
 <td class="hits"></td>
-<td class="source"><code>    # See https://hexdocs.pm/elixir/Supervisor.html</code></td>
+<td class="source"><code>      import Phoenix.ConnTest</code></td>
 </tr>
 <tr>
 <td class="line" id="L25"><a href="#L25">25</a></td>
 <td class="hits"></td>
-<td class="source"><code>    # for other strategies and supported options</code></td>
+<td class="source"><code>      import AutonomousOpponentV2Web.ConnCase</code></td>
 </tr>
-<tr class="hit">
+<tr>
 <td class="line" id="L26"><a href="#L26">26</a></td>
-<td class="hits">1</td>
-<td class="source"><code>    opts = [strategy: :one_for_one, name: AutonomousOpponentV2Web.Supervisor]</code></td>
+<td class="hits"></td>
+<td class="source"><code></code></td>
 </tr>
-<tr class="hit">
+<tr>
 <td class="line" id="L27"><a href="#L27">27</a></td>
-<td class="hits">1</td>
-<td class="source"><code>    Supervisor.start_link(children, opts)</code></td>
+<td class="hits"></td>
+<td class="source"><code>      alias AutonomousOpponentV2Web.Router.Helpers, as: Routes</code></td>
 </tr>
 <tr>
 <td class="line" id="L28"><a href="#L28">28</a></td>
 <td class="hits"></td>
-<td class="source"><code>  end</code></td>
+<td class="source"><code></code></td>
 </tr>
 <tr>
 <td class="line" id="L29"><a href="#L29">29</a></td>
+<td class="hits"></td>
+<td class="source"><code>      # The default endpoint for testing</code></td>
+</tr>
+<tr>
+<td class="line" id="L30"><a href="#L30">30</a></td>
+<td class="hits"></td>
+<td class="source"><code>      @endpoint AutonomousOpponentV2Web.Endpoint</code></td>
+</tr>
+<tr>
+<td class="line" id="L31"><a href="#L31">31</a></td>
+<td class="hits"></td>
+<td class="source"><code>    end</code></td>
+</tr>
+<tr>
+<td class="line" id="L32"><a href="#L32">32</a></td>
+<td class="hits"></td>
+<td class="source"><code>  end</code></td>
+</tr>
+<tr>
+<td class="line" id="L33"><a href="#L33">33</a></td>
+<td class="hits"></td>
+<td class="source"><code></code></td>
+</tr>
+<tr class="hit">
+<td class="line" id="L34"><a href="#L34">34</a></td>
+<td class="hits">6</td>
+<td class="source"><code>  setup _tags do</code></td>
+</tr>
+<tr>
+<td class="line" id="L35"><a href="#L35">35</a></td>
+<td class="hits"></td>
+<td class="source"><code>    {:ok, conn: Phoenix.ConnTest.build_conn()}</code></td>
+</tr>
+<tr>
+<td class="line" id="L36"><a href="#L36">36</a></td>
+<td class="hits"></td>
+<td class="source"><code>  end</code></td>
+</tr>
+<tr>
+<td class="line" id="L37"><a href="#L37">37</a></td>
 <td class="hits"></td>
 <td class="source"><code>end</code></td>
 </tr>
