@@ -277,8 +277,7 @@ defmodule AutonomousOpponent.Core.Metrics do
     
     prometheus_text = 
       metrics
-      |> Enum.map(&format_prometheus_metric/1)
-      |> Enum.join("\n")
+      |> Enum.map_join("\n", &format_prometheus_metric/1)
     
     {:reply, prometheus_text, state}
   end

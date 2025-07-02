@@ -5,8 +5,13 @@ defmodule AutonomousOpponent.VSM.S1.OperationsTest do
   alias AutonomousOpponent.EventBus
 
   setup do
-    # Start EventBus for testing
-    {:ok, _} = EventBus.start_link()
+    # Start EventBus for testing if not already started
+    case Process.whereis(AutonomousOpponent.EventBus) do
+      nil -> 
+        {:ok, _} = EventBus.start_link()
+      _pid -> 
+        :ok
+    end
 
     # Start S1 Operations
     {:ok, pid} = Operations.start_link(id: "test_s1", name: nil)

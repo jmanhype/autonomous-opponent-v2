@@ -600,14 +600,14 @@ defmodule AutonomousOpponent.VSM.S2.Coordination do
       # Coordinate with up to 2 other units
       |> Enum.take(2)
 
-    if not Enum.empty?(other_units) do
+    if Enum.empty?(other_units) do
+      state
+    else
       units_to_coordinate = [unit_id | other_units]
 
       initiate_coordination(units_to_coordinate, :new_unit_integration, state)
       # Get the state
       |> elem(2)
-    else
-      state
     end
   end
 
