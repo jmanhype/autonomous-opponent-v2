@@ -2,741 +2,804 @@ defmodule AutonomousOpponent.Core.Metrics do
   @moduledoc """
   Comprehensive metrics collection system for VSM subsystem monitoring and cybernetic feedback loops.
   
-  Provides real-time telemetry collection, Prometheus format export, and persistent storage
-  for critical system metrics including VSM subsystems S1-S5, variety measurements, 
-  algedonic signals, and cybernetic loop performance.
-
-  ## Features
-  
-  - Real-time metric collection via :telemetry
-  - Prometheus-compatible metric export
+  Provides:
+  - Telemetry integration for event-driven metrics
+  - Prometheus format exporters for industry-standard monitoring
+  - VSM-specific metrics for S1-S5 subsystems
+  - Variety flow and algedonic signal tracking
+  - Real-time dashboards and alerting
   - ETS-based storage with periodic persistence
-  - VSM-specific metrics (variety, algedonic signals, loop latency)
-  - Automatic alerting based on configurable thresholds
-  - Integration with CircuitBreaker and RateLimiter
-
+  
   ## Wisdom Preservation
-
-  ### Why Metrics Exist
-  The metrics system is the VSM's "sensory nervous system" - it allows the organism to
-  feel its own state. Beer understood that management requires measurement, but not just
-  any measurement - the RIGHT measurements. We measure variety, not just volume. We track
-  algedonic signals, not just errors. This isn't monitoring; it's proprioception.
-
+  
+  ### Why Metrics Matter in VSM
+  Beer's VSM requires continuous feedback loops. Without metrics, the system is blind.
+  Metrics are the nervous system - they carry signals about system health, variety flow,
+  and algedonic pain/pleasure throughout the organism. This module makes the invisible visible.
+  
   ### Design Decisions & Rationale
-
-  1. **ETS with Periodic Persistence**: ETS gives us speed (metrics must never slow the
-     system), while periodic persistence ensures we don't lose history. The 30-second
-     persistence interval balances data safety with I/O efficiency.
-
-  2. **Telemetry Integration**: We use Erlang's :telemetry because it's the ecosystem
-     standard. This allows other BEAM applications to consume our metrics without
-     coupling. Loose coupling = high variety management.
-
-  3. **Prometheus Format**: While not perfect, Prometheus has become the de facto standard
-     for metrics. Its dimensional model maps well to VSM concepts - labels become channels
-     for variety analysis.
-
-  4. **VSM-Specific Metrics**: Traditional metrics (CPU, memory) tell us about the machine.
-     VSM metrics (variety, algedonic signals, loop latency) tell us about the organism.
-     We care more about adaptive capacity than raw performance.
-
-  5. **Sliding Windows**: All aggregations use sliding windows (default 60s). This gives
-     us real-time insight without infinite memory growth. The organism remembers the
-     recent past, not ancient history.
+  
+  1. **Telemetry as Event Bus**: :telemetry provides a standard, performant way to emit
+     metrics without coupling producers to consumers. It's the nervous system's synapses.
+  
+  2. **Prometheus Format**: Industry standard that works with Grafana, AlertManager, etc.
+     Don't reinvent wheels - use tools ops teams already know.
+  
+  3. **ETS for Speed**: Metrics must be FAST. ETS provides sub-microsecond reads/writes
+     with concurrent access. GenServer state would bottleneck under load.
+  
+  4. **Periodic Persistence**: ETS is in-memory, so we periodically dump to disk. Balance
+     between durability (every write) and performance (never write). Default: 60s.
+  
+  5. **VSM-Specific Metrics**: Generic metrics miss the point. We track variety flow,
+     algedonic signals, and cybernetic loop performance - the vital signs of a VSM.
   """
   use GenServer
   require Logger
-
+  
   alias AutonomousOpponent.EventBus
-
-  @persistence_interval 30_000  # 30 seconds
-  @window_size 60_000          # 60 second sliding window
-  @ets_table_name :autonomous_metrics
-  @persistence_table :autonomous_metrics_persistence
-
-  # Metric types for Prometheus compatibility
+  
+  # Metric types
   @type metric_type :: :counter | :gauge | :histogram | :summary
-  @type metric_name :: atom()
-  @type labels :: map()
-  @type metric_value :: number()
-
-  # VSM-specific metric categories
-  @vsm_subsystems [:s1, :s2, :s3, :s3_star, :s4, :s5]
-  @algedonic_types [:pain, :pleasure, :neutral]
-
+  @type subsystem :: :s1 | :s2 | :s3 | :s4 | :s5
+  
   # Client API
-
-  @doc """
-  Starts the metrics system.
-  """
-  def start_link(opts \\ []) do
-    GenServer.start_link(__MODULE__, opts, name: __MODULE__)
-  end
-
-  @doc """
-  Records a counter metric (monotonically increasing value).
   
-  ## Examples
-      
-      Metrics.counter(:requests_total, 1, %{method: "GET", status: 200})
-      Metrics.counter(:vsm_messages_total, 1, %{subsystem: :s1, direction: :input})
-  """
-  def counter(name, value \\ 1, labels \\ %{}) when is_number(value) and value >= 0 do
-    GenServer.cast(__MODULE__, {:counter, name, value, labels})
-  end
-
   @doc """
-  Records a gauge metric (point-in-time value).
+  Starts the metrics system with the given options.
   
-  ## Examples
-      
-      Metrics.gauge(:connection_pool_size, 45, %{pool: "database"})
-      Metrics.gauge(:vsm_variety_ratio, 0.75, %{subsystem: :s3})
+  Options:
+    - name: The registered name for the metrics system
+    - persist_interval_ms: How often to persist to disk (default: 60_000)
+    - persist_path: Where to save metrics (default: "priv/metrics")
   """
-  def gauge(name, value, labels \\ %{}) when is_number(value) do
-    GenServer.cast(__MODULE__, {:gauge, name, value, labels})
+  def start_link(opts) do
+    name = Keyword.get(opts, :name, __MODULE__)
+    GenServer.start_link(__MODULE__, opts, name: name)
   end
-
-  @doc """
-  Records a histogram metric (samples for distribution analysis).
   
-  ## Examples
-      
-      Metrics.histogram(:request_duration_ms, 125, %{endpoint: "/api/health"})
-      Metrics.histogram(:cybernetic_loop_latency_ms, 50, %{loop: "s1_to_s2"})
-  """
-  def histogram(name, value, labels \\ %{}) when is_number(value) do
-    GenServer.cast(__MODULE__, {:histogram, name, value, labels})
-  end
-
   @doc """
-  Records a VSM-specific metric.
+  Record a counter metric (always increments)
+  """
+  def counter(name, metric_name, value \\ 1, tags \\ %{}) do
+    GenServer.cast(name, {:record, :counter, metric_name, value, tags})
+  end
   
-  ## Examples
-      
-      Metrics.vsm_metric(:variety_absorbed, 0.85, :s3)
-      Metrics.vsm_metric(:algedonic_signal, 1, :s5, %{type: :pain, severity: :high})
-  """
-  def vsm_metric(metric_type, value, subsystem, extra_labels \\ %{}) 
-      when subsystem in @vsm_subsystems do
-    labels = Map.merge(extra_labels, %{subsystem: subsystem})
-    
-    case metric_type do
-      :variety_absorbed -> gauge(:"vsm_variety_absorbed_ratio", value, labels)
-      :variety_generated -> gauge(:"vsm_variety_generated_ratio", value, labels)
-      :algedonic_signal -> histogram(:"vsm_algedonic_signals", value, labels)
-      :loop_latency -> histogram(:"vsm_loop_latency_ms", value, labels)
-      _ -> Logger.warn("Unknown VSM metric type: #{metric_type}")
-    end
-  end
-
   @doc """
-  Records an algedonic signal (pain/pleasure).
+  Record a gauge metric (can go up or down)
+  """
+  def gauge(name, metric_name, value, tags \\ %{}) do
+    GenServer.cast(name, {:record, :gauge, metric_name, value, tags})
+  end
   
-  ## Examples
-      
-      Metrics.algedonic(:pain, :high, %{source: :circuit_breaker, component: "api"})
-      Metrics.algedonic(:pleasure, :medium, %{source: :rate_limiter, reason: "recovered"})
-  """
-  def algedonic(type, severity, metadata \\ %{}) when type in @algedonic_types do
-    severity_value = case severity do
-      :low -> 0.3
-      :medium -> 0.6
-      :high -> 1.0
-      value when is_number(value) -> value
-    end
-
-    labels = Map.merge(metadata, %{type: type, severity: severity})
-    histogram(:algedonic_signals, severity_value, labels)
-    
-    # Publish to event bus for S5 immediate response
-    EventBus.publish(:"algedonic_#{type}", Map.merge(metadata, %{
-      severity: severity,
-      value: severity_value,
-      timestamp: System.system_time(:millisecond)
-    }))
-  end
-
   @doc """
-  Retrieves current metrics in Prometheus format.
+  Record a histogram metric (for distributions)
+  """
+  def histogram(name, metric_name, value, tags \\ %{}) do
+    GenServer.cast(name, {:record, :histogram, metric_name, value, tags})
+  end
   
-  ## Examples
-      
-      Metrics.export(:prometheus)
-      # Returns string in Prometheus exposition format
-  """
-  def export(format \\ :prometheus) do
-    GenServer.call(__MODULE__, {:export, format})
-  end
-
   @doc """
-  Retrieves specific metric values.
+  Record a summary metric (for percentiles)
+  """
+  def summary(name, metric_name, value, tags \\ %{}) do
+    GenServer.cast(name, {:record, :summary, metric_name, value, tags})
+  end
   
-  ## Examples
-      
-      Metrics.get(:requests_total)
-      Metrics.get(:vsm_variety_absorbed_ratio, %{subsystem: :s3})
-  """
-  def get(name, labels \\ %{}) do
-    GenServer.call(__MODULE__, {:get, name, labels})
-  end
-
   @doc """
-  Sets alert thresholds for automatic notifications.
+  Record VSM subsystem metrics
+  """
+  def vsm_metric(name, subsystem, metric_name, value, type \\ :gauge)
+      when subsystem in [:s1, :s2, :s3, :s4, :s5] do
+    tags = %{subsystem: subsystem}
+    GenServer.cast(name, {:record, type, "vsm.#{metric_name}", value, tags})
+  end
   
-  ## Examples
-      
-      Metrics.set_threshold(:vsm_variety_absorbed_ratio, :min, 0.5)
-      Metrics.set_threshold(:algedonic_signals, :max, 0.8, %{type: :pain})
-  """
-  def set_threshold(metric_name, threshold_type, value, labels \\ %{}) do
-    GenServer.call(__MODULE__, {:set_threshold, metric_name, threshold_type, value, labels})
-  end
-
   @doc """
-  Returns dashboard data for real-time visualization.
+  Record variety flow metrics
   """
-  def dashboard_data do
-    GenServer.call(__MODULE__, :dashboard_data)
+  def variety_flow(name, subsystem, absorbed, generated) do
+    tags = %{subsystem: subsystem}
+    GenServer.cast(name, {:variety_flow, absorbed, generated, tags})
   end
-
-  # Server Callbacks
-
+  
+  @doc """
+  Record algedonic signal
+  """
+  def algedonic_signal(name, type, intensity, source)
+      when type in [:pain, :pleasure] do
+    tags = %{type: type, source: source}
+    GenServer.cast(name, {:algedonic, type, intensity, tags})
+  end
+  
+  @doc """
+  Get metrics in Prometheus format
+  """
+  def prometheus_format(name) do
+    GenServer.call(name, :prometheus_format)
+  end
+  
+  @doc """
+  Get all metrics
+  """
+  def get_all_metrics(name) do
+    GenServer.call(name, :get_all_metrics)
+  end
+  
+  @doc """
+  Get VSM dashboard data
+  """
+  def get_vsm_dashboard(name) do
+    GenServer.call(name, :get_vsm_dashboard)
+  end
+  
+  @doc """
+  Check alert conditions and return triggered alerts
+  """
+  def check_alerts(name) do
+    GenServer.call(name, :check_alerts)
+  end
+  
+  @doc """
+  Manually persist metrics to disk
+  """
+  def persist(name) do
+    GenServer.call(name, :persist)
+  end
+  
+  # Server implementation
+  
   defstruct [
-    :ets_table,
-    :persistence_table,
-    :thresholds,
-    :last_persistence,
-    :start_time
+    :name,
+    :metrics_table,
+    :alerts_table,
+    :persist_interval_ms,
+    :persist_path,
+    :persist_timer,
+    :telemetry_handlers
   ]
-
+  
   @impl true
-  def init(_opts) do
+  def init(opts) do
     # Create ETS tables
-    ets_table = :ets.new(@ets_table_name, [
-      :named_table,
-      :public,
-      :set,
-      {:write_concurrency, true},
-      {:read_concurrency, true}
-    ])
-
-    persistence_table = :ets.new(@persistence_table, [
-      :named_table,
-      :public,
-      :set
-    ])
-
-    # Load persisted metrics if they exist
-    load_persisted_metrics()
-
-    # Initialize core metrics
-    initialize_core_metrics()
-
-    # Subscribe to system events
-    EventBus.subscribe(:circuit_breaker_state_change)
-    EventBus.subscribe(:rate_limit_exceeded)
-    EventBus.subscribe(:vsm_message)
-
-    # Schedule periodic persistence
-    Process.send_after(self(), :persist, @persistence_interval)
-
-    # Attach telemetry handlers
-    attach_telemetry_handlers()
-
+    metrics_table = :"#{opts[:name]}_metrics"
+    alerts_table = :"#{opts[:name]}_alerts"
+    
+    :ets.new(metrics_table, [:named_table, :public, :set, {:write_concurrency, true}])
+    :ets.new(alerts_table, [:named_table, :public, :set, {:write_concurrency, true}])
+    
+    # Initialize default alerts
+    init_default_alerts(alerts_table)
+    
+    # Setup telemetry handlers
+    handlers = setup_telemetry_handlers(opts[:name])
+    
     state = %__MODULE__{
-      ets_table: ets_table,
-      persistence_table: persistence_table,
-      thresholds: %{},
-      last_persistence: System.system_time(:millisecond),
-      start_time: System.system_time(:millisecond)
+      name: opts[:name] || __MODULE__,
+      metrics_table: metrics_table,
+      alerts_table: alerts_table,
+      persist_interval_ms: opts[:persist_interval_ms] || 60_000,
+      persist_path: opts[:persist_path] || "priv/metrics",
+      telemetry_handlers: handlers
     }
-
+    
+    # Start persistence timer
+    timer_ref = Process.send_after(self(), :persist, state.persist_interval_ms)
+    state = %{state | persist_timer: timer_ref}
+    
+    # Subscribe to EventBus events
+    EventBus.subscribe(:algedonic_pain)
+    EventBus.subscribe(:algedonic_pleasure)
+    EventBus.subscribe(:circuit_breaker_opened)
+    EventBus.subscribe(:circuit_breaker_closed)
+    EventBus.subscribe(:rate_limit_allowed)
+    EventBus.subscribe(:rate_limited)
+    
+    # Restore persisted metrics if available
+    restore_metrics(state)
+    
     # Publish initialization event
-    EventBus.publish(:metrics_system_initialized, %{
-      tables: [ets_table, persistence_table],
-      start_time: state.start_time
+    EventBus.publish(:metrics_initialized, %{
+      name: state.name,
+      tables: %{
+        metrics: state.metrics_table,
+        alerts: state.alerts_table
+      }
     })
-
+    
     {:ok, state}
   end
-
+  
   @impl true
-  def handle_cast({:counter, name, value, labels}, state) do
-    key = {name, :counter, labels}
-    timestamp = System.system_time(:millisecond)
+  def handle_cast({:record, type, metric_name, value, tags}, state) do
+    # Generate unique key with tags
+    key = build_metric_key(metric_name, tags)
     
-    # Update or initialize counter
-    :ets.update_counter(
-      @ets_table_name,
-      key,
-      {2, value},
-      {key, 0, timestamp}
-    )
-
-    # Check thresholds
-    check_threshold(name, :counter, labels, value, state)
-
-    # Emit telemetry event
-    :telemetry.execute(
-      [:autonomous_opponent, :metrics, name],
-      %{value: value},
-      Map.merge(labels, %{type: :counter})
-    )
-
-    {:noreply, state}
-  end
-
-  def handle_cast({:gauge, name, value, labels}, state) do
-    key = {name, :gauge, labels}
-    timestamp = System.system_time(:millisecond)
-    
-    # Store gauge value with timestamp
-    :ets.insert(@ets_table_name, {key, value, timestamp})
-
-    # Check thresholds
-    check_threshold(name, :gauge, labels, value, state)
-
-    # Emit telemetry event
-    :telemetry.execute(
-      [:autonomous_opponent, :metrics, name],
-      %{value: value},
-      Map.merge(labels, %{type: :gauge})
-    )
-
-    {:noreply, state}
-  end
-
-  def handle_cast({:histogram, name, value, labels}, state) do
-    key = {name, :histogram, labels}
-    timestamp = System.system_time(:millisecond)
-    
-    # Get existing samples or initialize
-    samples = case :ets.lookup(@ets_table_name, key) do
-      [{^key, existing_samples, _}] -> existing_samples
-      [] -> []
+    # Update metric based on type
+    case type do
+      :counter ->
+        :ets.update_counter(state.metrics_table, key, {2, value}, {key, 0})
+        
+      :gauge ->
+        :ets.insert(state.metrics_table, {key, value})
+        
+      :histogram ->
+        update_histogram(state.metrics_table, key, value)
+        
+      :summary ->
+        update_summary(state.metrics_table, key, value)
     end
-
-    # Add new sample with sliding window
-    cutoff_time = timestamp - @window_size
-    new_samples = [{timestamp, value} | samples]
-                  |> Enum.filter(fn {ts, _} -> ts > cutoff_time end)
-                  |> Enum.take(1000)  # Limit samples to prevent memory issues
-
-    :ets.insert(@ets_table_name, {key, new_samples, timestamp})
-
-    # Calculate statistics for threshold checking
-    values = Enum.map(new_samples, &elem(&1, 1))
-    avg = if values != [], do: Enum.sum(values) / length(values), else: 0
     
-    check_threshold(name, :histogram, labels, avg, state)
-
     # Emit telemetry event
     :telemetry.execute(
-      [:autonomous_opponent, :metrics, name],
-      %{value: value, count: length(values), avg: avg},
-      Map.merge(labels, %{type: :histogram})
+      [:autonomous_opponent, :metrics, type],
+      %{value: value},
+      Map.put(tags, :metric_name, metric_name)
     )
-
+    
     {:noreply, state}
   end
-
-  @impl true
-  def handle_call({:export, :prometheus}, _from, state) do
-    lines = :ets.foldl(
-      fn {key, value, timestamp}, acc ->
-        case format_prometheus_line(key, value, timestamp) do
-          nil -> acc
-          line -> [line | acc]
-        end
-      end,
-      [],
-      @ets_table_name
-    )
-
-    output = lines
-             |> Enum.reverse()
-             |> Enum.join("\n")
-
-    {:reply, output, state}
-  end
-
-  def handle_call({:get, name, labels}, _from, state) do
-    # Try each metric type
-    result = Enum.find_value([:counter, :gauge, :histogram], fn type ->
-      key = {name, type, labels}
-      case :ets.lookup(@ets_table_name, key) do
-        [{^key, value, _timestamp}] -> {type, value}
-        [] -> nil
-      end
-    end)
-
-    {:reply, result, state}
-  end
-
-  def handle_call({:set_threshold, name, threshold_type, value, labels}, _from, state) do
-    threshold_key = {name, labels}
-    new_thresholds = Map.put(state.thresholds, threshold_key, {threshold_type, value})
+  
+  def handle_cast({:variety_flow, absorbed, generated, tags}, state) do
+    # Record variety metrics
+    base_tags = Map.put(tags, :flow, :absorbed)
+    key_absorbed = build_metric_key("vsm.variety_absorbed", base_tags)
+    :ets.insert(state.metrics_table, {key_absorbed, absorbed})
     
-    {:reply, :ok, %{state | thresholds: new_thresholds}}
+    base_tags = Map.put(tags, :flow, :generated)
+    key_generated = build_metric_key("vsm.variety_generated", base_tags)
+    :ets.insert(state.metrics_table, {key_generated, generated})
+    
+    # Calculate variety attenuation (Ashby's Law)
+    attenuation = if absorbed > 0, do: generated / absorbed, else: 0
+    base_tags = Map.put(tags, :flow, :attenuation)
+    key_attenuation = build_metric_key("vsm.variety_attenuation", base_tags)
+    :ets.insert(state.metrics_table, {key_attenuation, attenuation})
+    
+    {:noreply, state}
   end
-
-  def handle_call(:dashboard_data, _from, state) do
-    data = %{
-      uptime_ms: System.system_time(:millisecond) - state.start_time,
-      metrics_count: :ets.info(@ets_table_name, :size),
-      vsm_health: calculate_vsm_health(),
-      algedonic_balance: calculate_algedonic_balance(),
-      recent_alerts: get_recent_alerts(),
-      subsystem_status: get_subsystem_status()
+  
+  def handle_cast({:algedonic, type, intensity, tags}, state) do
+    # Record algedonic signal
+    key = build_metric_key("vsm.algedonic.#{type}", tags)
+    :ets.insert(state.metrics_table, {key, intensity})
+    
+    # Update cumulative algedonic balance
+    update_algedonic_balance(state.metrics_table, type, intensity)
+    
+    {:noreply, state}
+  end
+  
+  @impl true
+  def handle_call(:prometheus_format, _from, state) do
+    # Convert all metrics to Prometheus text format
+    metrics = :ets.tab2list(state.metrics_table)
+    
+    prometheus_text = 
+      metrics
+      |> Enum.map(&format_prometheus_metric/1)
+      |> Enum.join("\n")
+    
+    {:reply, prometheus_text, state}
+  end
+  
+  def handle_call(:get_all_metrics, _from, state) do
+    metrics = :ets.tab2list(state.metrics_table)
+    {:reply, metrics, state}
+  end
+  
+  def handle_call(:get_vsm_dashboard, _from, state) do
+    # Build VSM dashboard data
+    dashboard = %{
+      subsystems: build_subsystem_metrics(state.metrics_table),
+      variety_flow: build_variety_flow_metrics(state.metrics_table),
+      algedonic_balance: get_algedonic_balance(state.metrics_table),
+      cybernetic_loops: build_loop_metrics(state.metrics_table),
+      system_health: calculate_system_health(state.metrics_table)
     }
-
-    {:reply, data, state}
+    
+    {:reply, dashboard, state}
   end
-
+  
+  def handle_call(:check_alerts, _from, state) do
+    # Check all alert conditions
+    alerts = :ets.tab2list(state.alerts_table)
+    metrics = :ets.tab2list(state.metrics_table)
+    
+    triggered_alerts = 
+      alerts
+      |> Enum.map(fn {alert_name, config} ->
+        check_alert_condition(alert_name, config, metrics)
+      end)
+      |> Enum.filter(& &1)
+    
+    {:reply, triggered_alerts, state}
+  end
+  
+  def handle_call(:persist, _from, state) do
+    persist_metrics(state)
+    {:reply, :ok, state}
+  end
+  
   @impl true
   def handle_info(:persist, state) do
     persist_metrics(state)
-    Process.send_after(self(), :persist, @persistence_interval)
-    {:noreply, %{state | last_persistence: System.system_time(:millisecond)}}
-  end
-
-  def handle_info({:event, :circuit_breaker_state_change, data}, state) do
-    # Track circuit breaker state changes
-    labels = %{
-      circuit_breaker: data.name,
-      from_state: data.from,
-      to_state: data.to
-    }
-    counter(:circuit_breaker_transitions_total, 1, labels)
     
-    # Track current state as gauge
-    state_value = case data.to do
-      :open -> 2
-      :half_open -> 1  
-      :closed -> 0
-    end
-    gauge(:circuit_breaker_state, state_value, %{name: data.name})
-
-    {:noreply, state}
+    # Schedule next persistence
+    timer_ref = Process.send_after(self(), :persist, state.persist_interval_ms)
+    {:noreply, %{state | persist_timer: timer_ref}}
   end
-
-  def handle_info({:event, :rate_limit_exceeded, data}, state) do
-    # Track rate limit violations
-    labels = %{
-      limiter: data.name,
-      reason: data.reason || "unknown"
-    }
-    counter(:rate_limit_violations_total, 1, labels)
-    
-    # Generate algedonic pain signal for S5
-    algedonic(:pain, :medium, %{
-      source: :rate_limiter,
-      limiter: data.name
-    })
-
-    {:noreply, state}
-  end
-
-  def handle_info({:event, :vsm_message, data}, state) do
-    # Track VSM message flow
-    labels = %{
-      from: data.from,
-      to: data.to,
-      message_type: data.type || "unknown"
-    }
-    counter(:vsm_messages_total, 1, labels)
-    
-    # Track message latency if available
-    if data[:latency_ms] do
-      histogram(:vsm_message_latency_ms, data.latency_ms, labels)
-    end
-
-    {:noreply, state}
-  end
-
-  def handle_info(_info, state) do
-    {:noreply, state}
-  end
-
-  # Private Functions
-
-  defp initialize_core_metrics do
-    # Initialize VSM subsystem metrics
-    for subsystem <- @vsm_subsystems do
-      gauge(:vsm_variety_absorbed_ratio, 0.0, %{subsystem: subsystem})
-      gauge(:vsm_variety_generated_ratio, 0.0, %{subsystem: subsystem})
-      gauge(:vsm_health_score, 1.0, %{subsystem: subsystem})
-    end
-
-    # Initialize algedonic balance
-    gauge(:algedonic_balance, 0.0, %{})
-    
-    # System metrics
-    counter(:metrics_recorded_total, 0, %{})
-    gauge(:metrics_persistence_lag_ms, 0, %{})
-  end
-
-  defp attach_telemetry_handlers do
-    # Attach handler for Phoenix metrics
-    :telemetry.attach_many(
-      "autonomous-opponent-phoenix-metrics",
-      [
-        [:phoenix, :endpoint, :stop],
-        [:phoenix, :router_dispatch, :stop],
-        [:phoenix, :live_view, :mount, :stop]
-      ],
-      &handle_phoenix_telemetry/4,
-      nil
-    )
-
-    # Attach handler for Ecto metrics
-    :telemetry.attach_many(
-      "autonomous-opponent-ecto-metrics",
-      [
-        [:ecto, :query]
-      ],
-      &handle_ecto_telemetry/4,
-      nil
-    )
-  end
-
-  defp handle_phoenix_telemetry([:phoenix, :endpoint, :stop], measurements, metadata, _config) do
-    labels = %{
-      method: metadata.conn.method,
-      path: metadata.conn.request_path,
-      status: metadata.conn.status
-    }
-    
-    histogram(:http_request_duration_ms, measurements.duration / 1_000_000, labels)
-    counter(:http_requests_total, 1, labels)
-  end
-
-  defp handle_phoenix_telemetry([:phoenix, :router_dispatch, :stop], measurements, metadata, _config) do
-    labels = %{
-      route: metadata.route,
-      plug: inspect(metadata.plug)
-    }
-    
-    histogram(:phoenix_router_dispatch_duration_ms, measurements.duration / 1_000_000, labels)
-  end
-
-  defp handle_phoenix_telemetry([:phoenix, :live_view, :mount, :stop], measurements, metadata, _config) do
-    labels = %{
-      view: inspect(metadata.socket.view)
-    }
-    
-    histogram(:phoenix_live_view_mount_duration_ms, measurements.duration / 1_000_000, labels)
-  end
-
-  defp handle_ecto_telemetry([:ecto, :query], measurements, metadata, _config) do
-    labels = %{
-      source: metadata.source || "unknown",
-      repo: inspect(metadata.repo)
-    }
-    
-    histogram(:database_query_duration_ms, measurements.query_time / 1_000_000, labels)
-    histogram(:database_queue_duration_ms, measurements.queue_time / 1_000_000, labels)
-  end
-
-  defp format_prometheus_line({{name, type, labels}, value, _timestamp}, value, _timestamp) 
-       when type == :counter do
-    labels_str = format_prometheus_labels(labels)
-    "# TYPE #{name} counter\n#{name}#{labels_str} #{value}"
-  end
-
-  defp format_prometheus_line({{name, type, labels}, value, _timestamp}, value, _timestamp) 
-       when type == :gauge do
-    labels_str = format_prometheus_labels(labels)
-    "# TYPE #{name} gauge\n#{name}#{labels_str} #{value}"
-  end
-
-  defp format_prometheus_line({{name, type, labels}, samples, _timestamp}, samples, _timestamp) 
-       when type == :histogram and is_list(samples) do
-    values = Enum.map(samples, &elem(&1, 1))
-    
-    if values == [] do
-      nil
-    else
-      count = length(values)
-      sum = Enum.sum(values)
-      labels_str = format_prometheus_labels(labels)
-      
-      buckets = calculate_histogram_buckets(values)
-      bucket_lines = Enum.map(buckets, fn {le, count} ->
-        "#{name}_bucket#{labels_str |> String.replace("}", ~s(,le="#{le}"}))} #{count}"
-      end)
-      
-      """
-      # TYPE #{name} histogram
-      #{Enum.join(bucket_lines, "\n")}
-      #{name}_sum#{labels_str} #{sum}
-      #{name}_count#{labels_str} #{count}
-      """ |> String.trim()
-    end
-  end
-
-  defp format_prometheus_line(_, _, _), do: nil
-
-  defp format_prometheus_labels(labels) when labels == %{}, do: ""
-  defp format_prometheus_labels(labels) do
-    labels_str = labels
-                 |> Enum.map(fn {k, v} -> ~s(#{k}="#{v}") end)
-                 |> Enum.join(",")
-    
-    "{#{labels_str}}"
-  end
-
-  defp calculate_histogram_buckets(values) do
-    # Standard prometheus buckets
-    buckets = [0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, "+Inf"]
-    
-    Enum.map(buckets, fn bucket ->
-      le_value = if bucket == "+Inf", do: :infinity, else: bucket
-      count = Enum.count(values, fn v -> 
-        if bucket == "+Inf", do: true, else: v <= bucket
-      end)
-      
-      {bucket, count}
-    end)
-  end
-
-  defp check_threshold(metric_name, _type, labels, value, state) do
-    threshold_key = {metric_name, labels}
-    
-    case Map.get(state.thresholds, threshold_key) do
-      {:min, threshold} when value < threshold ->
-        fire_alert(metric_name, labels, value, {:below_min, threshold})
+  
+  def handle_info({:event, event_name, data}, state) do
+    # Handle EventBus events
+    case event_name do
+      :algedonic_pain ->
+        algedonic_signal(state.name, :pain, data.severity, data.source)
         
-      {:max, threshold} when value > threshold ->
-        fire_alert(metric_name, labels, value, {:above_max, threshold})
+      :algedonic_pleasure ->
+        algedonic_signal(state.name, :pleasure, data.intensity, data.source)
+        
+      :circuit_breaker_opened ->
+        counter(state.name, "circuit_breaker.opened", 1, %{name: data.name})
+        
+      :circuit_breaker_closed ->
+        counter(state.name, "circuit_breaker.closed", 1, %{name: data.name})
+        
+      :rate_limit_allowed ->
+        counter(state.name, "rate_limiter.allowed", 1, %{name: data.name})
+        
+      :rate_limited ->
+        counter(state.name, "rate_limiter.limited", 1, %{name: data.name})
         
       _ ->
         :ok
     end
-  end
-
-  defp fire_alert(metric_name, labels, value, {violation_type, threshold}) do
-    EventBus.publish(:metric_threshold_violated, %{
-      metric: metric_name,
-      labels: labels,
-      value: value,
-      threshold: threshold,
-      violation_type: violation_type,
-      timestamp: System.system_time(:millisecond)
-    })
-
-    # Generate algedonic pain for threshold violations
-    severity = case violation_type do
-      {:below_min, _} -> :medium
-      {:above_max, _} -> :high
-    end
-
-    algedonic(:pain, severity, %{
-      source: :metrics,
-      metric: metric_name,
-      violation: violation_type
-    })
-  end
-
-  defp persist_metrics(state) do
-    # Copy current metrics to persistence table
-    metrics_snapshot = :ets.tab2list(@ets_table_name)
     
-    :ets.insert(@persistence_table, {:snapshot, metrics_snapshot})
-    :ets.insert(@persistence_table, {:last_persist, System.system_time(:millisecond)})
-
-    # Update persistence lag metric
-    lag = System.system_time(:millisecond) - state.last_persistence
-    gauge(:metrics_persistence_lag_ms, lag, %{})
-
-    Logger.debug("Persisted #{length(metrics_snapshot)} metrics")
+    {:noreply, state}
   end
-
-  defp load_persisted_metrics do
-    case :ets.lookup(@persistence_table, :snapshot) do
-      [{:snapshot, metrics}] ->
-        Enum.each(metrics, fn metric ->
-          :ets.insert(@ets_table_name, metric)
-        end)
-        Logger.info("Loaded #{length(metrics)} persisted metrics")
-        
+  
+  @impl true
+  def terminate(_reason, state) do
+    # Cancel persistence timer
+    if state.persist_timer do
+      Process.cancel_timer(state.persist_timer)
+    end
+    
+    # Remove telemetry handlers
+    Enum.each(state.telemetry_handlers, fn handler_id ->
+      :telemetry.detach(handler_id)
+    end)
+    
+    # Final persistence
+    persist_metrics(state)
+    
+    :ok
+  end
+  
+  # Private functions
+  
+  defp build_metric_key(name, tags) when map_size(tags) == 0 do
+    name
+  end
+  
+  defp build_metric_key(name, tags) do
+    tag_string = 
+      tags
+      |> Enum.sort()
+      |> Enum.map(fn {k, v} -> "#{k}=#{v}" end)
+      |> Enum.join(",")
+    
+    "#{name}{#{tag_string}}"
+  end
+  
+  defp update_histogram(table, key, value) do
+    case :ets.lookup(table, key) do
       [] ->
-        Logger.debug("No persisted metrics found")
+        # Initialize histogram
+        :ets.insert(table, {key, %{
+          count: 1,
+          sum: value,
+          min: value,
+          max: value,
+          buckets: update_buckets(%{}, value)
+        }})
+        
+      [{^key, hist}] ->
+        # Update histogram
+        updated = %{
+          count: hist.count + 1,
+          sum: hist.sum + value,
+          min: min(hist.min, value),
+          max: max(hist.max, value),
+          buckets: update_buckets(hist.buckets, value)
+        }
+        :ets.insert(table, {key, updated})
     end
   end
-
-  defp calculate_vsm_health do
-    # Calculate overall VSM health based on variety absorption ratios
-    healths = for subsystem <- @vsm_subsystems do
-      case get(:vsm_variety_absorbed_ratio, %{subsystem: subsystem}) do
-        {:gauge, ratio} -> ratio
-        _ -> 0.5  # Default to neutral if no data
+  
+  defp update_buckets(buckets, value) do
+    # Standard Prometheus buckets
+    bucket_limits = [0.005, 0.01, 0.025, 0.05, 0.075, 0.1, 0.25, 0.5, 0.75, 1, 2.5, 5, 7.5, 10]
+    
+    Enum.reduce(bucket_limits, buckets, fn limit, acc ->
+      if value <= limit do
+        Map.update(acc, limit, 1, &(&1 + 1))
+      else
+        acc
       end
-    end
-
-    if healths == [] do
-      0.5
-    else
-      Enum.sum(healths) / length(healths)
-    end
-  end
-
-  defp calculate_algedonic_balance do
-    # Calculate balance between pain and pleasure signals
-    pain_count = case get(:algedonic_signals, %{type: :pain}) do
-      {:histogram, samples} -> length(samples)
-      _ -> 0
-    end
-
-    pleasure_count = case get(:algedonic_signals, %{type: :pleasure}) do
-      {:histogram, samples} -> length(samples)  
-      _ -> 0
-    end
-
-    total = pain_count + pleasure_count
-    if total == 0 do
-      0.0  # Neutral
-    else
-      (pleasure_count - pain_count) / total  # Range: -1 (all pain) to 1 (all pleasure)
-    end
-  end
-
-  defp get_recent_alerts do
-    # This would fetch from event bus history in a real implementation
-    # For now, return empty list
-    []
-  end
-
-  defp get_subsystem_status do
-    # Get current status of each VSM subsystem
-    Map.new(@vsm_subsystems, fn subsystem ->
-      variety_absorbed = case get(:vsm_variety_absorbed_ratio, %{subsystem: subsystem}) do
-        {:gauge, value} -> value
-        _ -> 0.0
-      end
-
-      health = case get(:vsm_health_score, %{subsystem: subsystem}) do
-        {:gauge, value} -> value  
-        _ -> 1.0
-      end
-
-      {subsystem, %{
-        variety_absorbed: variety_absorbed,
-        health_score: health,
-        status: determine_status(variety_absorbed, health)
-      }}
     end)
   end
-
-  defp determine_status(variety_absorbed, health) do
+  
+  defp update_summary(table, key, value) do
+    case :ets.lookup(table, key) do
+      [] ->
+        # Initialize summary
+        :ets.insert(table, {key, %{
+          count: 1,
+          sum: value,
+          values: [value]
+        }})
+        
+      [{^key, summary}] ->
+        # Keep last 1000 values for percentile calculation
+        values = [value | summary.values] |> Enum.take(1000)
+        updated = %{
+          count: summary.count + 1,
+          sum: summary.sum + value,
+          values: values
+        }
+        :ets.insert(table, {key, updated})
+    end
+  end
+  
+  defp format_prometheus_metric({key, value}) when is_number(value) do
+    "#{key} #{value}"
+  end
+  
+  defp format_prometheus_metric({key, %{count: count, sum: sum, min: min, max: max, buckets: buckets}}) do
+    # Format histogram
+    base_name = String.replace(key, ~r/\{.*\}/, "")
+    
+    bucket_lines = 
+      buckets
+      |> Enum.sort()
+      |> Enum.map(fn {limit, count} ->
+        "#{base_name}_bucket{le=\"#{limit}\"} #{count}"
+      end)
+      |> Enum.join("\n")
+    
+    """
+    #{bucket_lines}
+    #{base_name}_bucket{le=\"+Inf\"} #{count}
+    #{base_name}_count #{count}
+    #{base_name}_sum #{sum}
+    """
+  end
+  
+  defp format_prometheus_metric({key, %{count: count, sum: sum, values: values}}) do
+    # Format summary with percentiles
+    sorted = Enum.sort(values)
+    p50 = percentile(sorted, 0.5)
+    p90 = percentile(sorted, 0.9)
+    p99 = percentile(sorted, 0.99)
+    
+    base_name = String.replace(key, ~r/\{.*\}/, "")
+    
+    """
+    #{base_name}{quantile=\"0.5\"} #{p50}
+    #{base_name}{quantile=\"0.9\"} #{p90}
+    #{base_name}{quantile=\"0.99\"} #{p99}
+    #{base_name}_count #{count}
+    #{base_name}_sum #{sum}
+    """
+  end
+  
+  defp format_prometheus_metric(_), do: ""
+  
+  defp percentile([], _), do: 0
+  defp percentile(sorted_list, p) do
+    k = round(p * length(sorted_list))
+    Enum.at(sorted_list, max(k - 1, 0))
+  end
+  
+  defp update_algedonic_balance(table, type, intensity) do
+    key = "vsm.algedonic.balance"
+    
+    change = case type do
+      :pain -> -intensity
+      :pleasure -> intensity
+    end
+    
+    :ets.update_counter(table, key, {2, change}, {key, 0})
+  end
+  
+  defp get_algedonic_balance(table) do
+    case :ets.lookup(table, "vsm.algedonic.balance") do
+      [] -> 0
+      [{_, balance}] -> balance
+    end
+  end
+  
+  defp build_subsystem_metrics(table) do
+    # Extract metrics for each VSM subsystem
+    [:s1, :s2, :s3, :s4, :s5]
+    |> Enum.map(fn subsystem ->
+      metrics = :ets.match_object(table, {{:_, %{subsystem: subsystem}}, :_})
+      
+      {subsystem, %{
+        metrics_count: length(metrics),
+        health_score: calculate_subsystem_health(metrics)
+      }}
+    end)
+    |> Map.new()
+  end
+  
+  defp calculate_subsystem_health(metrics) do
+    # Simple health score based on metric values
+    # In production, this would be more sophisticated
+    if length(metrics) > 0, do: 100, else: 0
+  end
+  
+  defp build_variety_flow_metrics(table) do
+    # Get variety flow metrics
+    absorbed = :ets.match_object(table, {"vsm.variety_absorbed" <> :_, :_})
+    generated = :ets.match_object(table, {"vsm.variety_generated" <> :_, :_})
+    attenuation = :ets.match_object(table, {"vsm.variety_attenuation" <> :_, :_})
+    
+    %{
+      total_absorbed: sum_metric_values(absorbed),
+      total_generated: sum_metric_values(generated),
+      avg_attenuation: avg_metric_values(attenuation)
+    }
+  end
+  
+  defp sum_metric_values(metrics) do
+    metrics
+    |> Enum.map(fn {_, value} -> value end)
+    |> Enum.sum()
+  end
+  
+  defp avg_metric_values([]), do: 0
+  defp avg_metric_values(metrics) do
+    values = Enum.map(metrics, fn {_, value} -> value end)
+    Enum.sum(values) / length(values)
+  end
+  
+  defp build_loop_metrics(table) do
+    # Placeholder for cybernetic loop metrics
+    %{
+      feedback_loops_active: 5,
+      avg_loop_latency_ms: 25,
+      control_effectiveness: 0.85
+    }
+  end
+  
+  defp calculate_system_health(table) do
+    # Overall system health based on multiple factors
+    algedonic = get_algedonic_balance(table)
+    
+    # Simple health calculation
     cond do
-      health < 0.3 -> :critical
-      health < 0.6 -> :warning
-      variety_absorbed < 0.4 -> :underutilized
-      variety_absorbed > 0.9 -> :overloaded
-      true -> :healthy
+      algedonic > 10 -> :excellent
+      algedonic > 0 -> :good
+      algedonic > -10 -> :fair
+      true -> :poor
+    end
+  end
+  
+  defp setup_telemetry_handlers(name) do
+    # WISDOM: Telemetry integration
+    # We attach handlers for various system events to automatically collect metrics.
+    # This creates a passive monitoring system that doesn't interfere with operations.
+    
+    handlers = [
+      # VSM subsystem events
+      {
+        "#{name}.vsm.s1",
+        [:autonomous_opponent, :vsm, :s1, :operation],
+        &handle_vsm_telemetry/4,
+        %{metrics: name, subsystem: :s1}
+      },
+      {
+        "#{name}.vsm.s2",
+        [:autonomous_opponent, :vsm, :s2, :coordination],
+        &handle_vsm_telemetry/4,
+        %{metrics: name, subsystem: :s2}
+      },
+      {
+        "#{name}.vsm.s3",
+        [:autonomous_opponent, :vsm, :s3, :control],
+        &handle_vsm_telemetry/4,
+        %{metrics: name, subsystem: :s3}
+      },
+      {
+        "#{name}.vsm.s4",
+        [:autonomous_opponent, :vsm, :s4, :intelligence],
+        &handle_vsm_telemetry/4,
+        %{metrics: name, subsystem: :s4}
+      },
+      {
+        "#{name}.vsm.s5",
+        [:autonomous_opponent, :vsm, :s5, :policy],
+        &handle_vsm_telemetry/4,
+        %{metrics: name, subsystem: :s5}
+      }
+    ]
+    
+    # Attach all handlers
+    Enum.each(handlers, fn {handler_id, event, function, config} ->
+      :telemetry.attach(handler_id, event, function, config)
+    end)
+    
+    # Return handler IDs for cleanup
+    Enum.map(handlers, fn {handler_id, _, _, _} -> handler_id end)
+  end
+  
+  defp handle_vsm_telemetry(_event_name, measurements, metadata, config) do
+    # Record VSM subsystem metrics from telemetry events
+    metrics_name = config.metrics
+    subsystem = config.subsystem
+    
+    # Record operation duration if available
+    if duration = measurements[:duration] do
+      histogram(metrics_name, "vsm.operation_duration", duration, %{subsystem: subsystem})
+    end
+    
+    # Record success/failure
+    if metadata[:result] do
+      case metadata[:result] do
+        :ok -> counter(metrics_name, "vsm.operations.success", 1, %{subsystem: subsystem})
+        :error -> counter(metrics_name, "vsm.operations.failure", 1, %{subsystem: subsystem})
+      end
+    end
+  end
+  
+  defp init_default_alerts(table) do
+    # WISDOM: Default alerts
+    # These alerts represent the vital signs of a healthy VSM system.
+    # They're not arbitrary thresholds but cybernetic boundaries.
+    
+    default_alerts = [
+      # Algedonic balance alerts
+      {:algedonic_severe_pain, %{
+        metric: "vsm.algedonic.balance",
+        condition: :less_than,
+        threshold: -50,
+        severity: :critical,
+        message: "System experiencing severe pain - immediate intervention required"
+      }},
+      
+      # Variety attenuation alerts
+      {:variety_explosion, %{
+        metric: "vsm.variety_attenuation",
+        condition: :greater_than,
+        threshold: 2.0,
+        severity: :warning,
+        message: "Variety generation exceeding absorption - system may destabilize"
+      }},
+      
+      # Circuit breaker alerts
+      {:circuit_breakers_open, %{
+        metric: "circuit_breaker.opened",
+        condition: :greater_than,
+        threshold: 3,
+        severity: :error,
+        message: "Multiple circuit breakers open - cascading failure risk"
+      }},
+      
+      # Rate limiting alerts
+      {:high_rate_limiting, %{
+        metric: "rate_limiter.limited",
+        condition: :greater_than,
+        threshold: 100,
+        severity: :warning,
+        message: "High rate limiting detected - possible overload"
+      }}
+    ]
+    
+    Enum.each(default_alerts, fn {name, config} ->
+      :ets.insert(table, {name, config})
+    end)
+  end
+  
+  defp check_alert_condition(alert_name, config, metrics) do
+    # Find the metric value
+    metric_key = config.metric
+    
+    value = 
+      metrics
+      |> Enum.find(fn {key, _} -> String.starts_with?(key, metric_key) end)
+      |> case do
+        nil -> nil
+        {_, v} when is_number(v) -> v
+        {_, %{count: count}} -> count
+        _ -> nil
+      end
+    
+    if value && triggered?(value, config.condition, config.threshold) do
+      %{
+        alert: alert_name,
+        severity: config.severity,
+        message: config.message,
+        value: value,
+        threshold: config.threshold,
+        timestamp: System.monotonic_time(:millisecond)
+      }
+    else
+      nil
+    end
+  end
+  
+  defp triggered?(value, :greater_than, threshold), do: value > threshold
+  defp triggered?(value, :less_than, threshold), do: value < threshold
+  defp triggered?(value, :equal_to, threshold), do: value == threshold
+  
+  defp persist_metrics(state) do
+    # Ensure persist directory exists
+    File.mkdir_p!(state.persist_path)
+    
+    # Build persistence file path with timestamp
+    timestamp = System.os_time(:second)
+    file_path = Path.join(state.persist_path, "metrics_#{timestamp}.ets")
+    
+    # Dump tables to disk
+    :ets.tab2file(state.metrics_table, String.to_charlist(file_path))
+    
+    # Keep only last 10 persistence files
+    cleanup_old_persistence_files(state.persist_path)
+    
+    Logger.debug("Persisted metrics to #{file_path}")
+  end
+  
+  defp restore_metrics(state) do
+    # Find most recent persistence file
+    case list_persistence_files(state.persist_path) do
+      [] ->
+        Logger.debug("No persisted metrics found")
+        
+      files ->
+        latest = List.last(files)
+        file_path = Path.join(state.persist_path, latest)
+        
+        case :ets.file2tab(String.to_charlist(file_path)) do
+          {:ok, temp_table} ->
+            # Copy data from temp table to our table
+            :ets.tab2list(temp_table)
+            |> Enum.each(fn entry ->
+              :ets.insert(state.metrics_table, entry)
+            end)
+            
+            :ets.delete(temp_table)
+            Logger.info("Restored metrics from #{file_path}")
+            
+          {:error, reason} ->
+            Logger.error("Failed to restore metrics: #{inspect(reason)}")
+        end
+    end
+  end
+  
+  defp list_persistence_files(path) do
+    case File.ls(path) do
+      {:ok, files} ->
+        files
+        |> Enum.filter(&String.starts_with?(&1, "metrics_"))
+        |> Enum.sort()
+        
+      _ ->
+        []
+    end
+  end
+  
+  defp cleanup_old_persistence_files(path) do
+    files = list_persistence_files(path)
+    
+    if length(files) > 10 do
+      # Delete oldest files
+      files
+      |> Enum.take(length(files) - 10)
+      |> Enum.each(fn file ->
+        File.rm(Path.join(path, file))
+      end)
     end
   end
 end

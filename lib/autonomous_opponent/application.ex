@@ -24,11 +24,8 @@ defmodule AutonomousOpponent.Application do
       # Circuit Breaker for fault tolerance
       {AutonomousOpponent.Core.CircuitBreaker, name: AutonomousOpponent.Core.CircuitBreaker},
 
-      # Rate Limiter for variety management
-      {AutonomousOpponent.Core.RateLimiter, name: AutonomousOpponent.Core.RateLimiter},
-
       # Metrics system for VSM monitoring
-      AutonomousOpponent.Core.Metrics,
+      {AutonomousOpponent.Core.Metrics, name: AutonomousOpponent.Core.Metrics},
 
       # VSM Components - Complete implementation
       # Start the VSM supervisor which manages all subsystems

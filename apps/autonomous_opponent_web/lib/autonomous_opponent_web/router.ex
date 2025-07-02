@@ -20,6 +20,14 @@ defmodule AutonomousOpponentV2Web.Router do
     pipe_through :browser
 
     get "/", PageController, :home
+    
+    # VSM Metrics Dashboard
+    live "/metrics/dashboard", MetricsDashboardLive, :index
+  end
+  
+  # Prometheus metrics endpoint (no CSRF protection needed)
+  scope "/", AutonomousOpponentV2Web do
+    get "/metrics", MetricsController, :index
   end
 
   # Other scopes may use the generated code from Phoenix
