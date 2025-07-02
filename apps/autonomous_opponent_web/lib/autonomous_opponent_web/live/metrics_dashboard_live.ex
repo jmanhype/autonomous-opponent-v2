@@ -36,14 +36,14 @@ defmodule AutonomousOpponentV2Web.MetricsDashboardLive do
       
       <!-- System Health Overview -->
       <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-        <div class="bg-white rounded-lg shadow p-6">
+        <div class="bg-white rounded-lg shadow p-6" id="system-health">
           <h2 class="text-xl font-semibold mb-2">System Health</h2>
           <div class={health_class(@dashboard_data.system_health)}>
             <%= format_health(@dashboard_data.system_health) %>
           </div>
         </div>
         
-        <div class="bg-white rounded-lg shadow p-6">
+        <div class="bg-white rounded-lg shadow p-6" id="algedonic-balance">
           <h2 class="text-xl font-semibold mb-2">Algedonic Balance</h2>
           <div class={algedonic_class(@dashboard_data.algedonic_balance)}>
             <%= @dashboard_data.algedonic_balance %>
