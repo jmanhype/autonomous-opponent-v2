@@ -91,8 +91,9 @@ jobs:
         git config user.email "action@github.com"
         
         TASK_ID="${{ matrix.task.id }}"
-        TIMESTAMP=$(date +%Y%m%d-%H%M%S)
-        BRANCH_NAME="task/${TASK_ID}-auto-${TIMESTAMP}"
+        # Use GitHub run ID + job attempt for uniqueness
+        RUN_HASH="${{ github.run_id }}-${{ github.run_attempt }}"
+        BRANCH_NAME="task/${TASK_ID}-auto-${RUN_HASH}"
         
         # Create and push branch
         git checkout -b "$BRANCH_NAME"
