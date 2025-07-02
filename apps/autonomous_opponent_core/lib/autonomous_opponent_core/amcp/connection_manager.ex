@@ -11,7 +11,8 @@ if Code.ensure_loaded?(AMQP) do
     use GenServer
     require Logger
 
-    alias AMQP.{Channel, Connection}
+    alias AMQP.Channel
+    alias AMQP.Connection
     alias Application
     alias AutonomousOpponentV2Core.AMCP.Topology
 
