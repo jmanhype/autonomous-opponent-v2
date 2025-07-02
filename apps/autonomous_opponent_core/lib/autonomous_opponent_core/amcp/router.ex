@@ -12,8 +12,8 @@ defmodule AutonomousOpponentV2Core.AMCP.Router do
   require Logger
 
   alias AutonomousOpponentV2Core.AMCP.ConnectionManager
-  alias AutonomousOpponentV2Core.AMCP.Topology
   alias AutonomousOpponentV2Core.AMCP.Message
+  alias AutonomousOpponentV2Core.AMCP.Topology
   import Ecto.Changeset
 
   def start_link(opts) do
