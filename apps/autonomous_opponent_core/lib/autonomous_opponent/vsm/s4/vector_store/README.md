@@ -952,6 +952,187 @@ PatternIndexer.prune_before(~U[2024-01-01 00:00:00Z])
 # Returns connectivity stats, layer distribution, etc.
 ```
 
+### Index Visualization Tool
+
+Visualize the HNSW graph structure for debugging and analysis:
+
+```elixir
+defmodule HNSWVisualizer do
+  @moduledoc """
+  Export HNSW index structure for visualization in Graphviz or other tools.
+  Helps debug connectivity issues, hub formation, and layer distribution.
+  """
+  
+  @doc """
+  Export index structure to Graphviz DOT format
+  """
+  def export_to_dot(index, output_path, opts \\ []) do
+    sample_size = Keyword.get(opts, :sample_size, 100)
+    layer = Keyword.get(opts, :layer, 0)
+    highlight_node = Keyword.get(opts, :highlight_node, nil)
+    
+    # Get index data
+    stats = HNSWIndex.stats(index)
+    nodes = sample_nodes(index, sample_size, layer)
+    
+    # Generate DOT content
+    dot_content = generate_dot(nodes, stats, highlight_node)
+    
+    # Write to file
+    File.write!(output_path, dot_content)
+    
+    # Generate visualization
+    # Run: dot -Tpng index.dot -o index.png
+    # Or: dot -Tsvg index.dot -o index.svg
+    
+    {:ok, output_path}
+  end
+  
+  @doc """
+  Generate interactive D3.js visualization
+  """
+  def export_to_d3(index, output_path, opts \\ []) do
+    sample_size = Keyword.get(opts, :sample_size, 500)
+    
+    # Extract graph data
+    graph_data = %{
+      nodes: extract_nodes(index, sample_size),
+      links: extract_links(index, sample_size),
+      metadata: %{
+        total_nodes: HNSWIndex.stats(index).vector_count,
+        parameters: HNSWIndex.stats(index).parameters,
+        layer_distribution: calculate_layer_distribution(index)
+      }
+    }
+    
+    # Generate HTML with embedded D3.js visualization
+    html_content = generate_d3_visualization(graph_data)
+    File.write!(output_path, html_content)
+    
+    {:ok, output_path}
+  end
+  
+  defp generate_dot(nodes, stats, highlight_node) do
+    """
+    digraph HNSW {
+      rankdir=TB;
+      node [shape=circle, style=filled, fillcolor=lightblue];
+      
+      // Graph metadata
+      label="HNSW Index\\nNodes: #{stats.vector_count}\\nM: #{stats.parameters.m}";
+      
+      // Nodes
+      #{format_nodes(nodes, highlight_node)}
+      
+      // Edges
+      #{format_edges(nodes)}
+      
+      // Layer subgraphs
+      #{format_layers(nodes)}
+    }
+    """
+  end
+  
+  defp format_nodes(nodes, highlight_node) do
+    nodes
+    |> Enum.map(fn node ->
+      color = if node.id == highlight_node, do: "red", else: "lightblue"
+      "  n#{node.id} [label=\"#{node.id}\\nL#{node.layer}\", fillcolor=#{color}];"
+    end)
+    |> Enum.join("\n")
+  end
+  
+  defp format_edges(nodes) do
+    nodes
+    |> Enum.flat_map(fn node ->
+      node.neighbors
+      |> Enum.map(fn neighbor_id ->
+        "  n#{node.id} -> n#{neighbor_id};"
+      end)
+    end)
+    |> Enum.uniq()
+    |> Enum.join("\n")
+  end
+  
+  defp generate_d3_visualization(graph_data) do
+    """
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <title>HNSW Index Visualization</title>
+      <script src="https://d3js.org/d3.v7.min.js"></script>
+      <style>
+        .node { stroke: #333; stroke-width: 1.5px; }
+        .link { stroke: #999; stroke-opacity: 0.6; }
+        .tooltip { position: absolute; padding: 10px; background: rgba(0,0,0,0.8); color: white; }
+      </style>
+    </head>
+    <body>
+      <div id="graph"></div>
+      <script>
+        const data = #{Jason.encode!(graph_data)};
+        // D3.js force-directed graph implementation
+        // ... (full implementation would go here)
+      </script>
+    </body>
+    </html>
+    """
+  end
+  
+  @doc """
+  Analyze graph connectivity and detect issues
+  """
+  def analyze_connectivity(index) do
+    stats = HNSWIndex.stats(index)
+    
+    # Sample paths between random nodes
+    connectivity_samples = for _ <- 1..100 do
+      node1 = :rand.uniform(stats.vector_count)
+      node2 = :rand.uniform(stats.vector_count)
+      
+      path = find_shortest_path(index, node1, node2)
+      %{from: node1, to: node2, path_length: length(path), connected: path != nil}
+    end
+    
+    # Calculate metrics
+    connected_pairs = Enum.count(connectivity_samples, & &1.connected)
+    avg_path_length = connectivity_samples
+    |> Enum.filter(& &1.connected)
+    |> Enum.map(& &1.path_length)
+    |> average()
+    
+    # Detect issues
+    issues = []
+    issues = if connected_pairs < 95, do: ["Low connectivity: #{connected_pairs}%" | issues], else: issues
+    issues = if avg_path_length > 10, do: ["High average path length: #{avg_path_length}" | issues], else: issues
+    
+    %{
+      connectivity_percentage: connected_pairs,
+      average_path_length: avg_path_length,
+      issues: issues,
+      recommendation: generate_recommendation(issues)
+    }
+  end
+  
+  defp generate_recommendation([]), do: "Index is healthy"
+  defp generate_recommendation(issues) when length(issues) > 0 do
+    "Consider reindexing with higher M parameter or running compaction"
+  end
+end
+
+# Usage examples:
+# Export to Graphviz
+HNSWVisualizer.export_to_dot(index, "hnsw_graph.dot", layer: 2, sample_size: 200)
+System.cmd("dot", ["-Tpng", "hnsw_graph.dot", "-o", "hnsw_graph.png"])
+
+# Interactive visualization
+HNSWVisualizer.export_to_d3(index, "hnsw_interactive.html")
+
+# Analyze connectivity
+report = HNSWVisualizer.analyze_connectivity(index)
+IO.inspect(report)
+```
+
 ## Implementation Details
 
 ### Graph Structure
@@ -1225,6 +1406,268 @@ end
    - Always use supervised shutdown
    - Enable write-ahead logging
    - Keep backup of critical indices
+
+## Performance Monitoring and Regression Detection
+
+### Automated Performance Regression Detection
+
+Monitor and detect performance regressions in production:
+
+```elixir
+defmodule PerformanceMonitor do
+  use GenServer
+  require Logger
+  
+  @baseline_latency_ms %{
+    insert: 5,
+    search_k10: 12,
+    search_k100: 25,
+    batch_insert_per_vector: 1
+  }
+  @acceptable_deviation 1.2  # 20% slower is acceptable
+  @check_interval_ms :timer.minutes(15)
+  
+  def start_link(opts) do
+    GenServer.start_link(__MODULE__, opts, name: __MODULE__)
+  end
+  
+  def init(opts) do
+    index = Keyword.fetch!(opts, :index)
+    schedule_performance_check()
+    
+    {:ok, %{
+      index: index,
+      baseline: @baseline_latency_ms,
+      history: [],
+      regressions: []
+    }}
+  end
+  
+  def check_performance_regression(index) do
+    GenServer.call(__MODULE__, {:check_regression, index})
+  end
+  
+  def handle_info(:check_performance, state) do
+    results = run_benchmark_suite(state.index)
+    regressions = detect_regressions(results, state.baseline)
+    
+    new_state = %{state |
+      history: [results | Enum.take(state.history, 95)],  # Keep last 96 checks (24 hours)
+      regressions: regressions
+    }
+    
+    if length(regressions) > 0 do
+      alert_performance_regression(regressions, results)
+    end
+    
+    schedule_performance_check()
+    {:noreply, new_state}
+  end
+  
+  defp run_benchmark_suite(index) do
+    # Generate test vectors
+    test_vectors = for _ <- 1..100 do
+      :rand.uniform() |> List.duplicate(128)
+    end
+    query_vector = :rand.uniform() |> List.duplicate(128)
+    
+    # Benchmark insert
+    {insert_time, _} = :timer.tc(fn ->
+      vector = :rand.uniform() |> List.duplicate(128)
+      HNSWIndex.insert(index, vector, %{benchmark: true})
+    end)
+    
+    # Benchmark search k=10
+    {search_k10_time, _} = :timer.tc(fn ->
+      HNSWIndex.search(index, query_vector, k: 10)
+    end)
+    
+    # Benchmark search k=100
+    {search_k100_time, _} = :timer.tc(fn ->
+      HNSWIndex.search(index, query_vector, k: 100)
+    end)
+    
+    # Benchmark batch insert
+    {batch_time, _} = :timer.tc(fn ->
+      HNSWIndex.batch_insert(index, test_vectors)
+    end)
+    
+    %{
+      timestamp: DateTime.utc_now(),
+      insert: insert_time / 1000,  # Convert to ms
+      search_k10: search_k10_time / 1000,
+      search_k100: search_k100_time / 1000,
+      batch_insert_per_vector: batch_time / 1000 / length(test_vectors),
+      index_stats: HNSWIndex.stats(index)
+    }
+  end
+  
+  defp detect_regressions(results, baseline) do
+    Enum.filter([:insert, :search_k10, :search_k100, :batch_insert_per_vector], fn operation ->
+      current = Map.get(results, operation)
+      expected = Map.get(baseline, operation)
+      
+      current > expected * @acceptable_deviation
+    end)
+    |> Enum.map(fn operation ->
+      %{
+        operation: operation,
+        current_ms: Map.get(results, operation),
+        baseline_ms: Map.get(baseline, operation),
+        regression_factor: Map.get(results, operation) / Map.get(baseline, operation)
+      }
+    end)
+  end
+  
+  defp alert_performance_regression(regressions, results) do
+    Logger.error("HNSW Performance Regression Detected!")
+    
+    Enum.each(regressions, fn reg ->
+      Logger.error("""
+      Operation: #{reg.operation}
+      Current: #{reg.current_ms}ms
+      Baseline: #{reg.baseline_ms}ms  
+      Regression: #{Float.round(reg.regression_factor, 2)}x slower
+      """)
+    end)
+    
+    # Send alerts via your monitoring system
+    send_alert(%{
+      type: :performance_regression,
+      service: :hnsw_index,
+      regressions: regressions,
+      index_stats: results.index_stats,
+      timestamp: results.timestamp
+    })
+    
+    # Consider automatic remediation
+    if should_auto_remediate?(regressions) do
+      Logger.info("Attempting automatic remediation...")
+      HNSWIndex.compact(results.index_stats.name)
+    end
+  end
+  
+  defp should_auto_remediate?(regressions) do
+    # Auto-remediate if search performance degrades significantly
+    Enum.any?(regressions, fn reg ->
+      reg.operation in [:search_k10, :search_k100] and reg.regression_factor > 2.0
+    end)
+  end
+  
+  defp schedule_performance_check do
+    Process.send_after(self(), :check_performance, @check_interval_ms)
+  end
+  
+  # Analyze performance trends
+  def analyze_trends(history) do
+    return unless length(history) >= 10
+    
+    # Group by operation
+    trends = [:insert, :search_k10, :search_k100, :batch_insert_per_vector]
+    |> Enum.map(fn op ->
+      values = Enum.map(history, & Map.get(&1, op))
+      
+      {op, %{
+        current: List.first(values),
+        avg_1h: average(Enum.take(values, 4)),
+        avg_6h: average(Enum.take(values, 24)),
+        avg_24h: average(values),
+        trend: calculate_trend(values)
+      }}
+    end)
+    |> Enum.into(%{})
+    
+    trends
+  end
+  
+  defp calculate_trend(values) when length(values) < 2, do: :stable
+  defp calculate_trend(values) do
+    recent = Enum.take(values, 4) |> average()
+    older = Enum.drop(values, 4) |> Enum.take(4) |> average()
+    
+    ratio = recent / older
+    cond do
+      ratio > 1.1 -> :degrading
+      ratio < 0.9 -> :improving
+      true -> :stable
+    end
+  end
+  
+  defp average([]), do: 0
+  defp average(list), do: Enum.sum(list) / length(list)
+end
+
+# Usage:
+{:ok, _} = PerformanceMonitor.start_link(index: :s4_pattern_index)
+
+# Get performance trend analysis
+trends = PerformanceMonitor.analyze_trends(state.history)
+IO.inspect(trends, label: "Performance Trends")
+
+# Manual check
+PerformanceMonitor.check_performance_regression(:s4_pattern_index)
+```
+
+### Performance Baseline Calibration
+
+Establish performance baselines for your specific hardware:
+
+```elixir
+defmodule PerformanceBaseline do
+  @doc """
+  Calibrate performance baselines for current hardware
+  """
+  def calibrate(index, options \\ []) do
+    vector_counts = Keyword.get(options, :vector_counts, [1_000, 10_000, 100_000])
+    dimensions = Keyword.get(options, :dimensions, [128])
+    iterations = Keyword.get(options, :iterations, 100)
+    
+    results = for count <- vector_counts, dim <- dimensions do
+      # Prepare index with vectors
+      prepare_index(index, count, dim)
+      
+      # Run benchmarks
+      benchmarks = for _ <- 1..iterations do
+        run_single_benchmark(index, dim)
+      end
+      
+      # Calculate statistics
+      %{
+        vector_count: count,
+        dimensions: dim,
+        insert_p50: percentile(benchmarks, :insert, 0.5),
+        insert_p99: percentile(benchmarks, :insert, 0.99),
+        search_k10_p50: percentile(benchmarks, :search_k10, 0.5),
+        search_k10_p99: percentile(benchmarks, :search_k10, 0.99),
+        search_k100_p50: percentile(benchmarks, :search_k100, 0.5),
+        search_k100_p99: percentile(benchmarks, :search_k100, 0.99)
+      }
+    end
+    
+    # Generate baseline configuration
+    generate_baseline_config(results)
+  end
+  
+  defp generate_baseline_config(results) do
+    # Use p99 values with 20% buffer as baseline
+    baseline = results
+    |> Enum.find(& &1.vector_count == 100_000)  # Use 100k as reference
+    |> Map.take([:insert_p99, :search_k10_p99, :search_k100_p99])
+    |> Enum.map(fn {k, v} -> {k, v * 1.2} end)  # Add 20% buffer
+    |> Enum.into(%{})
+    
+    """
+    # Performance baseline for current hardware
+    # Generated: #{DateTime.utc_now()}
+    
+    config :autonomous_opponent, :hnsw_performance_baseline,
+      insert_ms: #{baseline.insert_p99},
+      search_k10_ms: #{baseline.search_k10_p99},
+      search_k100_ms: #{baseline.search_k100_p99}
+    """
+  end
+end
+```
 
 ## Data Migration Guide
 
@@ -1847,6 +2290,108 @@ end
   3. **Index Health**: Vector count, layer distribution, connectivity
   4. **Error Rates**: Failed operations by type
   5. **S4 Integration**: Pattern detection rate, scan cycle timing
+
+  **S4-Specific Monitoring Queries**:
+
+  Monitor S4 Intelligence pattern detection efficiency:
+
+  ```sql
+  -- S4 Pattern Detection Efficiency (PostgreSQL)
+  WITH pattern_stats AS (
+    SELECT 
+      sum(patterns_detected) as total_patterns,
+      sum(scan_duration_ms) as total_scan_time,
+      count(*) as scan_count,
+      avg(confidence_score) as avg_confidence
+    FROM s4_environmental_scans
+    WHERE timestamp > now() - interval '1 hour'
+  )
+  SELECT 
+    total_patterns::float / scan_count as avg_patterns_per_scan,
+    total_scan_time::float / scan_count as avg_scan_duration_ms,
+    (total_patterns::float / total_scan_time) * 1000 as patterns_per_second,
+    avg_confidence as detection_confidence
+  FROM pattern_stats;
+
+  -- Cross-Subsystem Pattern Correlation
+  SELECT 
+    source_subsystem,
+    target_subsystem,
+    count(*) as correlation_count,
+    avg(correlation_strength) as avg_strength
+  FROM pattern_correlations
+  WHERE timestamp > now() - interval '24 hours'
+  GROUP BY source_subsystem, target_subsystem
+  ORDER BY correlation_count DESC;
+
+  -- HNSW Index Performance by Pattern Type
+  SELECT 
+    pattern_type,
+    percentile_cont(0.99) WITHIN GROUP (ORDER BY search_latency_ms) as p99_latency,
+    percentile_cont(0.95) WITHIN GROUP (ORDER BY search_latency_ms) as p95_latency,
+    percentile_cont(0.50) WITHIN GROUP (ORDER BY search_latency_ms) as p50_latency,
+    avg(recall_at_10) as avg_recall,
+    count(*) as search_count
+  FROM hnsw_search_metrics
+  WHERE timestamp > now() - interval '1 hour'
+  GROUP BY pattern_type;
+
+  -- S4 Scan Cycle Health
+  WITH scan_intervals AS (
+    SELECT 
+      timestamp,
+      lag(timestamp) OVER (ORDER BY timestamp) as prev_timestamp,
+      extract(epoch from timestamp - lag(timestamp) OVER (ORDER BY timestamp)) as interval_seconds
+    FROM s4_environmental_scans
+    WHERE timestamp > now() - interval '1 hour'
+  )
+  SELECT 
+    count(*) as total_scans,
+    avg(interval_seconds) as avg_interval,
+    stddev(interval_seconds) as interval_stddev,
+    min(interval_seconds) as min_interval,
+    max(interval_seconds) as max_interval,
+    count(CASE WHEN interval_seconds > 15 THEN 1 END) as delayed_scans
+  FROM scan_intervals
+  WHERE interval_seconds IS NOT NULL;
+
+  -- Pattern Age Distribution in HNSW Index
+  SELECT 
+    width_bucket(
+      extract(epoch from now() - inserted_at) / 3600, 
+      0, 168, 24
+    ) as hours_bucket,
+    count(*) as pattern_count,
+    avg(access_frequency) as avg_access_freq
+  FROM hnsw_pattern_metadata
+  GROUP BY hours_bucket
+  ORDER BY hours_bucket;
+  ```
+
+  **Prometheus Queries for S4 Monitoring**:
+
+  ```promql
+  # S4 pattern detection rate
+  rate(s4_patterns_detected_total[5m]) / rate(s4_scans_total[5m])
+
+  # Environmental variety level
+  histogram_quantile(0.95, 
+    sum(rate(s4_variety_level_bucket[5m])) by (le)
+  )
+
+  # Cross-subsystem pattern flow
+  sum by (source, target) (
+    rate(pattern_correlations_total[5m])
+  )
+
+  # HNSW search accuracy by pattern type
+  avg by (pattern_type) (
+    hnsw_search_recall_at_10
+  )
+
+  # S4 scan cycle compliance
+  1 - (rate(s4_scan_delays_total[5m]) / rate(s4_scans_total[5m]))
+  ```
 
 ### Operational Procedures
 

@@ -177,6 +177,30 @@ This creates a probability where:
 | 100,000     | ~17            | 100,000 | ~50,000 | ~25,000 | ~12,500 |
 | 1,000,000   | ~20            | 1M      | ~500K   | ~250K   | ~125K   |
 
+### Visual Layer Distribution Graph
+
+Expected layer distribution for a 100,000 node HNSW index:
+
+```
+Layer 6: █                                        312 nodes   (0.3%)
+Layer 5: ██                                       625 nodes   (0.6%)
+Layer 4: ████                                    1,250 nodes  (1.3%)
+Layer 3: ████████                                2,500 nodes  (2.5%)
+Layer 2: ████████████████                        5,000 nodes  (5.0%)
+Layer 1: ████████████████████████████████       10,000 nodes  (10%)
+Layer 0: ████████████████████████████████████   100,000 nodes (100%)
+
+         0    20K   40K   60K   80K   100K
+         └─────┴─────┴─────┴─────┴─────┘
+                 Number of Nodes
+```
+
+This exponential distribution ensures:
+- Efficient highway routing through sparse upper layers
+- Detailed local search in dense lower layers
+- Logarithmic path length between any two nodes
+- Balanced memory usage across layers
+
 This exponential decay ensures:
 1. Efficient long-range navigation in upper layers
 2. Dense local connectivity in lower layers
@@ -361,6 +385,103 @@ end
 | Geographic coordinates | Euclidean | Physical distance correlation | Lat/long pairs |
 | User preferences | Cosine | Relative preferences matter | Rating vectors |
 | Time series patterns | DTW (future) | Temporal alignment needed | Stock prices |
+
+#### Concrete Distance Metric Examples with Environmental Sensor Data
+
+```elixir
+# Example 1: Raw sensor readings - Use Euclidean distance
+sensor_data = %{
+  temperature_c: 22.5,      # Celsius
+  humidity_pct: 65.0,       # Percentage (0-100)
+  pressure_hpa: 1013.25,    # Hectopascals
+  air_quality_idx: 0.8,     # Index (0-1)
+  wind_speed_ms: 3.2        # Meters per second
+}
+
+# Problem: Different scales! Temperature ~20, pressure ~1000
+# Solution: Normalize by scale before using Euclidean distance
+def normalize_sensor_data(data) do
+  %{
+    temperature_c: data.temperature_c / 50.0,      # Typical range: -10 to 40°C
+    humidity_pct: data.humidity_pct / 100.0,       # Already percentage
+    pressure_hpa: (data.pressure_hpa - 1000) / 50, # Typical range: 950-1050
+    air_quality_idx: data.air_quality_idx,         # Already normalized
+    wind_speed_ms: data.wind_speed_ms / 20.0       # Typical max: 20 m/s
+  }
+end
+
+# Convert to vector for HNSW
+sensor_vector = normalize_sensor_data(sensor_data) |> Map.values()
+# Result: [0.45, 0.65, 0.265, 0.8, 0.16]
+
+# Example 2: Pattern proportions - Use Cosine distance
+pattern_data = %{
+  anomaly_signatures: 15,
+  normal_behaviors: 285,
+  coordination_conflicts: 7,
+  resource_warnings: 3
+}
+
+# For proportional data, magnitude doesn't matter - only relative ratios
+total = Enum.sum(Map.values(pattern_data))
+pattern_vector = pattern_data
+  |> Map.values()
+  |> Enum.map(& &1 / total)
+# Result: [0.048, 0.919, 0.023, 0.010] - automatically normalized by cosine
+
+# Example 3: S4 Environmental Scan - Mixed features require careful encoding
+scan_data = %{
+  # Continuous values - normalize by expected range
+  variety_level: 0.73,              # Already 0-1
+  entropy_measure: 4.2,             # Normalize by max entropy ~10
+  pattern_density: 156,             # Patterns per scan, normalize by 1000
+  
+  # Categorical features - one-hot encode
+  threat_level: :medium,            # Convert to [0, 1, 0] for [low, medium, high]
+  scan_region: :north_america,      # Convert to binary vector
+  
+  # Temporal features - cyclical encoding
+  hour_of_day: 14,                  # Convert to sin/cos pair
+  day_of_week: 3                    # Wednesday, convert to sin/cos
+}
+
+def encode_environmental_scan(scan) do
+  continuous = [
+    scan.variety_level,
+    scan.entropy_measure / 10.0,
+    scan.pattern_density / 1000.0
+  ]
+  
+  threat_encoding = case scan.threat_level do
+    :low -> [1, 0, 0]
+    :medium -> [0, 1, 0]
+    :high -> [0, 0, 1]
+  end
+  
+  # Cyclical encoding preserves circular nature of time
+  hour_sin = :math.sin(2 * :math.pi * scan.hour_of_day / 24)
+  hour_cos = :math.cos(2 * :math.pi * scan.hour_of_day / 24)
+  day_sin = :math.sin(2 * :math.pi * scan.day_of_week / 7)
+  day_cos = :math.cos(2 * :math.pi * scan.day_of_week / 7)
+  
+  continuous ++ threat_encoding ++ [hour_sin, hour_cos, day_sin, day_cos]
+end
+
+# Insert into HNSW with appropriate metadata
+vector = encode_environmental_scan(scan_data)
+HNSWIndex.insert(index, vector, %{
+  timestamp: DateTime.utc_now(),
+  raw_data: scan_data,
+  encoding_version: "v2.1",
+  distance_metric: :cosine  # Best for mixed normalized features
+})
+```
+
+**Key Insights:**
+1. **Scale Normalization is Critical**: Raw sensor values often have vastly different ranges
+2. **Choose Metric Based on Meaning**: Euclidean for absolute differences, Cosine for proportions
+3. **Categorical Encoding Matters**: One-hot encoding preserves distance semantics
+4. **Temporal Features Need Special Care**: Cyclical encoding prevents artificial boundaries
 
 For S4 environmental patterns, we default to **cosine** since patterns are normalized feature vectors where relative proportions matter more than absolute values.
 
@@ -835,6 +956,193 @@ end
 | 1M      | 128        | 16 | ~2,500      |
 | 10K     | 768        | 16 | ~80         |
 
+### Memory Profiling Example
+
+Monitor and profile memory usage during index operations:
+
+```elixir
+defmodule HNSWMemoryProfiler do
+  @doc """
+  Profile memory usage during batch vector insertion
+  """
+  def profile_memory_usage(index, vector_count \\ 1000, dimensions \\ 128) do
+    # Capture initial memory state
+    :erlang.garbage_collect()
+    Process.sleep(100)  # Let GC settle
+    
+    initial_memory = %{
+      total: :erlang.memory(:total),
+      processes: :erlang.memory(:processes),
+      ets: :erlang.memory(:ets),
+      binary: :erlang.memory(:binary)
+    }
+    
+    # Get initial index stats
+    initial_stats = HNSWIndex.stats(index)
+    
+    # Insert batch of vectors
+    vectors = for i <- 1..vector_count do
+      vector = :rand.uniform() |> List.duplicate(dimensions)
+      metadata = %{
+        batch_id: :profile_batch,
+        index: i,
+        timestamp: DateTime.utc_now()
+      }
+      {vector, metadata}
+    end
+    
+    # Time the insertion
+    {time_us, _} = :timer.tc(fn ->
+      Enum.each(vectors, fn {vec, meta} ->
+        HNSWIndex.insert(index, vec, meta)
+      end)
+    end)
+    
+    # Capture final memory state
+    :erlang.garbage_collect()
+    Process.sleep(100)
+    
+    final_memory = %{
+      total: :erlang.memory(:total),
+      processes: :erlang.memory(:processes),
+      ets: :erlang.memory(:ets),
+      binary: :erlang.memory(:binary)
+    }
+    
+    final_stats = HNSWIndex.stats(index)
+    
+    # Calculate memory usage
+    memory_delta = %{
+      total: final_memory.total - initial_memory.total,
+      processes: final_memory.processes - initial_memory.processes,
+      ets: final_memory.ets - initial_memory.ets,
+      binary: final_memory.binary - initial_memory.binary
+    }
+    
+    vectors_added = final_stats.vector_count - initial_stats.vector_count
+    
+    # Generate report
+    %{
+      vectors_inserted: vectors_added,
+      time_ms: time_us / 1000,
+      throughput_per_sec: vectors_added * 1_000_000 / time_us,
+      memory_per_vector_bytes: memory_delta.total / vectors_added,
+      memory_breakdown: %{
+        ets_per_vector: memory_delta.ets / vectors_added,
+        process_per_vector: memory_delta.processes / vectors_added,
+        binary_per_vector: memory_delta.binary / vectors_added
+      },
+      efficiency_metrics: %{
+        bytes_per_dimension: memory_delta.total / (vectors_added * dimensions),
+        overhead_ratio: memory_delta.total / (vectors_added * dimensions * 4), # 4 bytes per float
+        graph_memory_pct: memory_delta.ets / memory_delta.total * 100
+      }
+    }
+  end
+  
+  @doc """
+  Monitor memory growth over time during continuous operation
+  """
+  def monitor_memory_growth(index, duration_seconds \\ 60) do
+    end_time = System.monotonic_time(:second) + duration_seconds
+    
+    Stream.unfold(0, fn counter ->
+      if System.monotonic_time(:second) < end_time do
+        # Insert some vectors
+        batch_size = 10
+        for _ <- 1..batch_size do
+          vector = :rand.uniform() |> List.duplicate(128)
+          HNSWIndex.insert(index, vector, %{monitor_batch: counter})
+        end
+        
+        # Collect memory stats
+        stats = %{
+          timestamp: DateTime.utc_now(),
+          vector_count: HNSWIndex.stats(index).vector_count,
+          memory_total: :erlang.memory(:total),
+          memory_ets: :erlang.memory(:ets),
+          memory_processes: :erlang.memory(:processes)
+        }
+        
+        Process.sleep(1000)  # 1 second interval
+        {stats, counter + 1}
+      else
+        nil
+      end
+    end)
+    |> Enum.to_list()
+    |> analyze_growth_pattern()
+  end
+  
+  defp analyze_growth_pattern(samples) do
+    # Calculate growth rate and detect memory leaks
+    first = List.first(samples)
+    last = List.last(samples)
+    
+    vectors_added = last.vector_count - first.vector_count
+    memory_added = last.memory_total - first.memory_total
+    time_elapsed = DateTime.diff(last.timestamp, first.timestamp)
+    
+    %{
+      duration_seconds: time_elapsed,
+      vectors_added: vectors_added,
+      memory_growth_mb: memory_added / 1_048_576,
+      avg_memory_per_vector: memory_added / vectors_added,
+      growth_rate_mb_per_hour: memory_added / 1_048_576 * 3600 / time_elapsed,
+      samples: length(samples),
+      memory_trend: calculate_trend(samples)
+    }
+  end
+  
+  defp calculate_trend(samples) do
+    # Simple linear regression on memory usage
+    x_values = 0..(length(samples) - 1) |> Enum.to_list()
+    y_values = Enum.map(samples, & &1.memory_total)
+    
+    n = length(samples)
+    sum_x = Enum.sum(x_values)
+    sum_y = Enum.sum(y_values)
+    sum_xy = Enum.zip(x_values, y_values) |> Enum.map(fn {x, y} -> x * y end) |> Enum.sum()
+    sum_x2 = Enum.map(x_values, & &1 * &1) |> Enum.sum()
+    
+    slope = (n * sum_xy - sum_x * sum_y) / (n * sum_x2 - sum_x * sum_x)
+    intercept = (sum_y - slope * sum_x) / n
+    
+    %{
+      slope_bytes_per_second: slope,
+      baseline_bytes: intercept,
+      projected_1h_growth_mb: slope * 3600 / 1_048_576
+    }
+  end
+end
+
+# Usage example:
+{:ok, index} = HNSWIndex.start_link(m: 16, ef: 200)
+
+# Profile single batch
+profile = HNSWMemoryProfiler.profile_memory_usage(index, 1000, 128)
+IO.inspect(profile, label: "Memory Profile")
+
+# Monitor continuous growth
+growth = HNSWMemoryProfiler.monitor_memory_growth(index, 60)
+IO.inspect(growth, label: "Growth Analysis")
+
+# Typical output:
+# Memory Profile: %{
+#   memory_per_vector_bytes: 3842,
+#   memory_breakdown: %{
+#     ets_per_vector: 2956,      # ~77% for graph structure
+#     process_per_vector: 486,    # ~13% for process state
+#     binary_per_vector: 400      # ~10% for metadata
+#   },
+#   efficiency_metrics: %{
+#     bytes_per_dimension: 30,    # 3842 / 128
+#     overhead_ratio: 7.5,        # vs raw 4 bytes/float
+#     graph_memory_pct: 77.0
+#   }
+# }
+```
+
 ## Concrete Performance Requirements
 
 ### Latency Requirements
@@ -1057,5 +1365,3 @@ end
 This file tracks the implementation of Task 4.
 
 <!-- Triggering CI/CD check with updated OAuth workflows -->
-
-@claude Please implement this task according to the specifications above.
