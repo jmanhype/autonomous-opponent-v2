@@ -120,7 +120,7 @@ defmodule AutonomousOpponent.Core.RateLimiter do
     :tokens_per_interval,
     :token_table,
     :metrics_table,
-    :refill_timer
+    :refill_timer,
   ]
 
   @impl true
