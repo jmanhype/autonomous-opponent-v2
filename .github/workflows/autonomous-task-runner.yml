@@ -177,10 +177,10 @@ jobs:
             - Suggest follow-up tasks if needed
             
             **IMPORTANT**: Before marking ready for review:
-            1. Run `mix test` - all tests must pass
-            2. Run `mix format` - code must be formatted
-            3. Run `mix credo --strict` - no credo issues
-            4. Run `mix dialyzer` - no type errors
+            1. Run 'mix test' - all tests must pass
+            2. Run 'mix format' - code must be formatted
+            3. Run 'mix credo --strict' - no credo issues
+            4. Run 'mix dialyzer' - no type errors
             5. Ensure Docker build succeeds
             6. Update CLAUDE.md if you discover important patterns
             
