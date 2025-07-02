@@ -11,9 +11,7 @@ defmodule AutonomousOpponentV2Core.AMCP.Router do
   use GenServer
   require Logger
 
-  alias AutonomousOpponentV2Core.AMCP.ConnectionManager
-  alias AutonomousOpponentV2Core.AMCP.Message
-  alias AutonomousOpponentV2Core.AMCP.Topology
+  alias AutonomousOpponentV2Core.AMCP.{ConnectionManager, Message, Topology}
   import Ecto.Changeset
 
   def start_link(opts) do
