@@ -117,13 +117,13 @@ defmodule AutonomousOpponent.Core.MetricsIntegrationTest do
       end
       
       # Should have some successes and some rate limited
-      allowed_count = Enum.count(results, fn 
+      allowed_count = Enum.count(results, fn
         {:ok, _} -> true
-        _ -> false 
+        _ -> false
       end)
-      limited_count = Enum.count(results, fn 
+      limited_count = Enum.count(results, fn
         {:error, :rate_limited} -> true
-        _ -> false 
+        _ -> false
       end)
       
       assert allowed_count > 0

@@ -276,8 +276,7 @@ defmodule AutonomousOpponent.Core.Metrics do
     metrics = :ets.tab2list(state.metrics_table)
     
     prometheus_text = 
-      metrics
-      |> Enum.map_join("\n", &format_prometheus_metric/1)
+      Enum.map_join(metrics, "\n", &format_prometheus_metric/1)
     
     {:reply, prometheus_text, state}
   end
@@ -382,11 +381,10 @@ defmodule AutonomousOpponent.Core.Metrics do
   end
   
   defp build_metric_key(name, tags) do
-    tag_string = 
+    tag_string =
       tags
       |> Enum.sort()
-      |> Enum.map(fn {k, v} -> "#{k}=#{v}" end)
-      |> Enum.join(",")
+      |> Enum.map_join(",", fn {k, v} -> "#{k}=#{v}" end)
     
     "#{name}{#{tag_string}}"
   end
@@ -459,13 +457,12 @@ defmodule AutonomousOpponent.Core.Metrics do
     # Format histogram
     base_name = String.replace(key, ~r/\{.*\}/, "")
     
-    bucket_lines = 
+    bucket_lines =
       buckets
       |> Enum.sort()
-      |> Enum.map(fn {limit, count} ->
+      |> Enum.map_join("\n", fn {limit, count} ->
         "#{base_name}_bucket{le=\"#{limit}\"} #{count}"
       end)
-      |> Enum.join("\n")
     
     """
     #{bucket_lines}

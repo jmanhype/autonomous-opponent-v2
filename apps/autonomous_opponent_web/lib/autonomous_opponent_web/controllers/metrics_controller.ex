@@ -4,13 +4,13 @@ defmodule AutonomousOpponentV2Web.MetricsController do
   This endpoint can be scraped by Prometheus/Grafana for monitoring.
   """
   use AutonomousOpponentV2Web, :controller
-  
+
   alias AutonomousOpponent.Core.Metrics
-  
+
   def index(conn, _params) do
-    prometheus_text = 
+    prometheus_text =
       case Process.whereis(AutonomousOpponent.Core.Metrics) do
-        nil -> 
+        nil ->
           # Return empty metrics if metrics system not running
           "# No metrics available - metrics system not running\n"
         _pid ->
@@ -20,7 +20,7 @@ defmodule AutonomousOpponentV2Web.MetricsController do
             _ -> "# Error retrieving metrics\n"
           end
       end
-    
+
     conn
     |> put_resp_content_type("text/plain; version=0.0.4")
     |> send_resp(200, prometheus_text)
