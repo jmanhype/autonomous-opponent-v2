@@ -138,7 +138,7 @@ defmodule AutonomousOpponent.Core.RateLimiter do
     refill_interval_ms = opts[:refill_interval_ms] || 100
 
     # Calculate tokens to add per interval
-    tokens_per_interval = refill_rate * refill_interval_ms / 1000
+    tokens_per_interval = refill_rate * refill_interval_ms / 1000.0
 
     # Initialize global bucket
     :ets.insert(token_table, {:global, bucket_size})
@@ -290,51 +290,7 @@ defmodule AutonomousOpponent.Core.RateLimiter do
 
   @impl true
   def handle_info(:refill, state) do
-    # Refill all buckets
-    refill_bucket(state.token_table, :global, state.tokens_per_interval, state.bucket_size)
-
-    # Refill VSM subsystem buckets with their specific rates
-    # S1 gets double refill rate (high variety flow)
-    refill_bucket(
-      state.token_table,
-      {:subsystem, :s1},
-      state.tokens_per_interval * 2,
-      state.bucket_size * 2
-    )
-
-    # S2-S3 get normal refill rate
-    refill_bucket(
-      state.token_table,
-      {:subsystem, :s2},
-      state.tokens_per_interval,
-      state.bucket_size
-    )
-
-    refill_bucket(
-      state.token_table,
-      {:subsystem, :s3},
-      state.tokens_per_interval,
-      state.bucket_size
-    )
-
-    # S4 gets half refill rate
-    refill_bucket(
-      state.token_table,
-      {:subsystem, :s4},
-      state.tokens_per_interval / 2,
-      div(state.bucket_size, 2)
-    )
-
-    # S5 gets quarter refill rate (most deliberate)
-    refill_bucket(
-      state.token_table,
-      {:subsystem, :s5},
-      state.tokens_per_interval / 4,
-      div(state.bucket_size, 4)
-    )
-
-    # Refill client buckets (if any exist)
-    refill_client_buckets(state)
+    refill_all_buckets(state)
 
     # Schedule next refill
     timer_ref = Process.send_after(self(), :refill, state.refill_interval_ms)
@@ -401,7 +357,7 @@ defmodule AutonomousOpponent.Core.RateLimiter do
         new_count = :ets.update_counter(table, key, -tokens)
         {:ok, new_count}
 
-      [{^key, current}] ->
+      [{^key, _current}] ->
         # Insufficient tokens
         {:error, :insufficient_tokens}
     end
@@ -427,15 +383,16 @@ defmodule AutonomousOpponent.Core.RateLimiter do
   defp refill_client_buckets(state) do
     client_buckets = :ets.match(state.token_table, {{:client, :"$1"}, :"$2"})
 
-    Enum.each(client_buckets, fn [_client_id, _current_tokens] ->
+    Enum.each(client_buckets, fn [client_id, _current_tokens] ->
       # All clients get 1/10th of the global refill rate
       client_refill = state.tokens_per_interval / 10
       client_max = div(state.bucket_size, 10)
 
-      :ets.update_element(
+      refill_bucket(
         state.token_table,
-        {:client, _client_id},
-        {2, fn current -> min(current + client_refill, client_max) end}
+        {:client, client_id},
+        client_refill,
+        client_max
       )
     end)
   end
@@ -453,20 +410,65 @@ defmodule AutonomousOpponent.Core.RateLimiter do
   # Good - operations need flexibility. S5 handling high variety? Concerning -
   # policy should be stable. The metrics reveal systemic patterns.
   defp update_variety_metrics(state, {:subsystem, subsystem}, result) do
-    :ets.update_element(
-      state.metrics_table,
-      :variety_flow,
-      {2,
-       fn current ->
-         Map.update(current, subsystem, 0, fn count ->
-           case result do
-             :allowed -> count + 1
-             :limited -> count
-           end
-         end)
-       end}
-    )
+    current_flow = :ets.lookup_element(state.metrics_table, :variety_flow, 2)
+
+    updated_flow =
+      Map.update(current_flow, subsystem, 0, fn count ->
+        case result do
+          :allowed -> count + 1
+          :limited -> count
+        end
+      end)
+
+    :ets.insert(state.metrics_table, {:variety_flow, updated_flow})
   end
 
   defp update_variety_metrics(_state, _scope, _result), do: :ok
+
+  defp refill_all_buckets(state) do
+    # Refill global bucket
+    refill_bucket(state.token_table, :global, state.tokens_per_interval, state.bucket_size)
+
+    # Refill VSM subsystem buckets
+    refill_vsm_buckets(state)
+
+    # Refill client buckets (if any exist)
+    refill_client_buckets(state)
+  end
+
+  defp refill_vsm_buckets(state) do
+    # S1 gets double refill rate (high variety flow)
+    refill_bucket(
+      state.token_table,
+      {:subsystem, :s1},
+      state.tokens_per_interval * 2,
+      state.bucket_size * 2
+    )
+
+    # S2-S3 get normal refill rate
+    for subsystem <- [:s2, :s3] do
+      refill_bucket(
+        state.token_table,
+        {:subsystem, subsystem},
+        state.tokens_per_interval,
+        state.bucket_size
+      )
+    end
+
+    # S4 gets half refill rate
+    refill_bucket(
+      state.token_table,
+      {:subsystem, :s4},
+      state.tokens_per_interval / 2,
+      div(state.bucket_size, 2)
+    )
+
+    # S5 gets quarter refill rate (most deliberate)
+    refill_bucket(
+      state.token_table,
+      {:subsystem, :s5},
+      state.tokens_per_interval / 4,
+      div(state.bucket_size, 4)
+    )
+  end
 end

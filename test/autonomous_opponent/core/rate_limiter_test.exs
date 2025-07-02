@@ -1,5 +1,5 @@
 defmodule AutonomousOpponent.Core.RateLimiterTest do
-  use ExUnit.Case
+  use ExUnit.Case, async: true
   alias AutonomousOpponent.Core.RateLimiter
 
   setup do
