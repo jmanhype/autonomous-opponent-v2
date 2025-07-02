@@ -16,6 +16,7 @@ defmodule AutonomousOpponent.VSM.Supervisor do
 
   alias AutonomousOpponent.VSM.{
     S1.Operations,
+    S1.Supervisor,
     S2.Coordination,
     S3.Control,
     S4.Intelligence,
@@ -32,7 +33,9 @@ defmodule AutonomousOpponent.VSM.Supervisor do
   def init(_opts) do
     children = [
       # Core VSM Subsystems
-      # S1 - Operations (Multiple workers for variety absorption)
+      # S1 - Operations Supervisor (Manages multiple workers for variety absorption)
+      {AutonomousOpponent.VSM.S1.Supervisor, []},
+      # S1 - Primary Operations Worker
       {Operations, [id: "s1_primary", name: S1.Operations]},
 
       # S2 - Coordination (Anti-oscillation)
