@@ -135,6 +135,7 @@ jobs:
       if: steps.health.outputs.rotation_needed == 'true'
       uses: actions/github-script@v7
       with:
+        github-token: ${{ secrets.AUTONOMOUS_PAT || secrets.GITHUB_TOKEN }}
         script: |
           const issues = await github.rest.issues.listForRepo({
             owner: context.repo.owner,

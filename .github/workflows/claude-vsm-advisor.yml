@@ -39,7 +39,7 @@ jobs:
     - name: Request Claude Analysis
       uses: actions/github-script@v7
       with:
-        github-token: ${{ secrets.GITHUB_TOKEN }}
+        github-token: ${{ secrets.AUTONOMOUS_PAT || secrets.GITHUB_TOKEN }}
         script: |
           // Find the PR associated with this workflow run
           const runs = await github.rest.actions.listWorkflowRuns({

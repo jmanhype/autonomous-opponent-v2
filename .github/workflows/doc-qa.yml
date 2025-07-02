@@ -110,6 +110,7 @@ jobs:
         if: github.event_name == 'pull_request'
         uses: actions/github-script@v6
         with:
+        github-token: ${{ secrets.AUTONOMOUS_PAT || secrets.GITHUB_TOKEN }}
           script: |
             const fs = require('fs');
             
@@ -160,6 +161,7 @@ jobs:
         if: failure() && github.event_name == 'schedule'
         uses: actions/github-script@v6
         with:
+        github-token: ${{ secrets.AUTONOMOUS_PAT || secrets.GITHUB_TOKEN }}
           script: |
             const title = 'Documentation Quality Issues Detected';
             const body = `
