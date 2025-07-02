@@ -103,7 +103,7 @@ td.source {
 </head>
 <body>
 <h1><code>cover/Elixir.AutonomousOpponentV2Core.EventBus.html</code></h1>
-<footer><p>File generated from <code>/home/batmanosama/autonomous-opponent-proper/autonomous_opponent_v2/apps/autonomous_opponent_core/lib/autonomous_opponent_core/event_bus.ex</code> by <a href="http://erlang.org/doc/man/cover.html">cover</a> at 2025-07-02 at 12:27:23</p></footer>
+<footer><p>File generated from <code>/home/batmanosama/autonomous-opponent-proper/autonomous_opponent_v2/apps/autonomous_opponent_core/lib/autonomous_opponent_core/event_bus.ex</code> by <a href="http://erlang.org/doc/man/cover.html">cover</a> at 2025-07-02 at 13:06:14</p></footer>
 <table>
 <tbody>
 <tr>
@@ -218,12 +218,12 @@ td.source {
 </tr>
 <tr class="hit">
 <td class="line" id="L23"><a href="#L23">23</a></td>
-<td class="hits">220</td>
+<td class="hits">256</td>
 <td class="source"><code>  def subscribe(event_type, pid \\ self()) do</code></td>
 </tr>
 <tr class="hit">
 <td class="line" id="L24"><a href="#L24">24</a></td>
-<td class="hits">220</td>
+<td class="hits">256</td>
 <td class="source"><code>    GenServer.call(__MODULE__, {:subscribe, event_type, pid})</code></td>
 </tr>
 <tr>
@@ -293,7 +293,7 @@ td.source {
 </tr>
 <tr class="hit">
 <td class="line" id="L38"><a href="#L38">38</a></td>
-<td class="hits">613</td>
+<td class="hits">1132</td>
 <td class="source"><code>    GenServer.cast(__MODULE__, {:publish, event_type, data})</code></td>
 </tr>
 <tr>
@@ -418,7 +418,7 @@ td.source {
 </tr>
 <tr class="hit">
 <td class="line" id="L63"><a href="#L63">63</a></td>
-<td class="hits">220</td>
+<td class="hits">256</td>
 <td class="source"><code>    Process.monitor(pid)</code></td>
 </tr>
 <tr>
@@ -433,7 +433,7 @@ td.source {
 </tr>
 <tr class="hit">
 <td class="line" id="L66"><a href="#L66">66</a></td>
-<td class="hits">220</td>
+<td class="hits">256</td>
 <td class="source"><code>    :ets.insert(@table_name, {event_type, pid})</code></td>
 </tr>
 <tr>
@@ -443,7 +443,7 @@ td.source {
 </tr>
 <tr class="hit">
 <td class="line" id="L68"><a href="#L68">68</a></td>
-<td class="hits">220</td>
+<td class="hits">256</td>
 <td class="source"><code>    Logger.debug("Process #{inspect(pid)} subscribed to #{event_type}")</code></td>
 </tr>
 <tr>
@@ -453,7 +453,7 @@ td.source {
 </tr>
 <tr class="hit">
 <td class="line" id="L70"><a href="#L70">70</a></td>
-<td class="hits">220</td>
+<td class="hits">256</td>
 <td class="source"><code>    {:reply, :ok, state}</code></td>
 </tr>
 <tr>
@@ -578,7 +578,7 @@ td.source {
 </tr>
 <tr class="hit">
 <td class="line" id="L95"><a href="#L95">95</a></td>
-<td class="hits">613</td>
+<td class="hits">1132</td>
 <td class="source"><code>    subscribers = :ets.lookup(@table_name, event_type)</code></td>
 </tr>
 <tr>
@@ -593,12 +593,12 @@ td.source {
 </tr>
 <tr class="hit">
 <td class="line" id="L98"><a href="#L98">98</a></td>
-<td class="hits">613</td>
+<td class="hits">1132</td>
 <td class="source"><code>    Enum.each(subscribers, fn {^event_type, pid} -&gt;</code></td>
 </tr>
 <tr class="hit">
 <td class="line" id="L99"><a href="#L99">99</a></td>
-<td class="hits">567</td>
+<td class="hits">1086</td>
 <td class="source"><code>      send(pid, {:event, event_type, data})</code></td>
 </tr>
 <tr>
@@ -618,7 +618,7 @@ td.source {
 </tr>
 <tr class="hit">
 <td class="line" id="L103"><a href="#L103">103</a></td>
-<td class="hits">613</td>
+<td class="hits">1132</td>
 <td class="source"><code>    case event_type do</code></td>
 </tr>
 <tr>
@@ -673,7 +673,7 @@ td.source {
 </tr>
 <tr class="hit">
 <td class="line" id="L114"><a href="#L114">114</a></td>
-<td class="hits">116</td>
+<td class="hits">635</td>
 <td class="source"><code>        Logger.debug("Event published: #{event_type}")</code></td>
 </tr>
 <tr>
@@ -718,7 +718,7 @@ td.source {
 </tr>
 <tr class="hit">
 <td class="line" id="L123"><a href="#L123">123</a></td>
-<td class="hits">220</td>
+<td class="hits">256</td>
 <td class="source"><code>    subscriptions = :ets.match(@table_name, {:"$1", pid})</code></td>
 </tr>
 <tr>
@@ -728,12 +728,12 @@ td.source {
 </tr>
 <tr class="hit">
 <td class="line" id="L125"><a href="#L125">125</a></td>
-<td class="hits">220</td>
+<td class="hits">256</td>
 <td class="source"><code>    Enum.each(subscriptions, fn [event_type] -&gt;</code></td>
 </tr>
 <tr class="hit">
 <td class="line" id="L126"><a href="#L126">126</a></td>
-<td class="hits">220</td>
+<td class="hits">256</td>
 <td class="source"><code>      :ets.delete_object(@table_name, {event_type, pid})</code></td>
 </tr>
 <tr>
@@ -748,7 +748,7 @@ td.source {
 </tr>
 <tr class="hit">
 <td class="line" id="L129"><a href="#L129">129</a></td>
-<td class="hits">220</td>
+<td class="hits">256</td>
 <td class="source"><code>    Logger.debug("Cleaned up subscriptions for dead process #{inspect(pid)}")</code></td>
 </tr>
 <tr>

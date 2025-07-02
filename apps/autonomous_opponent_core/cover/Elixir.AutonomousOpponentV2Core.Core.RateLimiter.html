@@ -103,7 +103,7 @@ td.source {
 </head>
 <body>
 <h1><code>cover/Elixir.AutonomousOpponentV2Core.Core.RateLimiter.html</code></h1>
-<footer><p>File generated from <code>/home/batmanosama/autonomous-opponent-proper/autonomous_opponent_v2/apps/autonomous_opponent_core/lib/autonomous_opponent_core/core/rate_limiter.ex</code> by <a href="http://erlang.org/doc/man/cover.html">cover</a> at 2025-07-02 at 12:27:23</p></footer>
+<footer><p>File generated from <code>/home/batmanosama/autonomous-opponent-proper/autonomous_opponent_v2/apps/autonomous_opponent_core/lib/autonomous_opponent_core/core/rate_limiter.ex</code> by <a href="http://erlang.org/doc/man/cover.html">cover</a> at 2025-07-02 at 13:06:14</p></footer>
 <table>
 <tbody>
 <tr>
@@ -1269,142 +1269,142 @@ td.source {
 <tr>
 <td class="line" id="L233"><a href="#L233">233</a></td>
 <td class="hits"></td>
-<td class="source"><code></code></td>
+<td class="source"><code>        </code></td>
+</tr>
+<tr>
+<td class="line" id="L234"><a href="#L234">234</a></td>
+<td class="hits"></td>
+<td class="source"><code>        # Also publish specific rate limited event for metrics</code></td>
 </tr>
 <tr class="hit">
-<td class="line" id="L234"><a href="#L234">234</a></td>
-<td class="hits">493</td>
-<td class="source"><code>        {:reply, {:error, :rate_limited}, state}</code></td>
-</tr>
-<tr>
 <td class="line" id="L235"><a href="#L235">235</a></td>
-<td class="hits"></td>
-<td class="source"><code>    end</code></td>
+<td class="hits">493</td>
+<td class="source"><code>        EventBus.publish(:rate_limited, %{</code></td>
 </tr>
-<tr>
+<tr class="hit">
 <td class="line" id="L236"><a href="#L236">236</a></td>
-<td class="hits"></td>
-<td class="source"><code>  end</code></td>
+<td class="hits">493</td>
+<td class="source"><code>          name: state.name,</code></td>
 </tr>
 <tr>
 <td class="line" id="L237"><a href="#L237">237</a></td>
 <td class="hits"></td>
-<td class="source"><code></code></td>
+<td class="source"><code>          scope: scope,</code></td>
 </tr>
 <tr>
 <td class="line" id="L238"><a href="#L238">238</a></td>
 <td class="hits"></td>
-<td class="source"><code>  def handle_call(:get_state, _from, state) do</code></td>
+<td class="source"><code>          tokens_requested: tokens,</code></td>
 </tr>
 <tr>
 <td class="line" id="L239"><a href="#L239">239</a></td>
 <td class="hits"></td>
-<td class="source"><code>    # Gather current token counts</code></td>
+<td class="source"><code>          timestamp: System.monotonic_time(:millisecond)</code></td>
 </tr>
-<tr class="miss">
+<tr>
 <td class="line" id="L240"><a href="#L240">240</a></td>
-<td class="hits"><pre style="display: inline;">:-(</pre></td>
-<td class="source"><code>    global_tokens = get_token_count(state.token_table, :global)</code></td>
+<td class="hits"></td>
+<td class="source"><code>        })</code></td>
 </tr>
 <tr>
 <td class="line" id="L241"><a href="#L241">241</a></td>
 <td class="hits"></td>
 <td class="source"><code></code></td>
 </tr>
-<tr class="miss">
+<tr class="hit">
 <td class="line" id="L242"><a href="#L242">242</a></td>
-<td class="hits"><pre style="display: inline;">:-(</pre></td>
-<td class="source"><code>    subsystem_tokens =</code></td>
+<td class="hits">493</td>
+<td class="source"><code>        {:reply, {:error, :rate_limited}, state}</code></td>
 </tr>
-<tr class="miss">
+<tr>
 <td class="line" id="L243"><a href="#L243">243</a></td>
-<td class="hits"><pre style="display: inline;">:-(</pre></td>
-<td class="source"><code>      Enum.map([:s1, :s2, :s3, :s4, :s5], fn subsystem -&gt;</code></td>
+<td class="hits"></td>
+<td class="source"><code>    end</code></td>
 </tr>
-<tr class="miss">
+<tr>
 <td class="line" id="L244"><a href="#L244">244</a></td>
-<td class="hits"><pre style="display: inline;">:-(</pre></td>
-<td class="source"><code>        {subsystem, get_token_count(state.token_table, {:subsystem, subsystem})}</code></td>
+<td class="hits"></td>
+<td class="source"><code>  end</code></td>
 </tr>
 <tr>
 <td class="line" id="L245"><a href="#L245">245</a></td>
 <td class="hits"></td>
-<td class="source"><code>      end)</code></td>
+<td class="source"><code></code></td>
 </tr>
 <tr>
 <td class="line" id="L246"><a href="#L246">246</a></td>
 <td class="hits"></td>
-<td class="source"><code>      |&gt; Map.new()</code></td>
+<td class="source"><code>  def handle_call(:get_state, _from, state) do</code></td>
 </tr>
 <tr>
 <td class="line" id="L247"><a href="#L247">247</a></td>
 <td class="hits"></td>
-<td class="source"><code></code></td>
-</tr>
-<tr>
-<td class="line" id="L248"><a href="#L248">248</a></td>
-<td class="hits"></td>
-<td class="source"><code>    # Get metrics</code></td>
+<td class="source"><code>    # Gather current token counts</code></td>
 </tr>
 <tr class="miss">
-<td class="line" id="L249"><a href="#L249">249</a></td>
+<td class="line" id="L248"><a href="#L248">248</a></td>
 <td class="hits"><pre style="display: inline;">:-(</pre></td>
-<td class="source"><code>    metrics = %{</code></td>
+<td class="source"><code>    global_tokens = get_token_count(state.token_table, :global)</code></td>
+</tr>
+<tr>
+<td class="line" id="L249"><a href="#L249">249</a></td>
+<td class="hits"></td>
+<td class="source"><code></code></td>
 </tr>
 <tr class="miss">
 <td class="line" id="L250"><a href="#L250">250</a></td>
 <td class="hits"><pre style="display: inline;">:-(</pre></td>
-<td class="source"><code>      total_requests: :ets.lookup_element(state.metrics_table, :total_requests, 2),</code></td>
+<td class="source"><code>    subsystem_tokens =</code></td>
 </tr>
 <tr class="miss">
 <td class="line" id="L251"><a href="#L251">251</a></td>
 <td class="hits"><pre style="display: inline;">:-(</pre></td>
-<td class="source"><code>      total_allowed: :ets.lookup_element(state.metrics_table, :total_allowed, 2),</code></td>
+<td class="source"><code>      Enum.map([:s1, :s2, :s3, :s4, :s5], fn subsystem -&gt;</code></td>
 </tr>
 <tr class="miss">
 <td class="line" id="L252"><a href="#L252">252</a></td>
 <td class="hits"><pre style="display: inline;">:-(</pre></td>
-<td class="source"><code>      total_limited: :ets.lookup_element(state.metrics_table, :total_limited, 2)</code></td>
+<td class="source"><code>        {subsystem, get_token_count(state.token_table, {:subsystem, subsystem})}</code></td>
 </tr>
 <tr>
 <td class="line" id="L253"><a href="#L253">253</a></td>
 <td class="hits"></td>
-<td class="source"><code>    }</code></td>
+<td class="source"><code>      end)</code></td>
 </tr>
 <tr>
 <td class="line" id="L254"><a href="#L254">254</a></td>
 <td class="hits"></td>
-<td class="source"><code></code></td>
+<td class="source"><code>      |&gt; Map.new()</code></td>
 </tr>
-<tr class="miss">
+<tr>
 <td class="line" id="L255"><a href="#L255">255</a></td>
-<td class="hits"><pre style="display: inline;">:-(</pre></td>
-<td class="source"><code>    reply = %{</code></td>
+<td class="hits"></td>
+<td class="source"><code></code></td>
 </tr>
 <tr>
 <td class="line" id="L256"><a href="#L256">256</a></td>
 <td class="hits"></td>
-<td class="source"><code>      global_tokens: global_tokens,</code></td>
+<td class="source"><code>    # Get metrics</code></td>
 </tr>
-<tr>
+<tr class="miss">
 <td class="line" id="L257"><a href="#L257">257</a></td>
-<td class="hits"></td>
-<td class="source"><code>      subsystem_tokens: subsystem_tokens,</code></td>
+<td class="hits"><pre style="display: inline;">:-(</pre></td>
+<td class="source"><code>    metrics = %{</code></td>
 </tr>
 <tr class="miss">
 <td class="line" id="L258"><a href="#L258">258</a></td>
 <td class="hits"><pre style="display: inline;">:-(</pre></td>
-<td class="source"><code>      bucket_size: state.bucket_size,</code></td>
+<td class="source"><code>      total_requests: :ets.lookup_element(state.metrics_table, :total_requests, 2),</code></td>
 </tr>
 <tr class="miss">
 <td class="line" id="L259"><a href="#L259">259</a></td>
 <td class="hits"><pre style="display: inline;">:-(</pre></td>
-<td class="source"><code>      refill_rate: state.refill_rate,</code></td>
+<td class="source"><code>      total_allowed: :ets.lookup_element(state.metrics_table, :total_allowed, 2),</code></td>
 </tr>
-<tr>
+<tr class="miss">
 <td class="line" id="L260"><a href="#L260">260</a></td>
-<td class="hits"></td>
-<td class="source"><code>      metrics: metrics</code></td>
+<td class="hits"><pre style="display: inline;">:-(</pre></td>
+<td class="source"><code>      total_limited: :ets.lookup_element(state.metrics_table, :total_limited, 2)</code></td>
 </tr>
 <tr>
 <td class="line" id="L261"><a href="#L261">261</a></td>
@@ -1419,797 +1419,797 @@ td.source {
 <tr class="miss">
 <td class="line" id="L263"><a href="#L263">263</a></td>
 <td class="hits"><pre style="display: inline;">:-(</pre></td>
-<td class="source"><code>    {:reply, reply, state}</code></td>
+<td class="source"><code>    reply = %{</code></td>
 </tr>
 <tr>
 <td class="line" id="L264"><a href="#L264">264</a></td>
 <td class="hits"></td>
-<td class="source"><code>  end</code></td>
+<td class="source"><code>      global_tokens: global_tokens,</code></td>
 </tr>
 <tr>
 <td class="line" id="L265"><a href="#L265">265</a></td>
 <td class="hits"></td>
-<td class="source"><code></code></td>
+<td class="source"><code>      subsystem_tokens: subsystem_tokens,</code></td>
 </tr>
-<tr>
+<tr class="miss">
 <td class="line" id="L266"><a href="#L266">266</a></td>
-<td class="hits"></td>
-<td class="source"><code>  def handle_call(:get_variety_metrics, _from, state) do</code></td>
+<td class="hits"><pre style="display: inline;">:-(</pre></td>
+<td class="source"><code>      bucket_size: state.bucket_size,</code></td>
 </tr>
 <tr class="miss">
 <td class="line" id="L267"><a href="#L267">267</a></td>
 <td class="hits"><pre style="display: inline;">:-(</pre></td>
-<td class="source"><code>    variety_flow = :ets.lookup_element(state.metrics_table, :variety_flow, 2)</code></td>
+<td class="source"><code>      refill_rate: state.refill_rate,</code></td>
 </tr>
-<tr class="miss">
+<tr>
 <td class="line" id="L268"><a href="#L268">268</a></td>
-<td class="hits"><pre style="display: inline;">:-(</pre></td>
-<td class="source"><code>    {:reply, variety_flow, state}</code></td>
+<td class="hits"></td>
+<td class="source"><code>      metrics: metrics</code></td>
 </tr>
 <tr>
 <td class="line" id="L269"><a href="#L269">269</a></td>
 <td class="hits"></td>
-<td class="source"><code>  end</code></td>
+<td class="source"><code>    }</code></td>
 </tr>
 <tr>
 <td class="line" id="L270"><a href="#L270">270</a></td>
 <td class="hits"></td>
 <td class="source"><code></code></td>
 </tr>
-<tr>
+<tr class="miss">
 <td class="line" id="L271"><a href="#L271">271</a></td>
-<td class="hits"></td>
-<td class="source"><code>  def handle_call(:reset, _from, state) do</code></td>
+<td class="hits"><pre style="display: inline;">:-(</pre></td>
+<td class="source"><code>    {:reply, reply, state}</code></td>
 </tr>
 <tr>
 <td class="line" id="L272"><a href="#L272">272</a></td>
 <td class="hits"></td>
-<td class="source"><code>    # Reset all buckets to full</code></td>
+<td class="source"><code>  end</code></td>
 </tr>
-<tr class="miss">
+<tr>
 <td class="line" id="L273"><a href="#L273">273</a></td>
-<td class="hits"><pre style="display: inline;">:-(</pre></td>
-<td class="source"><code>    :ets.insert(state.token_table, {:global, state.bucket_size})</code></td>
+<td class="hits"></td>
+<td class="source"><code></code></td>
 </tr>
 <tr>
 <td class="line" id="L274"><a href="#L274">274</a></td>
 <td class="hits"></td>
-<td class="source"><code></code></td>
+<td class="source"><code>  def handle_call(:get_variety_metrics, _from, state) do</code></td>
 </tr>
-<tr>
+<tr class="miss">
 <td class="line" id="L275"><a href="#L275">275</a></td>
-<td class="hits"></td>
-<td class="source"><code>    # Reset VSM subsystem buckets</code></td>
+<td class="hits"><pre style="display: inline;">:-(</pre></td>
+<td class="source"><code>    variety_flow = :ets.lookup_element(state.metrics_table, :variety_flow, 2)</code></td>
 </tr>
 <tr class="miss">
 <td class="line" id="L276"><a href="#L276">276</a></td>
 <td class="hits"><pre style="display: inline;">:-(</pre></td>
-<td class="source"><code>    :ets.insert(state.token_table, {{:subsystem, :s1}, state.bucket_size * 2})</code></td>
-</tr>
-<tr class="miss">
-<td class="line" id="L277"><a href="#L277">277</a></td>
-<td class="hits"><pre style="display: inline;">:-(</pre></td>
-<td class="source"><code>    :ets.insert(state.token_table, {{:subsystem, :s2}, state.bucket_size})</code></td>
-</tr>
-<tr class="miss">
-<td class="line" id="L278"><a href="#L278">278</a></td>
-<td class="hits"><pre style="display: inline;">:-(</pre></td>
-<td class="source"><code>    :ets.insert(state.token_table, {{:subsystem, :s3}, state.bucket_size})</code></td>
-</tr>
-<tr class="miss">
-<td class="line" id="L279"><a href="#L279">279</a></td>
-<td class="hits"><pre style="display: inline;">:-(</pre></td>
-<td class="source"><code>    :ets.insert(state.token_table, {{:subsystem, :s4}, div(state.bucket_size, 2)})</code></td>
-</tr>
-<tr class="miss">
-<td class="line" id="L280"><a href="#L280">280</a></td>
-<td class="hits"><pre style="display: inline;">:-(</pre></td>
-<td class="source"><code>    :ets.insert(state.token_table, {{:subsystem, :s5}, div(state.bucket_size, 4)})</code></td>
+<td class="source"><code>    {:reply, variety_flow, state}</code></td>
 </tr>
 <tr>
-<td class="line" id="L281"><a href="#L281">281</a></td>
+<td class="line" id="L277"><a href="#L277">277</a></td>
+<td class="hits"></td>
+<td class="source"><code>  end</code></td>
+</tr>
+<tr>
+<td class="line" id="L278"><a href="#L278">278</a></td>
 <td class="hits"></td>
 <td class="source"><code></code></td>
+</tr>
+<tr>
+<td class="line" id="L279"><a href="#L279">279</a></td>
+<td class="hits"></td>
+<td class="source"><code>  def handle_call(:reset, _from, state) do</code></td>
+</tr>
+<tr>
+<td class="line" id="L280"><a href="#L280">280</a></td>
+<td class="hits"></td>
+<td class="source"><code>    # Reset all buckets to full</code></td>
+</tr>
+<tr class="miss">
+<td class="line" id="L281"><a href="#L281">281</a></td>
+<td class="hits"><pre style="display: inline;">:-(</pre></td>
+<td class="source"><code>    :ets.insert(state.token_table, {:global, state.bucket_size})</code></td>
 </tr>
 <tr>
 <td class="line" id="L282"><a href="#L282">282</a></td>
 <td class="hits"></td>
-<td class="source"><code>    # Clear client buckets</code></td>
-</tr>
-<tr class="miss">
-<td class="line" id="L283"><a href="#L283">283</a></td>
-<td class="hits"><pre style="display: inline;">:-(</pre></td>
-<td class="source"><code>    :ets.match_delete(state.token_table, {{:client, :_}, :_})</code></td>
-</tr>
-<tr>
-<td class="line" id="L284"><a href="#L284">284</a></td>
-<td class="hits"></td>
 <td class="source"><code></code></td>
 </tr>
 <tr>
-<td class="line" id="L285"><a href="#L285">285</a></td>
+<td class="line" id="L283"><a href="#L283">283</a></td>
 <td class="hits"></td>
-<td class="source"><code>    # Publish reset event</code></td>
+<td class="source"><code>    # Reset VSM subsystem buckets</code></td>
+</tr>
+<tr class="miss">
+<td class="line" id="L284"><a href="#L284">284</a></td>
+<td class="hits"><pre style="display: inline;">:-(</pre></td>
+<td class="source"><code>    :ets.insert(state.token_table, {{:subsystem, :s1}, state.bucket_size * 2})</code></td>
+</tr>
+<tr class="miss">
+<td class="line" id="L285"><a href="#L285">285</a></td>
+<td class="hits"><pre style="display: inline;">:-(</pre></td>
+<td class="source"><code>    :ets.insert(state.token_table, {{:subsystem, :s2}, state.bucket_size})</code></td>
 </tr>
 <tr class="miss">
 <td class="line" id="L286"><a href="#L286">286</a></td>
 <td class="hits"><pre style="display: inline;">:-(</pre></td>
-<td class="source"><code>    EventBus.publish(:rate_limiter_reset, %{name: state.name})</code></td>
+<td class="source"><code>    :ets.insert(state.token_table, {{:subsystem, :s3}, state.bucket_size})</code></td>
 </tr>
-<tr>
+<tr class="miss">
 <td class="line" id="L287"><a href="#L287">287</a></td>
-<td class="hits"></td>
-<td class="source"><code></code></td>
+<td class="hits"><pre style="display: inline;">:-(</pre></td>
+<td class="source"><code>    :ets.insert(state.token_table, {{:subsystem, :s4}, div(state.bucket_size, 2)})</code></td>
 </tr>
 <tr class="miss">
 <td class="line" id="L288"><a href="#L288">288</a></td>
 <td class="hits"><pre style="display: inline;">:-(</pre></td>
-<td class="source"><code>    {:reply, :ok, state}</code></td>
+<td class="source"><code>    :ets.insert(state.token_table, {{:subsystem, :s5}, div(state.bucket_size, 4)})</code></td>
 </tr>
 <tr>
 <td class="line" id="L289"><a href="#L289">289</a></td>
 <td class="hits"></td>
-<td class="source"><code>  end</code></td>
+<td class="source"><code></code></td>
 </tr>
 <tr>
 <td class="line" id="L290"><a href="#L290">290</a></td>
 <td class="hits"></td>
-<td class="source"><code></code></td>
+<td class="source"><code>    # Clear client buckets</code></td>
 </tr>
-<tr>
+<tr class="miss">
 <td class="line" id="L291"><a href="#L291">291</a></td>
-<td class="hits"></td>
-<td class="source"><code>  @impl true</code></td>
+<td class="hits"><pre style="display: inline;">:-(</pre></td>
+<td class="source"><code>    :ets.match_delete(state.token_table, {{:client, :_}, :_})</code></td>
 </tr>
 <tr>
 <td class="line" id="L292"><a href="#L292">292</a></td>
 <td class="hits"></td>
-<td class="source"><code>  def handle_info(:refill, state) do</code></td>
-</tr>
-<tr class="hit">
-<td class="line" id="L293"><a href="#L293">293</a></td>
-<td class="hits">3</td>
-<td class="source"><code>    refill_all_buckets(state)</code></td>
+<td class="source"><code></code></td>
 </tr>
 <tr>
-<td class="line" id="L294"><a href="#L294">294</a></td>
+<td class="line" id="L293"><a href="#L293">293</a></td>
 <td class="hits"></td>
-<td class="source"><code></code></td>
+<td class="source"><code>    # Publish reset event</code></td>
+</tr>
+<tr class="miss">
+<td class="line" id="L294"><a href="#L294">294</a></td>
+<td class="hits"><pre style="display: inline;">:-(</pre></td>
+<td class="source"><code>    EventBus.publish(:rate_limiter_reset, %{name: state.name})</code></td>
 </tr>
 <tr>
 <td class="line" id="L295"><a href="#L295">295</a></td>
 <td class="hits"></td>
-<td class="source"><code>    # Schedule next refill</code></td>
+<td class="source"><code></code></td>
 </tr>
-<tr class="hit">
+<tr class="miss">
 <td class="line" id="L296"><a href="#L296">296</a></td>
-<td class="hits">3</td>
-<td class="source"><code>    timer_ref = Process.send_after(self(), :refill, state.refill_interval_ms)</code></td>
+<td class="hits"><pre style="display: inline;">:-(</pre></td>
+<td class="source"><code>    {:reply, :ok, state}</code></td>
 </tr>
 <tr>
 <td class="line" id="L297"><a href="#L297">297</a></td>
 <td class="hits"></td>
-<td class="source"><code>    {:noreply, %{state | refill_timer: timer_ref}}</code></td>
+<td class="source"><code>  end</code></td>
 </tr>
 <tr>
 <td class="line" id="L298"><a href="#L298">298</a></td>
 <td class="hits"></td>
-<td class="source"><code>  end</code></td>
+<td class="source"><code></code></td>
 </tr>
 <tr>
 <td class="line" id="L299"><a href="#L299">299</a></td>
 <td class="hits"></td>
-<td class="source"><code></code></td>
+<td class="source"><code>  @impl true</code></td>
 </tr>
 <tr>
 <td class="line" id="L300"><a href="#L300">300</a></td>
 <td class="hits"></td>
-<td class="source"><code>  @impl true</code></td>
+<td class="source"><code>  def handle_info(:refill, state) do</code></td>
 </tr>
-<tr>
+<tr class="hit">
 <td class="line" id="L301"><a href="#L301">301</a></td>
-<td class="hits"></td>
-<td class="source"><code>  def terminate(_reason, state) do</code></td>
+<td class="hits">3</td>
+<td class="source"><code>    refill_all_buckets(state)</code></td>
 </tr>
 <tr>
 <td class="line" id="L302"><a href="#L302">302</a></td>
 <td class="hits"></td>
-<td class="source"><code>    # Cancel refill timer</code></td>
+<td class="source"><code></code></td>
 </tr>
-<tr class="miss">
+<tr>
 <td class="line" id="L303"><a href="#L303">303</a></td>
-<td class="hits"><pre style="display: inline;">:-(</pre></td>
-<td class="source"><code>    if state.refill_timer do</code></td>
+<td class="hits"></td>
+<td class="source"><code>    # Schedule next refill</code></td>
 </tr>
-<tr class="miss">
+<tr class="hit">
 <td class="line" id="L304"><a href="#L304">304</a></td>
-<td class="hits"><pre style="display: inline;">:-(</pre></td>
-<td class="source"><code>      Process.cancel_timer(state.refill_timer)</code></td>
+<td class="hits">3</td>
+<td class="source"><code>    timer_ref = Process.send_after(self(), :refill, state.refill_interval_ms)</code></td>
 </tr>
 <tr>
 <td class="line" id="L305"><a href="#L305">305</a></td>
 <td class="hits"></td>
-<td class="source"><code>    end</code></td>
+<td class="source"><code>    {:noreply, %{state | refill_timer: timer_ref}}</code></td>
 </tr>
 <tr>
 <td class="line" id="L306"><a href="#L306">306</a></td>
 <td class="hits"></td>
-<td class="source"><code></code></td>
+<td class="source"><code>  end</code></td>
 </tr>
 <tr>
 <td class="line" id="L307"><a href="#L307">307</a></td>
 <td class="hits"></td>
-<td class="source"><code>    :ok</code></td>
+<td class="source"><code></code></td>
 </tr>
 <tr>
 <td class="line" id="L308"><a href="#L308">308</a></td>
 <td class="hits"></td>
-<td class="source"><code>  end</code></td>
+<td class="source"><code>  @impl true</code></td>
 </tr>
 <tr>
 <td class="line" id="L309"><a href="#L309">309</a></td>
 <td class="hits"></td>
-<td class="source"><code></code></td>
+<td class="source"><code>  def terminate(_reason, state) do</code></td>
 </tr>
 <tr>
 <td class="line" id="L310"><a href="#L310">310</a></td>
 <td class="hits"></td>
-<td class="source"><code>  # Private functions</code></td>
+<td class="source"><code>    # Cancel refill timer</code></td>
 </tr>
-<tr>
+<tr class="miss">
 <td class="line" id="L311"><a href="#L311">311</a></td>
-<td class="hits"></td>
-<td class="source"><code></code></td>
+<td class="hits"><pre style="display: inline;">:-(</pre></td>
+<td class="source"><code>    if state.refill_timer do</code></td>
 </tr>
-<tr>
+<tr class="miss">
 <td class="line" id="L312"><a href="#L312">312</a></td>
-<td class="hits"></td>
-<td class="source"><code>  # WISDOM: Bucket info mapping - organizing variety flows</code></td>
+<td class="hits"><pre style="display: inline;">:-(</pre></td>
+<td class="source"><code>      Process.cancel_timer(state.refill_timer)</code></td>
 </tr>
 <tr>
 <td class="line" id="L313"><a href="#L313">313</a></td>
 <td class="hits"></td>
-<td class="source"><code>  # Different scopes have different bucket sizes because variety isn't uniform.</code></td>
+<td class="source"><code>    end</code></td>
 </tr>
 <tr>
 <td class="line" id="L314"><a href="#L314">314</a></td>
 <td class="hits"></td>
-<td class="source"><code>  # Global scope protects the whole system. Client scope prevents one actor from</code></td>
+<td class="source"><code></code></td>
 </tr>
 <tr>
 <td class="line" id="L315"><a href="#L315">315</a></td>
 <td class="hits"></td>
-<td class="source"><code>  # monopolizing resources. Subsystem scope recognizes that S1 operational variety</code></td>
+<td class="source"><code>    :ok</code></td>
 </tr>
 <tr>
 <td class="line" id="L316"><a href="#L316">316</a></td>
 <td class="hits"></td>
-<td class="source"><code>  # differs fundamentally from S5 policy variety.</code></td>
+<td class="source"><code>  end</code></td>
 </tr>
 <tr>
 <td class="line" id="L317"><a href="#L317">317</a></td>
 <td class="hits"></td>
-<td class="source"><code>  defp get_bucket_info(scope, state) do</code></td>
+<td class="source"><code></code></td>
 </tr>
-<tr class="hit">
+<tr>
 <td class="line" id="L318"><a href="#L318">318</a></td>
-<td class="hits">555</td>
-<td class="source"><code>    case scope do</code></td>
+<td class="hits"></td>
+<td class="source"><code>  # Private functions</code></td>
 </tr>
-<tr class="hit">
+<tr>
 <td class="line" id="L319"><a href="#L319">319</a></td>
-<td class="hits">530</td>
-<td class="source"><code>      :global -&gt;</code></td>
+<td class="hits"></td>
+<td class="source"><code></code></td>
 </tr>
-<tr class="hit">
+<tr>
 <td class="line" id="L320"><a href="#L320">320</a></td>
-<td class="hits">530</td>
-<td class="source"><code>        {:global, state.bucket_size}</code></td>
+<td class="hits"></td>
+<td class="source"><code>  # WISDOM: Bucket info mapping - organizing variety flows</code></td>
 </tr>
 <tr>
 <td class="line" id="L321"><a href="#L321">321</a></td>
 <td class="hits"></td>
-<td class="source"><code></code></td>
+<td class="source"><code>  # Different scopes have different bucket sizes because variety isn't uniform.</code></td>
 </tr>
-<tr class="miss">
+<tr>
 <td class="line" id="L322"><a href="#L322">322</a></td>
-<td class="hits"><pre style="display: inline;">:-(</pre></td>
-<td class="source"><code>      {:client, client_id} -&gt;</code></td>
+<td class="hits"></td>
+<td class="source"><code>  # Global scope protects the whole system. Client scope prevents one actor from</code></td>
 </tr>
 <tr>
 <td class="line" id="L323"><a href="#L323">323</a></td>
 <td class="hits"></td>
-<td class="source"><code>        # Clients get 1/10th of global bucket by default</code></td>
+<td class="source"><code>  # monopolizing resources. Subsystem scope recognizes that S1 operational variety</code></td>
 </tr>
-<tr class="miss">
+<tr>
 <td class="line" id="L324"><a href="#L324">324</a></td>
-<td class="hits"><pre style="display: inline;">:-(</pre></td>
-<td class="source"><code>        {{:client, client_id}, div(state.bucket_size, 10)}</code></td>
+<td class="hits"></td>
+<td class="source"><code>  # differs fundamentally from S5 policy variety.</code></td>
 </tr>
 <tr>
 <td class="line" id="L325"><a href="#L325">325</a></td>
 <td class="hits"></td>
-<td class="source"><code></code></td>
+<td class="source"><code>  defp get_bucket_info(scope, state) do</code></td>
 </tr>
 <tr class="hit">
 <td class="line" id="L326"><a href="#L326">326</a></td>
-<td class="hits">5</td>
-<td class="source"><code>      {:subsystem, :s1} -&gt;</code></td>
+<td class="hits">555</td>
+<td class="source"><code>    case scope do</code></td>
 </tr>
 <tr class="hit">
 <td class="line" id="L327"><a href="#L327">327</a></td>
-<td class="hits">5</td>
-<td class="source"><code>        {{:subsystem, :s1}, state.bucket_size * 2}</code></td>
+<td class="hits">530</td>
+<td class="source"><code>      :global -&gt;</code></td>
+</tr>
+<tr class="hit">
+<td class="line" id="L328"><a href="#L328">328</a></td>
+<td class="hits">530</td>
+<td class="source"><code>        {:global, state.bucket_size}</code></td>
 </tr>
 <tr>
-<td class="line" id="L328"><a href="#L328">328</a></td>
+<td class="line" id="L329"><a href="#L329">329</a></td>
 <td class="hits"></td>
 <td class="source"><code></code></td>
 </tr>
-<tr class="hit">
-<td class="line" id="L329"><a href="#L329">329</a></td>
-<td class="hits">5</td>
-<td class="source"><code>      {:subsystem, :s2} -&gt;</code></td>
-</tr>
-<tr class="hit">
+<tr class="miss">
 <td class="line" id="L330"><a href="#L330">330</a></td>
-<td class="hits">5</td>
-<td class="source"><code>        {{:subsystem, :s2}, state.bucket_size}</code></td>
+<td class="hits"><pre style="display: inline;">:-(</pre></td>
+<td class="source"><code>      {:client, client_id} -&gt;</code></td>
 </tr>
 <tr>
 <td class="line" id="L331"><a href="#L331">331</a></td>
 <td class="hits"></td>
-<td class="source"><code></code></td>
+<td class="source"><code>        # Clients get 1/10th of global bucket by default</code></td>
 </tr>
-<tr class="hit">
+<tr class="miss">
 <td class="line" id="L332"><a href="#L332">332</a></td>
-<td class="hits">5</td>
-<td class="source"><code>      {:subsystem, :s3} -&gt;</code></td>
-</tr>
-<tr class="hit">
-<td class="line" id="L333"><a href="#L333">333</a></td>
-<td class="hits">5</td>
-<td class="source"><code>        {{:subsystem, :s3}, state.bucket_size}</code></td>
+<td class="hits"><pre style="display: inline;">:-(</pre></td>
+<td class="source"><code>        {{:client, client_id}, div(state.bucket_size, 10)}</code></td>
 </tr>
 <tr>
-<td class="line" id="L334"><a href="#L334">334</a></td>
+<td class="line" id="L333"><a href="#L333">333</a></td>
 <td class="hits"></td>
 <td class="source"><code></code></td>
+</tr>
+<tr class="hit">
+<td class="line" id="L334"><a href="#L334">334</a></td>
+<td class="hits">5</td>
+<td class="source"><code>      {:subsystem, :s1} -&gt;</code></td>
 </tr>
 <tr class="hit">
 <td class="line" id="L335"><a href="#L335">335</a></td>
 <td class="hits">5</td>
-<td class="source"><code>      {:subsystem, :s4} -&gt;</code></td>
-</tr>
-<tr class="hit">
-<td class="line" id="L336"><a href="#L336">336</a></td>
-<td class="hits">5</td>
-<td class="source"><code>        {{:subsystem, :s4}, div(state.bucket_size, 2)}</code></td>
+<td class="source"><code>        {{:subsystem, :s1}, state.bucket_size * 2}</code></td>
 </tr>
 <tr>
-<td class="line" id="L337"><a href="#L337">337</a></td>
+<td class="line" id="L336"><a href="#L336">336</a></td>
 <td class="hits"></td>
 <td class="source"><code></code></td>
 </tr>
 <tr class="hit">
-<td class="line" id="L338"><a href="#L338">338</a></td>
+<td class="line" id="L337"><a href="#L337">337</a></td>
 <td class="hits">5</td>
-<td class="source"><code>      {:subsystem, :s5} -&gt;</code></td>
+<td class="source"><code>      {:subsystem, :s2} -&gt;</code></td>
 </tr>
 <tr class="hit">
-<td class="line" id="L339"><a href="#L339">339</a></td>
+<td class="line" id="L338"><a href="#L338">338</a></td>
 <td class="hits">5</td>
-<td class="source"><code>        {{:subsystem, :s5}, div(state.bucket_size, 4)}</code></td>
+<td class="source"><code>        {{:subsystem, :s2}, state.bucket_size}</code></td>
 </tr>
 <tr>
+<td class="line" id="L339"><a href="#L339">339</a></td>
+<td class="hits"></td>
+<td class="source"><code></code></td>
+</tr>
+<tr class="hit">
 <td class="line" id="L340"><a href="#L340">340</a></td>
-<td class="hits"></td>
-<td class="source"><code>    end</code></td>
+<td class="hits">5</td>
+<td class="source"><code>      {:subsystem, :s3} -&gt;</code></td>
 </tr>
-<tr>
+<tr class="hit">
 <td class="line" id="L341"><a href="#L341">341</a></td>
-<td class="hits"></td>
-<td class="source"><code>  end</code></td>
+<td class="hits">5</td>
+<td class="source"><code>        {{:subsystem, :s3}, state.bucket_size}</code></td>
 </tr>
 <tr>
 <td class="line" id="L342"><a href="#L342">342</a></td>
 <td class="hits"></td>
 <td class="source"><code></code></td>
 </tr>
-<tr>
+<tr class="hit">
 <td class="line" id="L343"><a href="#L343">343</a></td>
-<td class="hits"></td>
-<td class="source"><code>  # WISDOM: Atomic token consumption - the critical section</code></td>
+<td class="hits">5</td>
+<td class="source"><code>      {:subsystem, :s4} -&gt;</code></td>
 </tr>
-<tr>
+<tr class="hit">
 <td class="line" id="L344"><a href="#L344">344</a></td>
-<td class="hits"></td>
-<td class="source"><code>  # This function is the heart of rate limiting. It must be atomic to prevent</code></td>
+<td class="hits">5</td>
+<td class="source"><code>        {{:subsystem, :s4}, div(state.bucket_size, 2)}</code></td>
 </tr>
 <tr>
 <td class="line" id="L345"><a href="#L345">345</a></td>
 <td class="hits"></td>
-<td class="source"><code>  # race conditions. Two requests arriving simultaneously must not both succeed</code></td>
+<td class="source"><code></code></td>
 </tr>
-<tr>
+<tr class="hit">
 <td class="line" id="L346"><a href="#L346">346</a></td>
-<td class="hits"></td>
-<td class="source"><code>  # if only one token remains. ETS atomic operations ensure this without locks.</code></td>
+<td class="hits">5</td>
+<td class="source"><code>      {:subsystem, :s5} -&gt;</code></td>
 </tr>
-<tr>
+<tr class="hit">
 <td class="line" id="L347"><a href="#L347">347</a></td>
-<td class="hits"></td>
-<td class="source"><code>  defp consume_tokens(table, key, tokens, max_size) do</code></td>
+<td class="hits">5</td>
+<td class="source"><code>        {{:subsystem, :s5}, div(state.bucket_size, 4)}</code></td>
 </tr>
 <tr>
 <td class="line" id="L348"><a href="#L348">348</a></td>
 <td class="hits"></td>
-<td class="source"><code>    # Initialize bucket if it doesn't exist (lazy initialization for clients)</code></td>
+<td class="source"><code>    end</code></td>
 </tr>
-<tr class="hit">
+<tr>
 <td class="line" id="L349"><a href="#L349">349</a></td>
-<td class="hits">555</td>
-<td class="source"><code>    case :ets.lookup(table, key) do</code></td>
+<td class="hits"></td>
+<td class="source"><code>  end</code></td>
 </tr>
 <tr>
 <td class="line" id="L350"><a href="#L350">350</a></td>
 <td class="hits"></td>
-<td class="source"><code>      [] -&gt;</code></td>
+<td class="source"><code></code></td>
 </tr>
 <tr>
 <td class="line" id="L351"><a href="#L351">351</a></td>
 <td class="hits"></td>
-<td class="source"><code>        # New bucket starts full</code></td>
+<td class="source"><code>  # WISDOM: Atomic token consumption - the critical section</code></td>
 </tr>
-<tr class="miss">
+<tr>
 <td class="line" id="L352"><a href="#L352">352</a></td>
-<td class="hits"><pre style="display: inline;">:-(</pre></td>
-<td class="source"><code>        :ets.insert(table, {key, max_size})</code></td>
+<td class="hits"></td>
+<td class="source"><code>  # This function is the heart of rate limiting. It must be atomic to prevent</code></td>
 </tr>
-<tr class="miss">
+<tr>
 <td class="line" id="L353"><a href="#L353">353</a></td>
-<td class="hits"><pre style="display: inline;">:-(</pre></td>
-<td class="source"><code>        consume_tokens(table, key, tokens, max_size)</code></td>
+<td class="hits"></td>
+<td class="source"><code>  # race conditions. Two requests arriving simultaneously must not both succeed</code></td>
 </tr>
 <tr>
 <td class="line" id="L354"><a href="#L354">354</a></td>
 <td class="hits"></td>
-<td class="source"><code></code></td>
+<td class="source"><code>  # if only one token remains. ETS atomic operations ensure this without locks.</code></td>
 </tr>
 <tr>
 <td class="line" id="L355"><a href="#L355">355</a></td>
 <td class="hits"></td>
-<td class="source"><code>      [{^key, current}] when current &gt;= tokens -&gt;</code></td>
+<td class="source"><code>  defp consume_tokens(table, key, tokens, max_size) do</code></td>
 </tr>
 <tr>
 <td class="line" id="L356"><a href="#L356">356</a></td>
 <td class="hits"></td>
-<td class="source"><code>        # Sufficient tokens - consume them atomically</code></td>
+<td class="source"><code>    # Initialize bucket if it doesn't exist (lazy initialization for clients)</code></td>
 </tr>
 <tr class="hit">
 <td class="line" id="L357"><a href="#L357">357</a></td>
-<td class="hits">62</td>
-<td class="source"><code>        new_count = :ets.update_counter(table, key, -tokens)</code></td>
+<td class="hits">555</td>
+<td class="source"><code>    case :ets.lookup(table, key) do</code></td>
 </tr>
 <tr>
 <td class="line" id="L358"><a href="#L358">358</a></td>
 <td class="hits"></td>
-<td class="source"><code>        {:ok, new_count}</code></td>
+<td class="source"><code>      [] -&gt;</code></td>
 </tr>
 <tr>
 <td class="line" id="L359"><a href="#L359">359</a></td>
 <td class="hits"></td>
-<td class="source"><code></code></td>
+<td class="source"><code>        # New bucket starts full</code></td>
 </tr>
-<tr class="hit">
+<tr class="miss">
 <td class="line" id="L360"><a href="#L360">360</a></td>
-<td class="hits">493</td>
-<td class="source"><code>      [{^key, _current}] -&gt;</code></td>
+<td class="hits"><pre style="display: inline;">:-(</pre></td>
+<td class="source"><code>        :ets.insert(table, {key, max_size})</code></td>
 </tr>
-<tr>
+<tr class="miss">
 <td class="line" id="L361"><a href="#L361">361</a></td>
-<td class="hits"></td>
-<td class="source"><code>        # Insufficient tokens</code></td>
+<td class="hits"><pre style="display: inline;">:-(</pre></td>
+<td class="source"><code>        consume_tokens(table, key, tokens, max_size)</code></td>
 </tr>
 <tr>
 <td class="line" id="L362"><a href="#L362">362</a></td>
 <td class="hits"></td>
-<td class="source"><code>        {:error, :insufficient_tokens}</code></td>
+<td class="source"><code></code></td>
 </tr>
 <tr>
 <td class="line" id="L363"><a href="#L363">363</a></td>
 <td class="hits"></td>
-<td class="source"><code>    end</code></td>
+<td class="source"><code>      [{^key, current}] when current &gt;= tokens -&gt;</code></td>
 </tr>
 <tr>
 <td class="line" id="L364"><a href="#L364">364</a></td>
 <td class="hits"></td>
-<td class="source"><code>  end</code></td>
+<td class="source"><code>        # Sufficient tokens - consume them atomically</code></td>
 </tr>
-<tr>
+<tr class="hit">
 <td class="line" id="L365"><a href="#L365">365</a></td>
-<td class="hits"></td>
-<td class="source"><code></code></td>
+<td class="hits">62</td>
+<td class="source"><code>        new_count = :ets.update_counter(table, key, -tokens)</code></td>
 </tr>
 <tr>
 <td class="line" id="L366"><a href="#L366">366</a></td>
 <td class="hits"></td>
-<td class="source"><code>  defp refill_bucket(table, key, tokens_to_add, max_tokens) do</code></td>
+<td class="source"><code>        {:ok, new_count}</code></td>
+</tr>
+<tr>
+<td class="line" id="L367"><a href="#L367">367</a></td>
+<td class="hits"></td>
+<td class="source"><code></code></td>
 </tr>
 <tr class="hit">
-<td class="line" id="L367"><a href="#L367">367</a></td>
-<td class="hits">18</td>
-<td class="source"><code>    case :ets.lookup(table, key) do</code></td>
-</tr>
-<tr class="miss">
 <td class="line" id="L368"><a href="#L368">368</a></td>
-<td class="hits"><pre style="display: inline;">:-(</pre></td>
-<td class="source"><code>      [] -&gt;</code></td>
+<td class="hits">493</td>
+<td class="source"><code>      [{^key, _current}] -&gt;</code></td>
 </tr>
 <tr>
 <td class="line" id="L369"><a href="#L369">369</a></td>
 <td class="hits"></td>
-<td class="source"><code>        # Bucket doesn't exist, skip</code></td>
+<td class="source"><code>        # Insufficient tokens</code></td>
 </tr>
 <tr>
 <td class="line" id="L370"><a href="#L370">370</a></td>
 <td class="hits"></td>
-<td class="source"><code>        :ok</code></td>
+<td class="source"><code>        {:error, :insufficient_tokens}</code></td>
 </tr>
 <tr>
 <td class="line" id="L371"><a href="#L371">371</a></td>
 <td class="hits"></td>
-<td class="source"><code></code></td>
+<td class="source"><code>    end</code></td>
 </tr>
 <tr>
 <td class="line" id="L372"><a href="#L372">372</a></td>
 <td class="hits"></td>
-<td class="source"><code>      [{^key, current}] -&gt;</code></td>
+<td class="source"><code>  end</code></td>
 </tr>
 <tr>
 <td class="line" id="L373"><a href="#L373">373</a></td>
 <td class="hits"></td>
-<td class="source"><code>        # Add tokens but don't exceed max</code></td>
+<td class="source"><code></code></td>
 </tr>
-<tr class="hit">
+<tr>
 <td class="line" id="L374"><a href="#L374">374</a></td>
-<td class="hits">18</td>
-<td class="source"><code>        new_count = min(current + tokens_to_add, max_tokens)</code></td>
+<td class="hits"></td>
+<td class="source"><code>  defp refill_bucket(table, key, tokens_to_add, max_tokens) do</code></td>
 </tr>
 <tr class="hit">
 <td class="line" id="L375"><a href="#L375">375</a></td>
 <td class="hits">18</td>
-<td class="source"><code>        :ets.insert(table, {key, new_count})</code></td>
+<td class="source"><code>    case :ets.lookup(table, key) do</code></td>
 </tr>
-<tr>
+<tr class="miss">
 <td class="line" id="L376"><a href="#L376">376</a></td>
-<td class="hits"></td>
-<td class="source"><code>    end</code></td>
+<td class="hits"><pre style="display: inline;">:-(</pre></td>
+<td class="source"><code>      [] -&gt;</code></td>
 </tr>
 <tr>
 <td class="line" id="L377"><a href="#L377">377</a></td>
 <td class="hits"></td>
-<td class="source"><code>  end</code></td>
+<td class="source"><code>        # Bucket doesn't exist, skip</code></td>
 </tr>
 <tr>
 <td class="line" id="L378"><a href="#L378">378</a></td>
 <td class="hits"></td>
-<td class="source"><code></code></td>
+<td class="source"><code>        :ok</code></td>
 </tr>
 <tr>
 <td class="line" id="L379"><a href="#L379">379</a></td>
 <td class="hits"></td>
-<td class="source"><code>  # WISDOM: Client bucket refilling - fairness in regeneration</code></td>
+<td class="source"><code></code></td>
 </tr>
 <tr>
 <td class="line" id="L380"><a href="#L380">380</a></td>
 <td class="hits"></td>
-<td class="source"><code>  # All clients get refilled equally, preventing starvation. A client that</code></td>
+<td class="source"><code>      [{^key, current}] -&gt;</code></td>
 </tr>
 <tr>
 <td class="line" id="L381"><a href="#L381">381</a></td>
 <td class="hits"></td>
-<td class="source"><code>  # consumed all tokens gets the same refill as one that consumed none.</code></td>
+<td class="source"><code>        # Add tokens but don't exceed max</code></td>
 </tr>
-<tr>
+<tr class="hit">
 <td class="line" id="L382"><a href="#L382">382</a></td>
-<td class="hits"></td>
-<td class="source"><code>  # This encourages steady usage over burst-and-wait patterns.</code></td>
+<td class="hits">18</td>
+<td class="source"><code>        new_count = min(current + tokens_to_add, max_tokens)</code></td>
 </tr>
-<tr>
+<tr class="hit">
 <td class="line" id="L383"><a href="#L383">383</a></td>
-<td class="hits"></td>
-<td class="source"><code>  defp refill_client_buckets(state) do</code></td>
+<td class="hits">18</td>
+<td class="source"><code>        :ets.insert(table, {key, new_count})</code></td>
 </tr>
-<tr class="hit">
+<tr>
 <td class="line" id="L384"><a href="#L384">384</a></td>
-<td class="hits">3</td>
-<td class="source"><code>    client_buckets = :ets.match(state.token_table, {{:client, :"$1"}, :"$2"})</code></td>
-</tr>
-<tr>
-<td class="line" id="L385"><a href="#L385">385</a></td>
-<td class="hits"></td>
-<td class="source"><code></code></td>
-</tr>
-<tr class="hit">
-<td class="line" id="L386"><a href="#L386">386</a></td>
-<td class="hits">3</td>
-<td class="source"><code>    Enum.each(client_buckets, fn [client_id, _current_tokens] -&gt;</code></td>
-</tr>
-<tr>
-<td class="line" id="L387"><a href="#L387">387</a></td>
-<td class="hits"></td>
-<td class="source"><code>      # All clients get 1/10th of the global refill rate</code></td>
-</tr>
-<tr class="miss">
-<td class="line" id="L388"><a href="#L388">388</a></td>
-<td class="hits"><pre style="display: inline;">:-(</pre></td>
-<td class="source"><code>      client_refill = state.tokens_per_interval / 10.0</code></td>
-</tr>
-<tr class="miss">
-<td class="line" id="L389"><a href="#L389">389</a></td>
-<td class="hits"><pre style="display: inline;">:-(</pre></td>
-<td class="source"><code>      client_max = div(state.bucket_size, 10)</code></td>
-</tr>
-<tr>
-<td class="line" id="L390"><a href="#L390">390</a></td>
-<td class="hits"></td>
-<td class="source"><code></code></td>
-</tr>
-<tr class="miss">
-<td class="line" id="L391"><a href="#L391">391</a></td>
-<td class="hits"><pre style="display: inline;">:-(</pre></td>
-<td class="source"><code>      refill_bucket(</code></td>
-</tr>
-<tr class="miss">
-<td class="line" id="L392"><a href="#L392">392</a></td>
-<td class="hits"><pre style="display: inline;">:-(</pre></td>
-<td class="source"><code>        state.token_table,</code></td>
-</tr>
-<tr>
-<td class="line" id="L393"><a href="#L393">393</a></td>
-<td class="hits"></td>
-<td class="source"><code>        {:client, client_id},</code></td>
-</tr>
-<tr>
-<td class="line" id="L394"><a href="#L394">394</a></td>
-<td class="hits"></td>
-<td class="source"><code>        client_refill,</code></td>
-</tr>
-<tr>
-<td class="line" id="L395"><a href="#L395">395</a></td>
-<td class="hits"></td>
-<td class="source"><code>        client_max</code></td>
-</tr>
-<tr>
-<td class="line" id="L396"><a href="#L396">396</a></td>
-<td class="hits"></td>
-<td class="source"><code>      )</code></td>
-</tr>
-<tr>
-<td class="line" id="L397"><a href="#L397">397</a></td>
-<td class="hits"></td>
-<td class="source"><code>    end)</code></td>
-</tr>
-<tr>
-<td class="line" id="L398"><a href="#L398">398</a></td>
-<td class="hits"></td>
-<td class="source"><code>  end</code></td>
-</tr>
-<tr>
-<td class="line" id="L399"><a href="#L399">399</a></td>
-<td class="hits"></td>
-<td class="source"><code></code></td>
-</tr>
-<tr>
-<td class="line" id="L400"><a href="#L400">400</a></td>
-<td class="hits"></td>
-<td class="source"><code>  defp get_token_count(table, key) do</code></td>
-</tr>
-<tr class="miss">
-<td class="line" id="L401"><a href="#L401">401</a></td>
-<td class="hits"><pre style="display: inline;">:-(</pre></td>
-<td class="source"><code>    case :ets.lookup(table, key) do</code></td>
-</tr>
-<tr class="miss">
-<td class="line" id="L402"><a href="#L402">402</a></td>
-<td class="hits"><pre style="display: inline;">:-(</pre></td>
-<td class="source"><code>      [] -&gt; 0</code></td>
-</tr>
-<tr class="miss">
-<td class="line" id="L403"><a href="#L403">403</a></td>
-<td class="hits"><pre style="display: inline;">:-(</pre></td>
-<td class="source"><code>      [{^key, count}] -&gt; count</code></td>
-</tr>
-<tr>
-<td class="line" id="L404"><a href="#L404">404</a></td>
 <td class="hits"></td>
 <td class="source"><code>    end</code></td>
 </tr>
 <tr>
-<td class="line" id="L405"><a href="#L405">405</a></td>
+<td class="line" id="L385"><a href="#L385">385</a></td>
 <td class="hits"></td>
 <td class="source"><code>  end</code></td>
 </tr>
 <tr>
-<td class="line" id="L406"><a href="#L406">406</a></td>
+<td class="line" id="L386"><a href="#L386">386</a></td>
 <td class="hits"></td>
 <td class="source"><code></code></td>
 </tr>
 <tr>
+<td class="line" id="L387"><a href="#L387">387</a></td>
+<td class="hits"></td>
+<td class="source"><code>  # WISDOM: Client bucket refilling - fairness in regeneration</code></td>
+</tr>
+<tr>
+<td class="line" id="L388"><a href="#L388">388</a></td>
+<td class="hits"></td>
+<td class="source"><code>  # All clients get refilled equally, preventing starvation. A client that</code></td>
+</tr>
+<tr>
+<td class="line" id="L389"><a href="#L389">389</a></td>
+<td class="hits"></td>
+<td class="source"><code>  # consumed all tokens gets the same refill as one that consumed none.</code></td>
+</tr>
+<tr>
+<td class="line" id="L390"><a href="#L390">390</a></td>
+<td class="hits"></td>
+<td class="source"><code>  # This encourages steady usage over burst-and-wait patterns.</code></td>
+</tr>
+<tr>
+<td class="line" id="L391"><a href="#L391">391</a></td>
+<td class="hits"></td>
+<td class="source"><code>  defp refill_client_buckets(state) do</code></td>
+</tr>
+<tr class="hit">
+<td class="line" id="L392"><a href="#L392">392</a></td>
+<td class="hits">3</td>
+<td class="source"><code>    client_buckets = :ets.match(state.token_table, {{:client, :"$1"}, :"$2"})</code></td>
+</tr>
+<tr>
+<td class="line" id="L393"><a href="#L393">393</a></td>
+<td class="hits"></td>
+<td class="source"><code></code></td>
+</tr>
+<tr class="hit">
+<td class="line" id="L394"><a href="#L394">394</a></td>
+<td class="hits">3</td>
+<td class="source"><code>    Enum.each(client_buckets, fn [client_id, _current_tokens] -&gt;</code></td>
+</tr>
+<tr>
+<td class="line" id="L395"><a href="#L395">395</a></td>
+<td class="hits"></td>
+<td class="source"><code>      # All clients get 1/10th of the global refill rate</code></td>
+</tr>
+<tr class="miss">
+<td class="line" id="L396"><a href="#L396">396</a></td>
+<td class="hits"><pre style="display: inline;">:-(</pre></td>
+<td class="source"><code>      client_refill = state.tokens_per_interval / 10.0</code></td>
+</tr>
+<tr class="miss">
+<td class="line" id="L397"><a href="#L397">397</a></td>
+<td class="hits"><pre style="display: inline;">:-(</pre></td>
+<td class="source"><code>      client_max = div(state.bucket_size, 10)</code></td>
+</tr>
+<tr>
+<td class="line" id="L398"><a href="#L398">398</a></td>
+<td class="hits"></td>
+<td class="source"><code></code></td>
+</tr>
+<tr class="miss">
+<td class="line" id="L399"><a href="#L399">399</a></td>
+<td class="hits"><pre style="display: inline;">:-(</pre></td>
+<td class="source"><code>      refill_bucket(</code></td>
+</tr>
+<tr class="miss">
+<td class="line" id="L400"><a href="#L400">400</a></td>
+<td class="hits"><pre style="display: inline;">:-(</pre></td>
+<td class="source"><code>        state.token_table,</code></td>
+</tr>
+<tr>
+<td class="line" id="L401"><a href="#L401">401</a></td>
+<td class="hits"></td>
+<td class="source"><code>        {:client, client_id},</code></td>
+</tr>
+<tr>
+<td class="line" id="L402"><a href="#L402">402</a></td>
+<td class="hits"></td>
+<td class="source"><code>        client_refill,</code></td>
+</tr>
+<tr>
+<td class="line" id="L403"><a href="#L403">403</a></td>
+<td class="hits"></td>
+<td class="source"><code>        client_max</code></td>
+</tr>
+<tr>
+<td class="line" id="L404"><a href="#L404">404</a></td>
+<td class="hits"></td>
+<td class="source"><code>      )</code></td>
+</tr>
+<tr>
+<td class="line" id="L405"><a href="#L405">405</a></td>
+<td class="hits"></td>
+<td class="source"><code>    end)</code></td>
+</tr>
+<tr>
+<td class="line" id="L406"><a href="#L406">406</a></td>
+<td class="hits"></td>
+<td class="source"><code>  end</code></td>
+</tr>
+<tr>
 <td class="line" id="L407"><a href="#L407">407</a></td>
 <td class="hits"></td>
-<td class="source"><code>  # WISDOM: Variety metrics - measuring the flow of change</code></td>
+<td class="source"><code></code></td>
 </tr>
 <tr>
 <td class="line" id="L408"><a href="#L408">408</a></td>
 <td class="hits"></td>
-<td class="source"><code>  # VSM needs variety to adapt, but too much variety causes chaos. These metrics</code></td>
+<td class="source"><code>  defp get_token_count(table, key) do</code></td>
 </tr>
-<tr>
+<tr class="miss">
 <td class="line" id="L409"><a href="#L409">409</a></td>
-<td class="hits"></td>
-<td class="source"><code>  # let us see variety flow through each subsystem. S1 handling high variety?</code></td>
+<td class="hits"><pre style="display: inline;">:-(</pre></td>
+<td class="source"><code>    case :ets.lookup(table, key) do</code></td>
 </tr>
-<tr>
+<tr class="miss">
 <td class="line" id="L410"><a href="#L410">410</a></td>
-<td class="hits"></td>
-<td class="source"><code>  # Good - operations need flexibility. S5 handling high variety? Concerning -</code></td>
+<td class="hits"><pre style="display: inline;">:-(</pre></td>
+<td class="source"><code>      [] -&gt; 0</code></td>
 </tr>
-<tr>
+<tr class="miss">
 <td class="line" id="L411"><a href="#L411">411</a></td>
-<td class="hits"></td>
-<td class="source"><code>  # policy should be stable. The metrics reveal systemic patterns.</code></td>
+<td class="hits"><pre style="display: inline;">:-(</pre></td>
+<td class="source"><code>      [{^key, count}] -&gt; count</code></td>
 </tr>
 <tr>
 <td class="line" id="L412"><a href="#L412">412</a></td>
 <td class="hits"></td>
-<td class="source"><code>  defp update_variety_metrics(state, {:subsystem, subsystem}, result) do</code></td>
+<td class="source"><code>    end</code></td>
 </tr>
-<tr class="hit">
+<tr>
 <td class="line" id="L413"><a href="#L413">413</a></td>
-<td class="hits">25</td>
-<td class="source"><code>    current_flow = :ets.lookup_element(state.metrics_table, :variety_flow, 2)</code></td>
+<td class="hits"></td>
+<td class="source"><code>  end</code></td>
 </tr>
 <tr>
 <td class="line" id="L414"><a href="#L414">414</a></td>
 <td class="hits"></td>
 <td class="source"><code></code></td>
 </tr>
-<tr class="hit">
+<tr>
 <td class="line" id="L415"><a href="#L415">415</a></td>
-<td class="hits">25</td>
-<td class="source"><code>    updated_flow =</code></td>
+<td class="hits"></td>
+<td class="source"><code>  # WISDOM: Variety metrics - measuring the flow of change</code></td>
 </tr>
 <tr>
 <td class="line" id="L416"><a href="#L416">416</a></td>
 <td class="hits"></td>
-<td class="source"><code>      Map.update(current_flow, subsystem, 0, fn count -&gt;</code></td>
+<td class="source"><code>  # VSM needs variety to adapt, but too much variety causes chaos. These metrics</code></td>
 </tr>
-<tr class="hit">
+<tr>
 <td class="line" id="L417"><a href="#L417">417</a></td>
-<td class="hits">25</td>
-<td class="source"><code>        case result do</code></td>
+<td class="hits"></td>
+<td class="source"><code>  # let us see variety flow through each subsystem. S1 handling high variety?</code></td>
 </tr>
-<tr class="hit">
+<tr>
 <td class="line" id="L418"><a href="#L418">418</a></td>
-<td class="hits">22</td>
-<td class="source"><code>          :allowed -&gt; count + 1</code></td>
+<td class="hits"></td>
+<td class="source"><code>  # Good - operations need flexibility. S5 handling high variety? Concerning -</code></td>
 </tr>
-<tr class="hit">
+<tr>
 <td class="line" id="L419"><a href="#L419">419</a></td>
-<td class="hits">3</td>
-<td class="source"><code>          :limited -&gt; count</code></td>
+<td class="hits"></td>
+<td class="source"><code>  # policy should be stable. The metrics reveal systemic patterns.</code></td>
 </tr>
 <tr>
 <td class="line" id="L420"><a href="#L420">420</a></td>
 <td class="hits"></td>
-<td class="source"><code>        end</code></td>
+<td class="source"><code>  defp update_variety_metrics(state, {:subsystem, subsystem}, result) do</code></td>
 </tr>
-<tr>
+<tr class="hit">
 <td class="line" id="L421"><a href="#L421">421</a></td>
-<td class="hits"></td>
-<td class="source"><code>      end)</code></td>
+<td class="hits">25</td>
+<td class="source"><code>    current_flow = :ets.lookup_element(state.metrics_table, :variety_flow, 2)</code></td>
 </tr>
 <tr>
 <td class="line" id="L422"><a href="#L422">422</a></td>
@@ -2219,182 +2219,182 @@ td.source {
 <tr class="hit">
 <td class="line" id="L423"><a href="#L423">423</a></td>
 <td class="hits">25</td>
-<td class="source"><code>    :ets.insert(state.metrics_table, {:variety_flow, updated_flow})</code></td>
+<td class="source"><code>    updated_flow =</code></td>
 </tr>
 <tr>
 <td class="line" id="L424"><a href="#L424">424</a></td>
 <td class="hits"></td>
-<td class="source"><code>  end</code></td>
+<td class="source"><code>      Map.update(current_flow, subsystem, 0, fn count -&gt;</code></td>
 </tr>
-<tr>
+<tr class="hit">
 <td class="line" id="L425"><a href="#L425">425</a></td>
-<td class="hits"></td>
-<td class="source"><code></code></td>
+<td class="hits">25</td>
+<td class="source"><code>        case result do</code></td>
 </tr>
 <tr class="hit">
 <td class="line" id="L426"><a href="#L426">426</a></td>
-<td class="hits">530</td>
-<td class="source"><code>  defp update_variety_metrics(_state, _scope, _result), do: :ok</code></td>
+<td class="hits">22</td>
+<td class="source"><code>          :allowed -&gt; count + 1</code></td>
 </tr>
-<tr>
+<tr class="hit">
 <td class="line" id="L427"><a href="#L427">427</a></td>
-<td class="hits"></td>
-<td class="source"><code></code></td>
+<td class="hits">3</td>
+<td class="source"><code>          :limited -&gt; count</code></td>
 </tr>
 <tr>
 <td class="line" id="L428"><a href="#L428">428</a></td>
 <td class="hits"></td>
-<td class="source"><code>  defp refill_all_buckets(state) do</code></td>
+<td class="source"><code>        end</code></td>
 </tr>
 <tr>
 <td class="line" id="L429"><a href="#L429">429</a></td>
 <td class="hits"></td>
-<td class="source"><code>    # Refill global bucket</code></td>
-</tr>
-<tr class="hit">
-<td class="line" id="L430"><a href="#L430">430</a></td>
-<td class="hits">3</td>
-<td class="source"><code>    refill_bucket(state.token_table, :global, state.tokens_per_interval, state.bucket_size)</code></td>
+<td class="source"><code>      end)</code></td>
 </tr>
 <tr>
-<td class="line" id="L431"><a href="#L431">431</a></td>
+<td class="line" id="L430"><a href="#L430">430</a></td>
 <td class="hits"></td>
 <td class="source"><code></code></td>
+</tr>
+<tr class="hit">
+<td class="line" id="L431"><a href="#L431">431</a></td>
+<td class="hits">25</td>
+<td class="source"><code>    :ets.insert(state.metrics_table, {:variety_flow, updated_flow})</code></td>
 </tr>
 <tr>
 <td class="line" id="L432"><a href="#L432">432</a></td>
 <td class="hits"></td>
-<td class="source"><code>    # Refill VSM subsystem buckets</code></td>
+<td class="source"><code>    </code></td>
 </tr>
-<tr class="hit">
+<tr>
 <td class="line" id="L433"><a href="#L433">433</a></td>
-<td class="hits">3</td>
-<td class="source"><code>    refill_vsm_buckets(state)</code></td>
-</tr>
-<tr>
-<td class="line" id="L434"><a href="#L434">434</a></td>
 <td class="hits"></td>
-<td class="source"><code></code></td>
-</tr>
-<tr>
-<td class="line" id="L435"><a href="#L435">435</a></td>
-<td class="hits"></td>
-<td class="source"><code>    # Refill client buckets (if any exist)</code></td>
+<td class="source"><code>    # Publish variety flow event for metrics</code></td>
 </tr>
 <tr class="hit">
+<td class="line" id="L434"><a href="#L434">434</a></td>
+<td class="hits">25</td>
+<td class="source"><code>    if result == :allowed do</code></td>
+</tr>
+<tr class="hit">
+<td class="line" id="L435"><a href="#L435">435</a></td>
+<td class="hits">22</td>
+<td class="source"><code>      EventBus.publish(:variety_absorbed, %{</code></td>
+</tr>
+<tr>
 <td class="line" id="L436"><a href="#L436">436</a></td>
-<td class="hits">3</td>
-<td class="source"><code>    refill_client_buckets(state)</code></td>
+<td class="hits"></td>
+<td class="source"><code>        subsystem: subsystem,</code></td>
 </tr>
 <tr>
 <td class="line" id="L437"><a href="#L437">437</a></td>
 <td class="hits"></td>
-<td class="source"><code>  end</code></td>
+<td class="source"><code>        source: :rate_limiter,</code></td>
 </tr>
-<tr>
+<tr class="hit">
 <td class="line" id="L438"><a href="#L438">438</a></td>
-<td class="hits"></td>
-<td class="source"><code></code></td>
+<td class="hits">22</td>
+<td class="source"><code>        name: state.name,</code></td>
 </tr>
 <tr>
 <td class="line" id="L439"><a href="#L439">439</a></td>
 <td class="hits"></td>
-<td class="source"><code>  defp refill_vsm_buckets(state) do</code></td>
+<td class="source"><code>        timestamp: System.monotonic_time(:millisecond)</code></td>
 </tr>
 <tr>
 <td class="line" id="L440"><a href="#L440">440</a></td>
 <td class="hits"></td>
-<td class="source"><code>    # S1 gets double refill rate (high variety flow)</code></td>
+<td class="source"><code>      })</code></td>
 </tr>
-<tr class="hit">
+<tr>
 <td class="line" id="L441"><a href="#L441">441</a></td>
-<td class="hits">3</td>
-<td class="source"><code>    refill_bucket(</code></td>
-</tr>
-<tr class="hit">
-<td class="line" id="L442"><a href="#L442">442</a></td>
-<td class="hits">3</td>
-<td class="source"><code>      state.token_table,</code></td>
-</tr>
-<tr>
-<td class="line" id="L443"><a href="#L443">443</a></td>
-<td class="hits"></td>
-<td class="source"><code>      {:subsystem, :s1},</code></td>
-</tr>
-<tr class="hit">
-<td class="line" id="L444"><a href="#L444">444</a></td>
-<td class="hits">3</td>
-<td class="source"><code>      state.tokens_per_interval * 2,</code></td>
-</tr>
-<tr class="hit">
-<td class="line" id="L445"><a href="#L445">445</a></td>
-<td class="hits">3</td>
-<td class="source"><code>      state.bucket_size * 2</code></td>
-</tr>
-<tr>
-<td class="line" id="L446"><a href="#L446">446</a></td>
-<td class="hits"></td>
-<td class="source"><code>    )</code></td>
-</tr>
-<tr>
-<td class="line" id="L447"><a href="#L447">447</a></td>
-<td class="hits"></td>
-<td class="source"><code></code></td>
-</tr>
-<tr>
-<td class="line" id="L448"><a href="#L448">448</a></td>
-<td class="hits"></td>
-<td class="source"><code>    # S2-S3 get normal refill rate</code></td>
-</tr>
-<tr class="hit">
-<td class="line" id="L449"><a href="#L449">449</a></td>
-<td class="hits">3</td>
-<td class="source"><code>    for subsystem &lt;- [:s2, :s3] do</code></td>
-</tr>
-<tr class="hit">
-<td class="line" id="L450"><a href="#L450">450</a></td>
-<td class="hits">6</td>
-<td class="source"><code>      refill_bucket(</code></td>
-</tr>
-<tr class="hit">
-<td class="line" id="L451"><a href="#L451">451</a></td>
-<td class="hits">6</td>
-<td class="source"><code>        state.token_table,</code></td>
-</tr>
-<tr>
-<td class="line" id="L452"><a href="#L452">452</a></td>
-<td class="hits"></td>
-<td class="source"><code>        {:subsystem, subsystem},</code></td>
-</tr>
-<tr class="hit">
-<td class="line" id="L453"><a href="#L453">453</a></td>
-<td class="hits">6</td>
-<td class="source"><code>        state.tokens_per_interval,</code></td>
-</tr>
-<tr class="hit">
-<td class="line" id="L454"><a href="#L454">454</a></td>
-<td class="hits">6</td>
-<td class="source"><code>        state.bucket_size</code></td>
-</tr>
-<tr>
-<td class="line" id="L455"><a href="#L455">455</a></td>
-<td class="hits"></td>
-<td class="source"><code>      )</code></td>
-</tr>
-<tr>
-<td class="line" id="L456"><a href="#L456">456</a></td>
 <td class="hits"></td>
 <td class="source"><code>    end</code></td>
 </tr>
 <tr>
-<td class="line" id="L457"><a href="#L457">457</a></td>
+<td class="line" id="L442"><a href="#L442">442</a></td>
+<td class="hits"></td>
+<td class="source"><code>  end</code></td>
+</tr>
+<tr>
+<td class="line" id="L443"><a href="#L443">443</a></td>
+<td class="hits"></td>
+<td class="source"><code></code></td>
+</tr>
+<tr class="hit">
+<td class="line" id="L444"><a href="#L444">444</a></td>
+<td class="hits">530</td>
+<td class="source"><code>  defp update_variety_metrics(_state, _scope, _result), do: :ok</code></td>
+</tr>
+<tr>
+<td class="line" id="L445"><a href="#L445">445</a></td>
 <td class="hits"></td>
 <td class="source"><code></code></td>
 </tr>
 <tr>
+<td class="line" id="L446"><a href="#L446">446</a></td>
+<td class="hits"></td>
+<td class="source"><code>  defp refill_all_buckets(state) do</code></td>
+</tr>
+<tr>
+<td class="line" id="L447"><a href="#L447">447</a></td>
+<td class="hits"></td>
+<td class="source"><code>    # Refill global bucket</code></td>
+</tr>
+<tr class="hit">
+<td class="line" id="L448"><a href="#L448">448</a></td>
+<td class="hits">3</td>
+<td class="source"><code>    refill_bucket(state.token_table, :global, state.tokens_per_interval, state.bucket_size)</code></td>
+</tr>
+<tr>
+<td class="line" id="L449"><a href="#L449">449</a></td>
+<td class="hits"></td>
+<td class="source"><code></code></td>
+</tr>
+<tr>
+<td class="line" id="L450"><a href="#L450">450</a></td>
+<td class="hits"></td>
+<td class="source"><code>    # Refill VSM subsystem buckets</code></td>
+</tr>
+<tr class="hit">
+<td class="line" id="L451"><a href="#L451">451</a></td>
+<td class="hits">3</td>
+<td class="source"><code>    refill_vsm_buckets(state)</code></td>
+</tr>
+<tr>
+<td class="line" id="L452"><a href="#L452">452</a></td>
+<td class="hits"></td>
+<td class="source"><code></code></td>
+</tr>
+<tr>
+<td class="line" id="L453"><a href="#L453">453</a></td>
+<td class="hits"></td>
+<td class="source"><code>    # Refill client buckets (if any exist)</code></td>
+</tr>
+<tr class="hit">
+<td class="line" id="L454"><a href="#L454">454</a></td>
+<td class="hits">3</td>
+<td class="source"><code>    refill_client_buckets(state)</code></td>
+</tr>
+<tr>
+<td class="line" id="L455"><a href="#L455">455</a></td>
+<td class="hits"></td>
+<td class="source"><code>  end</code></td>
+</tr>
+<tr>
+<td class="line" id="L456"><a href="#L456">456</a></td>
+<td class="hits"></td>
+<td class="source"><code></code></td>
+</tr>
+<tr>
+<td class="line" id="L457"><a href="#L457">457</a></td>
+<td class="hits"></td>
+<td class="source"><code>  defp refill_vsm_buckets(state) do</code></td>
+</tr>
+<tr>
 <td class="line" id="L458"><a href="#L458">458</a></td>
 <td class="hits"></td>
-<td class="source"><code>    # S4 gets half refill rate</code></td>
+<td class="source"><code>    # S1 gets double refill rate (high variety flow)</code></td>
 </tr>
 <tr class="hit">
 <td class="line" id="L459"><a href="#L459">459</a></td>
@@ -2409,17 +2409,17 @@ td.source {
 <tr>
 <td class="line" id="L461"><a href="#L461">461</a></td>
 <td class="hits"></td>
-<td class="source"><code>      {:subsystem, :s4},</code></td>
+<td class="source"><code>      {:subsystem, :s1},</code></td>
 </tr>
 <tr class="hit">
 <td class="line" id="L462"><a href="#L462">462</a></td>
 <td class="hits">3</td>
-<td class="source"><code>      state.tokens_per_interval / 2.0,</code></td>
+<td class="source"><code>      state.tokens_per_interval * 2,</code></td>
 </tr>
 <tr class="hit">
 <td class="line" id="L463"><a href="#L463">463</a></td>
 <td class="hits">3</td>
-<td class="source"><code>      div(state.bucket_size, 2)</code></td>
+<td class="source"><code>      state.bucket_size * 2</code></td>
 </tr>
 <tr>
 <td class="line" id="L464"><a href="#L464">464</a></td>
@@ -2434,45 +2434,135 @@ td.source {
 <tr>
 <td class="line" id="L466"><a href="#L466">466</a></td>
 <td class="hits"></td>
-<td class="source"><code>    # S5 gets quarter refill rate (most deliberate)</code></td>
+<td class="source"><code>    # S2-S3 get normal refill rate</code></td>
 </tr>
 <tr class="hit">
 <td class="line" id="L467"><a href="#L467">467</a></td>
 <td class="hits">3</td>
-<td class="source"><code>    refill_bucket(</code></td>
+<td class="source"><code>    for subsystem &lt;- [:s2, :s3] do</code></td>
 </tr>
 <tr class="hit">
 <td class="line" id="L468"><a href="#L468">468</a></td>
-<td class="hits">3</td>
-<td class="source"><code>      state.token_table,</code></td>
-</tr>
-<tr>
-<td class="line" id="L469"><a href="#L469">469</a></td>
-<td class="hits"></td>
-<td class="source"><code>      {:subsystem, :s5},</code></td>
+<td class="hits">6</td>
+<td class="source"><code>      refill_bucket(</code></td>
 </tr>
 <tr class="hit">
+<td class="line" id="L469"><a href="#L469">469</a></td>
+<td class="hits">6</td>
+<td class="source"><code>        state.token_table,</code></td>
+</tr>
+<tr>
 <td class="line" id="L470"><a href="#L470">470</a></td>
-<td class="hits">3</td>
-<td class="source"><code>      state.tokens_per_interval / 4.0,</code></td>
+<td class="hits"></td>
+<td class="source"><code>        {:subsystem, subsystem},</code></td>
 </tr>
 <tr class="hit">
 <td class="line" id="L471"><a href="#L471">471</a></td>
-<td class="hits">3</td>
-<td class="source"><code>      div(state.bucket_size, 4)</code></td>
+<td class="hits">6</td>
+<td class="source"><code>        state.tokens_per_interval,</code></td>
 </tr>
-<tr>
+<tr class="hit">
 <td class="line" id="L472"><a href="#L472">472</a></td>
-<td class="hits"></td>
-<td class="source"><code>    )</code></td>
+<td class="hits">6</td>
+<td class="source"><code>        state.bucket_size</code></td>
 </tr>
 <tr>
 <td class="line" id="L473"><a href="#L473">473</a></td>
 <td class="hits"></td>
-<td class="source"><code>  end</code></td>
+<td class="source"><code>      )</code></td>
 </tr>
 <tr>
 <td class="line" id="L474"><a href="#L474">474</a></td>
+<td class="hits"></td>
+<td class="source"><code>    end</code></td>
+</tr>
+<tr>
+<td class="line" id="L475"><a href="#L475">475</a></td>
+<td class="hits"></td>
+<td class="source"><code></code></td>
+</tr>
+<tr>
+<td class="line" id="L476"><a href="#L476">476</a></td>
+<td class="hits"></td>
+<td class="source"><code>    # S4 gets half refill rate</code></td>
+</tr>
+<tr class="hit">
+<td class="line" id="L477"><a href="#L477">477</a></td>
+<td class="hits">3</td>
+<td class="source"><code>    refill_bucket(</code></td>
+</tr>
+<tr class="hit">
+<td class="line" id="L478"><a href="#L478">478</a></td>
+<td class="hits">3</td>
+<td class="source"><code>      state.token_table,</code></td>
+</tr>
+<tr>
+<td class="line" id="L479"><a href="#L479">479</a></td>
+<td class="hits"></td>
+<td class="source"><code>      {:subsystem, :s4},</code></td>
+</tr>
+<tr class="hit">
+<td class="line" id="L480"><a href="#L480">480</a></td>
+<td class="hits">3</td>
+<td class="source"><code>      state.tokens_per_interval / 2.0,</code></td>
+</tr>
+<tr class="hit">
+<td class="line" id="L481"><a href="#L481">481</a></td>
+<td class="hits">3</td>
+<td class="source"><code>      div(state.bucket_size, 2)</code></td>
+</tr>
+<tr>
+<td class="line" id="L482"><a href="#L482">482</a></td>
+<td class="hits"></td>
+<td class="source"><code>    )</code></td>
+</tr>
+<tr>
+<td class="line" id="L483"><a href="#L483">483</a></td>
+<td class="hits"></td>
+<td class="source"><code></code></td>
+</tr>
+<tr>
+<td class="line" id="L484"><a href="#L484">484</a></td>
+<td class="hits"></td>
+<td class="source"><code>    # S5 gets quarter refill rate (most deliberate)</code></td>
+</tr>
+<tr class="hit">
+<td class="line" id="L485"><a href="#L485">485</a></td>
+<td class="hits">3</td>
+<td class="source"><code>    refill_bucket(</code></td>
+</tr>
+<tr class="hit">
+<td class="line" id="L486"><a href="#L486">486</a></td>
+<td class="hits">3</td>
+<td class="source"><code>      state.token_table,</code></td>
+</tr>
+<tr>
+<td class="line" id="L487"><a href="#L487">487</a></td>
+<td class="hits"></td>
+<td class="source"><code>      {:subsystem, :s5},</code></td>
+</tr>
+<tr class="hit">
+<td class="line" id="L488"><a href="#L488">488</a></td>
+<td class="hits">3</td>
+<td class="source"><code>      state.tokens_per_interval / 4.0,</code></td>
+</tr>
+<tr class="hit">
+<td class="line" id="L489"><a href="#L489">489</a></td>
+<td class="hits">3</td>
+<td class="source"><code>      div(state.bucket_size, 4)</code></td>
+</tr>
+<tr>
+<td class="line" id="L490"><a href="#L490">490</a></td>
+<td class="hits"></td>
+<td class="source"><code>    )</code></td>
+</tr>
+<tr>
+<td class="line" id="L491"><a href="#L491">491</a></td>
+<td class="hits"></td>
+<td class="source"><code>  end</code></td>
+</tr>
+<tr>
+<td class="line" id="L492"><a href="#L492">492</a></td>
 <td class="hits"></td>
 <td class="source"><code>end</code></td>
 </tr>

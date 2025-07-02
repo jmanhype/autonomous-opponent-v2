@@ -26,7 +26,8 @@ config :autonomous_opponent_web, AutonomousOpponentV2Web.Repo,
 config :autonomous_opponent_web, AutonomousOpponentV2Web.Endpoint,
   http: [ip: {127, 0, 0, 1}, port: 4002],
   secret_key_base: "test_secret_key_base_at_least_64_characters_long_for_testing_purposes_only",
-  server: false
+  server: false,
+  live_view: [signing_salt: "test_signing_salt_for_live_view"]
 
 # Print only warnings and errors during test
 config :logger, level: :warning
