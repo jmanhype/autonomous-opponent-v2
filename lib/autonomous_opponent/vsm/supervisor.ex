@@ -16,7 +16,6 @@ defmodule AutonomousOpponent.VSM.Supervisor do
 
   alias AutonomousOpponent.VSM.{
     S1.Operations,
-    S1.Supervisor,
     S2.Coordination,
     S3.Control,
     S4.Intelligence,
@@ -33,9 +32,7 @@ defmodule AutonomousOpponent.VSM.Supervisor do
   def init(_opts) do
     children = [
       # Core VSM Subsystems
-      # S1 - Operations Supervisor (Manages multiple workers for variety absorption)
-      {AutonomousOpponent.VSM.S1.Supervisor, []},
-      # S1 - Primary Operations Worker
+      # S1 - Operations (Multiple workers for variety absorption)
       {Operations, [id: "s1_primary", name: S1.Operations]},
 
       # S2 - Coordination (Anti-oscillation)
@@ -140,8 +137,8 @@ defmodule AutonomousOpponent.VSM.Supervisor do
             # Try to call subsystem
             try do
               case subsystem do
-                :s1 -> Operations.get_operational_metrics(pid)
-                :s2 -> Coordination.get_coordination_status(pid)
+                :s1 -> Operations.get_metrics(pid)
+                :s2 -> Coordination.get_coordination_state(pid)
                 :s3 -> Control.get_resource_status(pid)
                 :s4 -> Intelligence.get_environmental_model(pid)
                 :s5 -> Policy.get_system_identity(pid)
