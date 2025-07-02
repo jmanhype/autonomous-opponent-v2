@@ -26,7 +26,6 @@ permissions:
   pull-requests: write
   issues: write
   actions: write
-  metadata: read
 
 jobs:
   # Find next tasks to work on
