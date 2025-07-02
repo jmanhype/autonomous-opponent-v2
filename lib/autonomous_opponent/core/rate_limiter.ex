@@ -385,7 +385,7 @@ defmodule AutonomousOpponent.Core.RateLimiter do
 
     Enum.each(client_buckets, fn [client_id, _current_tokens] ->
       # All clients get 1/10th of the global refill rate
-      client_refill = state.tokens_per_interval / 10
+      client_refill = state.tokens_per_interval / 10.0
       client_max = div(state.bucket_size, 10)
 
       refill_bucket(
@@ -459,7 +459,7 @@ defmodule AutonomousOpponent.Core.RateLimiter do
     refill_bucket(
       state.token_table,
       {:subsystem, :s4},
-      state.tokens_per_interval / 2,
+      state.tokens_per_interval / 2.0,
       div(state.bucket_size, 2)
     )
 
@@ -467,7 +467,7 @@ defmodule AutonomousOpponent.Core.RateLimiter do
     refill_bucket(
       state.token_table,
       {:subsystem, :s5},
-      state.tokens_per_interval / 4,
+      state.tokens_per_interval / 4.0,
       div(state.bucket_size, 4)
     )
   end
