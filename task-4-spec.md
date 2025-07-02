@@ -53,6 +53,28 @@ These trade-offs are acceptable given S4's 10-second environmental scan cycle.
 - **ef**: Size of dynamic candidate list during search
 - **mL**: Normalization factor for layer assignment probability (1/ln(2.0))
 
+### Visual Algorithm Representation
+
+```
+Multi-Layer Graph Structure (HNSW):
+
+Layer 3: O-------O                    (Sparse, long-range connections)
+         |       |
+Layer 2: O---O---O---O                (Medium density connections)
+         |   |   |   |
+Layer 1: O-O-O-O-O-O-O-O              (Denser connections)
+         | | | | | | | |
+Layer 0: O-O-O-O-O-O-O-O-O-O-O-O-O    (All nodes, dense connections)
+
+Search Path Example:
+Entry → L3: Jump to nearest neighbor → L2: Refine search → L1: Get closer → L0: Find exact k-NN
+
+Key Properties:
+- Higher layers: Fewer nodes, longer jumps (highway)
+- Lower layers: More nodes, local refinement (streets)
+- Layer 0: Contains ALL vectors (neighborhood)
+```
+
 ## Algorithm Complexity Analysis
 
 ### Time Complexity
@@ -319,26 +341,52 @@ end
 
 ### Distance Metric Selection Guide
 
-| Data Type | Recommended Metric | Rationale |
-|-----------|-------------------|-----------|
-| Normalized text embeddings | Cosine | Direction matters more than magnitude |
-| Raw sensor readings | Euclidean | Absolute differences are meaningful |
-| Binary features | Hamming (future) | Bit differences indicate dissimilarity |
-| Probability distributions | JS Divergence (future) | Statistical distance for distributions |
+#### Comprehensive Decision Matrix
 
-For S4 environmental patterns, we default to cosine since patterns are normalized feature vectors where relative proportions matter more than absolute values.
+| Metric    | Speed | Memory | Scale Invariant | Sparse Data | High Dimensions | Use When |
+|-----------|-------|--------|-----------------|-------------|-----------------|----------|
+| Cosine    | 8/10  | Same   | ✓ Yes          | ✓ Excellent | ✓ Good         | Text/Normalized vectors |
+| Euclidean | 10/10 | Same   | ✗ No           | ✗ Poor      | ⚠ OK           | Raw measurements |
+| Manhattan | 9/10  | Same   | ✗ No           | ⚠ OK        | ✓ Good         | Grid-based data |
+| Hamming   | 10/10 | Less   | ✓ Yes          | ✓ Excellent | ✓ Excellent    | Binary/Categorical |
 
-**Decision Process:**
-1. **Are your vectors normalized?** → Use Cosine
-2. **Do absolute magnitudes matter?** → Use Euclidean
-3. **Working with sparse data?** → Cosine handles sparsity better
-4. **Need scale invariance?** → Cosine is scale-invariant
-5. **Comparing probability distributions?** → Consider JS Divergence (future enhancement)
+#### Detailed Selection Guide by Data Type
 
-**Performance Considerations:**
+| Data Type | Recommended Metric | Rationale | Example |
+|-----------|-------------------|-----------|---------|
+| Normalized text embeddings | Cosine | Direction matters more than magnitude | Word2Vec, BERT |
+| Raw sensor readings | Euclidean | Absolute differences are meaningful | Temperature, pressure |
+| Binary features | Hamming (future) | Bit differences indicate dissimilarity | Feature flags |
+| Probability distributions | JS Divergence (future) | Statistical distance for distributions | Topic models |
+| Geographic coordinates | Euclidean | Physical distance correlation | Lat/long pairs |
+| User preferences | Cosine | Relative preferences matter | Rating vectors |
+| Time series patterns | DTW (future) | Temporal alignment needed | Stock prices |
+
+For S4 environmental patterns, we default to **cosine** since patterns are normalized feature vectors where relative proportions matter more than absolute values.
+
+#### Decision Process Flowchart:
+```
+Start → Is data normalized? 
+         ├─ Yes → Use Cosine (scale-invariant)
+         └─ No → Do absolute values matter?
+                  ├─ Yes → Is data high-dimensional (>100)?
+                  │        ├─ Yes → Consider dimension reduction + Euclidean
+                  │        └─ No → Use Euclidean
+                  └─ No → Normalize first, then use Cosine
+```
+
+#### Performance Characteristics:
+| Metric | Computation | Cache Efficiency | SIMD Potential |
+|--------|-------------|------------------|----------------|
+| Euclidean | n multiplications + n additions + 1 sqrt | High | Excellent |
+| Cosine | 3n multiplications + 2n additions + 1 sqrt | Medium | Good |
+| Manhattan | n subtractions + n abs | Very High | Good |
+
+**Implementation Notes:**
 - Euclidean is ~20% faster than Cosine (no normalization overhead)
 - Cosine is more robust to scale differences between features
 - Both metrics benefit from SIMD optimizations in future NIF implementation
+- For sparse vectors with >90% zeros, consider specialized sparse implementations
 
 ### 3. Pure Elixir Implementation
 
@@ -538,6 +586,245 @@ end
 - Measure recall@k for various k
 - Compare with reference implementations
 - Validate distance calculations
+
+### 6. S4 Integration Testing Examples
+
+```elixir
+defmodule S4IntegrationTest do
+  use ExUnit.Case
+  alias VectorStore.HNSWIndex
+  alias S4.Intelligence.PatternIndexer
+  
+  @doc """
+  Test complete pattern detection pipeline within S4's 10-second scan cycle
+  """
+  test "detects environmental anomalies within scan cycle time constraints" do
+    # Setup: Insert historical anomaly patterns
+    {:ok, index} = HNSWIndex.start_link(name: :test_index, m: 16, ef: 200)
+    
+    # Generate 100 known anomaly patterns
+    anomaly_patterns = for i <- 1..100 do
+      %{
+        vector: generate_anomaly_pattern(i),
+        metadata: %{
+          type: :environmental_anomaly,
+          severity: Enum.random([:low, :medium, :high]),
+          timestamp: DateTime.add(DateTime.utc_now(), -i * 3600, :second),
+          detected_by: "sensor_#{rem(i, 10)}"
+        }
+      }
+    end
+    
+    # Index all historical patterns
+    Enum.each(anomaly_patterns, fn pattern ->
+      {:ok, _} = HNSWIndex.insert(index, pattern.vector, pattern.metadata)
+    end)
+    
+    # Simulate new environmental scan with potential anomaly
+    new_scan = %{
+      vector: generate_test_anomaly_vector(),
+      timestamp: DateTime.utc_now(),
+      sensors: ["sensor_1", "sensor_2", "sensor_5"],
+      readings: %{temperature: 45.2, pressure: 1.5, humidity: 0.85}
+    }
+    
+    # Measure detection time - MUST complete within S4's cycle
+    {time_μs, result} = :timer.tc(fn ->
+      {:ok, similar_patterns} = HNSWIndex.search(index, new_scan.vector, k: 10)
+      
+      # Process results to identify anomaly type
+      anomaly_detected = similar_patterns
+      |> Enum.filter(fn {distance, _, _, meta} -> 
+        meta.type == :environmental_anomaly && distance < 0.1
+      end)
+      |> length() > 0
+      
+      {anomaly_detected, similar_patterns}
+    end)
+    
+    # Assert timing constraints
+    assert time_μs < 10_000_000, "Detection took #{time_μs/1000}ms, exceeding 10s limit"
+    assert time_μs < 5_000_000, "Detection should complete well within 5s for safety margin"
+    
+    # Assert detection accuracy
+    {anomaly_detected, similar_patterns} = result
+    assert anomaly_detected, "Failed to detect known anomaly pattern"
+    assert length(similar_patterns) == 10, "Should return exactly k=10 results"
+  end
+  
+  @doc """
+  Test pattern indexing throughput for continuous S4 scanning
+  """
+  test "maintains indexing throughput under continuous load" do
+    {:ok, index} = HNSWIndex.start_link(name: :throughput_test, m: 16, ef: 200)
+    
+    # S4 generates ~6 scans per minute, test 10 minutes of operation
+    scan_count = 60
+    scan_interval = 10_000  # 10 seconds in milliseconds
+    
+    # Track indexing times
+    indexing_times = for scan_num <- 1..scan_count do
+      scan_data = generate_environmental_scan(scan_num)
+      
+      {time_μs, _} = :timer.tc(fn ->
+        PatternIndexer.index_scan(index, scan_data)
+      end)
+      
+      # Simulate scan interval
+      remaining_time = scan_interval - div(time_μs, 1000)
+      if remaining_time > 0, do: Process.sleep(remaining_time)
+      
+      time_μs
+    end
+    
+    # Calculate statistics
+    avg_time = Enum.sum(indexing_times) / length(indexing_times)
+    max_time = Enum.max(indexing_times)
+    p99_time = Enum.at(Enum.sort(indexing_times), round(0.99 * scan_count))
+    
+    # Assert performance requirements
+    assert avg_time < 1_000_000, "Average indexing time #{avg_time/1000}ms exceeds 1s"
+    assert max_time < 5_000_000, "Max indexing time #{max_time/1000}ms exceeds 5s"
+    assert p99_time < 3_000_000, "P99 indexing time #{p99_time/1000}ms exceeds 3s"
+    
+    # Verify index growth
+    stats = HNSWIndex.stats(index)
+    assert stats.vector_count >= scan_count * 0.3, "Too few patterns indexed"
+    assert stats.vector_count <= scan_count, "Unexpected pattern duplication"
+  end
+  
+  @doc """
+  Test cross-subsystem pattern correlation
+  """
+  test "correlates patterns across VSM subsystems" do
+    {:ok, index} = HNSWIndex.start_link(name: :correlation_test, m: 16, ef: 200)
+    
+    # Insert patterns from different VSM subsystems
+    s1_pattern = %{
+      vector: encode_operational_metrics(%{efficiency: 0.65, errors: 15}),
+      metadata: %{source: :s1_operations, timestamp: DateTime.utc_now()}
+    }
+    
+    s2_pattern = %{
+      vector: encode_conflict_data(%{subsystems: [:manufacturing, :shipping]}),
+      metadata: %{source: :s2_coordination, timestamp: DateTime.utc_now()}
+    }
+    
+    s3_pattern = %{
+      vector: encode_resource_usage(%{cpu: 0.92, memory: 0.88}),
+      metadata: %{source: :s3_control, timestamp: DateTime.utc_now()}
+    }
+    
+    # Index all patterns
+    {:ok, s1_id} = HNSWIndex.insert(index, s1_pattern.vector, s1_pattern.metadata)
+    {:ok, s2_id} = HNSWIndex.insert(index, s2_pattern.vector, s2_pattern.metadata)
+    {:ok, s3_id} = HNSWIndex.insert(index, s3_pattern.vector, s3_pattern.metadata)
+    
+    # Search for correlations from S1 pattern
+    {:ok, correlations} = HNSWIndex.search(index, s1_pattern.vector, k: 10)
+    
+    # Should find patterns from other subsystems if they're correlated
+    sources = correlations
+    |> Enum.map(fn {_, _, _, meta} -> meta.source end)
+    |> Enum.uniq()
+    
+    # In a properly functioning system, operational issues (S1) should correlate
+    # with resource constraints (S3) and coordination conflicts (S2)
+    assert length(sources) >= 2, "Should find cross-subsystem correlations"
+  end
+  
+  @doc """
+  Test pattern persistence and recovery
+  """
+  test "recovers index after system restart" do
+    persist_path = "/tmp/test_hnsw_#{:os.system_time(:nanosecond)}.index"
+    
+    # Create and populate index
+    {:ok, index} = HNSWIndex.start_link(
+      name: :persist_test,
+      m: 16,
+      ef: 200,
+      persist_path: persist_path
+    )
+    
+    # Insert test patterns
+    patterns = for i <- 1..1000 do
+      %{
+        vector: :rand.uniform() |> List.duplicate(128),
+        metadata: %{id: i, timestamp: DateTime.utc_now()}
+      }
+    end
+    
+    Enum.each(patterns, fn p ->
+      HNSWIndex.insert(index, p.vector, p.metadata)
+    end)
+    
+    # Save index
+    :ok = HNSWIndex.save(index, persist_path)
+    stats_before = HNSWIndex.stats(index)
+    
+    # Stop the index process
+    GenServer.stop(index)
+    
+    # Load index in new process
+    {:ok, recovered_index} = HNSWIndex.load(persist_path)
+    stats_after = HNSWIndex.stats(recovered_index)
+    
+    # Verify recovery
+    assert stats_after.vector_count == stats_before.vector_count
+    assert stats_after.parameters == stats_before.parameters
+    
+    # Test search functionality after recovery
+    test_vector = :rand.uniform() |> List.duplicate(128)
+    {:ok, results} = HNSWIndex.search(recovered_index, test_vector, k: 10)
+    assert length(results) == 10
+    
+    # Cleanup
+    File.rm!(persist_path)
+  end
+  
+  # Helper functions
+  defp generate_anomaly_pattern(seed) do
+    :rand.seed(:exsss, {seed, seed, seed})
+    # Anomaly patterns have specific characteristics
+    base = :rand.uniform() |> List.duplicate(64)
+    spike = List.duplicate(0.9 + :rand.uniform() * 0.1, 64)
+    base ++ spike
+  end
+  
+  defp generate_test_anomaly_vector do
+    # Similar to training anomalies but with slight variation
+    base = :rand.uniform() |> List.duplicate(64)
+    spike = List.duplicate(0.95, 64)
+    base ++ spike
+  end
+  
+  defp generate_environmental_scan(scan_num) do
+    %{
+      scan_id: scan_num,
+      timestamp: DateTime.utc_now(),
+      patterns_detected: :rand.uniform(3),
+      vector: :rand.uniform() |> List.duplicate(128),
+      confidence: 0.7 + :rand.uniform() * 0.3
+    }
+  end
+  
+  defp encode_operational_metrics(metrics) do
+    # Simple encoding for testing
+    [metrics.efficiency] ++ List.duplicate(metrics.errors / 100, 127)
+  end
+  
+  defp encode_conflict_data(conflict) do
+    # Hash subsystems to vector
+    hash = :erlang.phash2(conflict.subsystems)
+    Float.rem(hash / 1000, 1.0) |> List.duplicate(128)
+  end
+  
+  defp encode_resource_usage(usage) do
+    [usage.cpu, usage.memory] ++ List.duplicate(0.5, 126)
+  end
+end
+```
 
 ## Memory Usage Projections
 

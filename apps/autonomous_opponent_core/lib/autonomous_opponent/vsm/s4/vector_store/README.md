@@ -11,6 +11,30 @@ HNSW is a graph-based algorithm for approximate nearest neighbor search that bui
 - **High recall rates**: >95% recall with proper tuning
 - **Incremental construction**: Add vectors without rebuilding
 
+## Quick Start
+
+Get up and running with HNSW in 3 simple steps:
+
+```elixir
+# 1. Start the index with default parameters
+{:ok, index} = HNSWIndex.start_link(m: 16, ef: 200)
+
+# 2. Insert a vector with metadata
+vector = [0.1, 0.2, 0.3, 0.4]  # Your feature vector
+metadata = %{source: "sensor_1", timestamp: DateTime.utc_now()}
+{:ok, id} = HNSWIndex.insert(index, vector, metadata)
+
+# 3. Search for similar vectors
+query = [0.15, 0.18, 0.32, 0.41]
+{:ok, results} = HNSWIndex.search(index, query, k: 10)
+
+# Results format: [{distance, node_id, vector, metadata}, ...]
+# Example result:
+# [{0.012, 1, [0.1, 0.2, 0.3, 0.4], %{source: "sensor_1", ...}}]
+```
+
+That's it! The index is now ready for S4 pattern recognition. For production use, see the configuration section below.
+
 ## VSM Context for Developers
 
 ### What is VSM?
@@ -53,7 +77,7 @@ vector_store/
     └── perf_bench.ex     # Throughput and latency tests
 ```
 
-**Note**: Distance metrics (cosine & euclidean) are implemented inline within `hnsw_index.ex` for performance optimization. The index uses standard GenServer supervision rather than a custom supervisor module.
+**Architecture Note**: Distance metrics (cosine & euclidean) are implemented inline within `hnsw_index.ex` for performance optimization, avoiding function call overhead in hot paths. There is no separate `distance_metrics.ex` module. Similarly, the index uses standard GenServer supervision rather than a custom `supervisor.ex` module. This design choice prioritizes performance and simplicity over modularity for these critical code paths.
 
 ## Key Features
 
@@ -105,11 +129,14 @@ end
 # Start the index with custom parameters
 {:ok, index} = HNSWIndex.start_link(
   m: 16,              # Number of bidirectional links per node
-  ef_construction: 200, # Size of dynamic candidate list
+  ef_construction: 200, # Size of dynamic candidate list (defaults to ef if not specified)
   ef: 100,            # Search parameter (can be tuned per query)
   distance_metric: :cosine,
   max_elements: 1_000_000
 )
+
+# Note: If ef_construction is not specified, it defaults to the same value as ef.
+# Higher ef_construction improves index quality but increases build time.
 
 # Insert a vector with metadata
 vector = [0.1, 0.2, 0.3, ...]  # 128-dimensional
@@ -260,7 +287,7 @@ pattern = %S4Pattern{
 {:ok, pattern_id} = PatternIndexer.index_pattern(pattern)
 
 # Search for similar patterns
-{:ok, similar_patterns} = PatternIndexer.find_similar(pattern, k: 5)
+{:ok, similar_patterns} = PatternIndexer.find_similar(pattern, k: 10)
 
 # Query by pattern characteristics
 {:ok, matches} = PatternIndexer.query(%{
@@ -543,7 +570,7 @@ defmodule VSMIntegration do
     correlations = indexed_patterns
     |> Enum.flat_map(fn {id, pattern, metadata} ->
       # Search for similar patterns from other subsystems
-      {:ok, similar} = HNSWIndex.search(@index, metadata.vector, k: 20)
+      {:ok, similar} = HNSWIndex.search(@index, metadata.vector, k: 10)
       
       similar
       |> Enum.filter(fn {_, _, _, meta} -> 
@@ -569,6 +596,301 @@ defmodule VSMIntegration do
 end
 ```
 
+### Enhanced S5 Policy Adaptation Based on S4 Pattern Analysis
+
+The HNSW index enables sophisticated policy adaptations by analyzing patterns across all VSM subsystems:
+
+```elixir
+defmodule S5PolicyAdapter do
+  @moduledoc """
+  S5 Policy adaptation based on S4 pattern analysis using HNSW insights.
+  Shows how pattern recognition drives system-wide policy changes.
+  """
+  
+  @doc """
+  Adapt policies based on detected pattern trends
+  """
+  def adapt_from_patterns(pattern_insights) do
+    # Analyze different aspects of pattern insights
+    conflict_policy = analyze_conflict_patterns(pattern_insights)
+    resource_policy = analyze_resource_patterns(pattern_insights)
+    efficiency_policy = analyze_efficiency_patterns(pattern_insights)
+    emergence_policy = analyze_emergent_behaviors(pattern_insights)
+    
+    # Combine and prioritize policy adaptations
+    [conflict_policy, resource_policy, efficiency_policy, emergence_policy]
+    |> Enum.filter(& &1)
+    |> prioritize_policies()
+  end
+  
+  defp analyze_conflict_patterns(insights) do
+    conflict_freq = insights.conflict_frequency
+    conflict_severity = insights.avg_conflict_severity
+    
+    cond do
+      conflict_freq > 0.3 and conflict_severity == :high ->
+        %Policy{
+          type: :coordination_reform,
+          urgency: :critical,
+          description: "Major restructuring of S2 coordination protocols",
+          parameters: %{
+            conflict_threshold: 0.05,  # Much stricter
+            mediation_timeout: 15,     # Faster resolution
+            escalation_path: :direct_to_s5,
+            structural_changes: [
+              :merge_conflicting_departments,
+              :introduce_liaison_roles,
+              :implement_shared_kpis
+            ]
+          },
+          expected_outcomes: %{
+            conflict_reduction: "70-80%",
+            implementation_time: "30 days",
+            disruption_level: :high
+          }
+        }
+      
+      conflict_freq > 0.2 ->
+        %Policy{
+          type: :coordination_optimization,
+          urgency: :high,
+          description: "Enhance coordination mechanisms",
+          parameters: %{
+            conflict_threshold: 0.1,
+            mediation_timeout: 30,
+            buffer_resources: "10%",
+            communication_frequency: :hourly
+          },
+          expected_outcomes: %{
+            conflict_reduction: "40-50%",
+            implementation_time: "14 days",
+            disruption_level: :medium
+          }
+        }
+      
+      true -> nil
+    end
+  end
+  
+  defp analyze_resource_patterns(insights) do
+    saturation = insights.resource_saturation
+    volatility = insights.resource_volatility
+    bottleneck_count = length(insights.resource_bottlenecks)
+    
+    cond do
+      saturation > 0.9 and volatility > 0.3 ->
+        %Policy{
+          type: :dynamic_capacity_management,
+          urgency: :critical,
+          description: "Implement elastic resource scaling",
+          parameters: %{
+            scale_factor: 2.0,
+            auto_scaling: true,
+            predictive_scaling: true,
+            burst_capacity: "50%",
+            cost_optimization: false  # Stability over cost
+          },
+          triggers: %{
+            scale_up: "utilization > 0.7 for 5 minutes",
+            scale_down: "utilization < 0.3 for 30 minutes",
+            emergency_burst: "queue_length > 1000"
+          }
+        }
+      
+      saturation > 0.8 ->
+        %Policy{
+          type: :capacity_expansion,
+          urgency: :high,
+          description: "Permanent capacity increase",
+          parameters: %{
+            scale_factor: 1.5,
+            budget_override: true,
+            implementation_phases: 3,
+            resource_types: [:compute, :memory, :network]
+          }
+        }
+      
+      bottleneck_count > 3 ->
+        %Policy{
+          type: :bottleneck_elimination,
+          urgency: :medium,
+          description: "Targeted bottleneck resolution",
+          parameters: %{
+            parallel_processing: true,
+            queue_redistribution: true,
+            priority_lanes: 3,
+            bypass_mechanisms: true
+          }
+        }
+      
+      true -> nil
+    end
+  end
+  
+  defp analyze_efficiency_patterns(insights) do
+    efficiency_trend = insights.operational_efficiency_trend
+    quality_trend = insights.quality_trend
+    
+    cond do
+      efficiency_trend < -0.1 and quality_trend < -0.05 ->
+        %Policy{
+          type: :operational_overhaul,
+          urgency: :critical,
+          description: "Complete operational redesign required",
+          parameters: %{
+            automation_level: :high,
+            process_reengineering: true,
+            training_program: :mandatory,
+            technology_refresh: true,
+            lean_implementation: true
+          },
+          phases: [
+            %{phase: 1, duration: "30 days", focus: :assessment},
+            %{phase: 2, duration: "60 days", focus: :implementation},
+            %{phase: 3, duration: "30 days", focus: :optimization}
+          ]
+        }
+      
+      efficiency_trend < -0.05 ->
+        %Policy{
+          type: :efficiency_improvement,
+          urgency: :high,
+          description: "Targeted efficiency enhancements",
+          parameters: %{
+            optimization_targets: [:throughput, :latency, :error_rate],
+            acceptable_quality_impact: "2%",
+            automation_opportunities: :identify_and_implement,
+            process_streamlining: true
+          }
+        }
+      
+      true -> nil
+    end
+  end
+  
+  defp analyze_emergent_behaviors(insights) do
+    # Detect unexpected patterns that don't fit normal categories
+    unknown_patterns = insights.unclassified_pattern_ratio
+    pattern_volatility = insights.pattern_stability_score
+    
+    cond do
+      unknown_patterns > 0.15 ->
+        %Policy{
+          type: :exploratory_adaptation,
+          urgency: :medium,
+          description: "System exhibiting unknown emergent behaviors",
+          parameters: %{
+            monitoring_intensity: :maximum,
+            experimentation_budget: "5%",
+            sandbox_environment: true,
+            pattern_analysis_depth: :deep,
+            human_oversight: :required
+          },
+          investigation_areas: [
+            :cross_subsystem_feedback_loops,
+            :nonlinear_interactions,
+            :self_organization_tendencies,
+            :complexity_emergence
+          ]
+        }
+      
+      pattern_volatility < 0.3 ->
+        %Policy{
+          type: :stability_threat,
+          urgency: :high,
+          description: "System patterns becoming chaotic",
+          parameters: %{
+            damping_factor: 0.8,
+            feedback_loop_breakers: true,
+            stability_injection: :periodic,
+            variance_reduction: :aggressive
+          }
+        }
+      
+      true -> nil
+    end
+  end
+  
+  defp prioritize_policies(policies) do
+    policies
+    |> Enum.sort_by(fn policy ->
+      case policy.urgency do
+        :critical -> 1
+        :high -> 2
+        :medium -> 3
+        :low -> 4
+      end
+    end)
+    |> apply_policy_interactions()
+  end
+  
+  defp apply_policy_interactions(policies) do
+    # Detect and resolve policy conflicts
+    policies
+    |> Enum.reduce([], fn policy, acc ->
+      if conflicts_with_existing?(policy, acc) do
+        resolve_conflict(policy, acc)
+      else
+        [policy | acc]
+      end
+    end)
+    |> Enum.reverse()
+  end
+  
+  @doc """
+  Real-time policy effectiveness monitoring using HNSW patterns
+  """
+  def monitor_policy_effectiveness(active_policy, index) do
+    # Get baseline patterns before policy
+    baseline_vector = encode_system_state(:pre_policy)
+    
+    # Get current patterns after policy implementation
+    current_vector = encode_system_state(:current)
+    
+    # Find similar historical situations
+    {:ok, similar_situations} = HNSWIndex.search(index, current_vector, k: 10)
+    
+    # Analyze outcomes of similar situations
+    outcomes = similar_situations
+    |> Enum.map(fn {_, _, _, meta} -> 
+      %{
+        outcome: meta.outcome,
+        policy_type: meta.applied_policy,
+        effectiveness: meta.effectiveness_score,
+        side_effects: meta.side_effects
+      }
+    end)
+    
+    # Calculate policy effectiveness
+    %{
+      predicted_success_rate: calculate_success_rate(outcomes),
+      similar_policies_tried: count_similar_policies(outcomes, active_policy),
+      average_effectiveness: average_effectiveness(outcomes),
+      common_side_effects: identify_common_side_effects(outcomes),
+      recommendation: generate_recommendation(outcomes, active_policy)
+    }
+  end
+  
+  defp generate_recommendation(outcomes, active_policy) do
+    success_rate = calculate_success_rate(outcomes)
+    
+    cond do
+      success_rate > 0.8 ->
+        {:continue, "Policy showing strong positive outcomes"}
+      
+      success_rate > 0.6 ->
+        {:adjust, "Minor adjustments recommended", suggest_adjustments(outcomes)}
+      
+      success_rate > 0.4 ->
+        {:reconsider, "Policy effectiveness questionable", alternative_policies(outcomes)}
+      
+      true ->
+        {:abort, "Policy likely to fail", rollback_plan(active_policy)}
+    end
+  end
+end
+```
+
 ### VSM Cognitive Loop
 The HNSW index serves as the pattern memory for S4's contribution to system-wide cognition:
 
@@ -582,7 +904,7 @@ defmodule CognitiveIntegration do
     {:ok, similar_states} = HNSWIndex.search(
       state.pattern_index, 
       state_vector, 
-      k: 20
+      k: 10
     )
     
     # 3. Extract successful action patterns
@@ -667,21 +989,21 @@ PatternIndexer.prune_before(~U[2024-01-01 00:00:00Z])
 
 ### Unit Tests
 ```bash
-mix test test/autonomous_opponent/vsm/s4/vector_store/hnsw_index_test.exs
+mix test apps/autonomous_opponent_core/test/autonomous_opponent/vsm/s4/vector_store/hnsw_index_test.exs
 ```
 
 ### Integration Tests
 ```bash
-mix test test/autonomous_opponent/vsm/s4/hnsw_integration_test.exs
+mix test apps/autonomous_opponent_core/test/autonomous_opponent/vsm/s4/hnsw_integration_test.exs
 ```
 
 ### Benchmarks
 ```bash
 # Performance benchmarks (includes accuracy measurements)
-mix run test/autonomous_opponent/vsm/s4/vector_store/hnsw_index_benchmark.exs
+mix run apps/autonomous_opponent_core/test/autonomous_opponent/vsm/s4/vector_store/hnsw_index_benchmark.exs
 
 # Run with benchmarking enabled
-RUN_BENCHMARKS=true mix run test/autonomous_opponent/vsm/s4/vector_store/hnsw_index_benchmark.exs
+RUN_BENCHMARKS=true mix run apps/autonomous_opponent_core/test/autonomous_opponent/vsm/s4/vector_store/hnsw_index_benchmark.exs
 ```
 
 ## Common Pitfalls and How to Avoid Them
@@ -1479,6 +1801,52 @@ end
       annotations:
         summary: "HNSW recall dropped below 90%"
   ```
+
+- [ ] **Monitoring Dashboard Examples**
+
+  Configure Grafana dashboards with these key queries:
+
+  ```sql
+  -- Search latency percentiles (Prometheus)
+  histogram_quantile(0.99, 
+    sum(rate(hnsw_search_duration_bucket[5m])) by (le)
+  )
+
+  -- Insert throughput
+  rate(hnsw_insert_total[5m])
+
+  -- Memory growth rate
+  deriv(hnsw_memory_usage_bytes[1h])
+
+  -- Index size over time
+  hnsw_vector_count
+
+  -- Search success rate
+  rate(hnsw_search_success[5m]) / 
+  (rate(hnsw_search_success[5m]) + rate(hnsw_search_failure[5m]))
+  ```
+
+  **Grafana Panel Configuration**:
+  ```json
+  {
+    "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
+    "targets": [{
+      "expr": "histogram_quantile(0.99, sum(rate(hnsw_search_duration_bucket[5m])) by (le))",
+      "legendFormat": "p99 search latency",
+      "refId": "A"
+    }],
+    "title": "HNSW Search Latency",
+    "type": "graph",
+    "yaxes": [{"format": "ms", "label": "Latency"}]
+  }
+  ```
+
+  **Key Dashboard Panels**:
+  1. **Performance Overview**: Search/Insert latency heatmap
+  2. **Resource Usage**: Memory and CPU utilization
+  3. **Index Health**: Vector count, layer distribution, connectivity
+  4. **Error Rates**: Failed operations by type
+  5. **S4 Integration**: Pattern detection rate, scan cycle timing
 
 ### Operational Procedures
 
