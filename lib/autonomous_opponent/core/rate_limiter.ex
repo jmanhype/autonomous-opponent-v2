@@ -120,7 +120,7 @@ defmodule AutonomousOpponent.Core.RateLimiter do
     :tokens_per_interval,
     :token_table,
     :metrics_table,
-    :refill_timer,
+    :refill_timer
   ]
 
   @impl true
@@ -168,7 +168,7 @@ defmodule AutonomousOpponent.Core.RateLimiter do
       refill_interval_ms: refill_interval_ms,
       tokens_per_interval: tokens_per_interval,
       token_table: token_table,
-      metrics_table: metrics_table,
+      metrics_table: metrics_table
     }
 
     # Start refill timer
@@ -181,8 +181,8 @@ defmodule AutonomousOpponent.Core.RateLimiter do
       config: %{
         bucket_size: state.bucket_size,
         refill_rate: state.refill_rate,
-        refill_interval_ms: state.refill_interval_ms,
-      },
+        refill_interval_ms: state.refill_interval_ms
+      }
     })
 
     {:ok, state}
@@ -208,7 +208,7 @@ defmodule AutonomousOpponent.Core.RateLimiter do
           EventBus.publish(:rate_limit_allowed, %{
             name: state.name,
             scope: scope,
-            tokens_remaining: remaining,
+            tokens_remaining: remaining
           })
         end
 
@@ -228,7 +228,7 @@ defmodule AutonomousOpponent.Core.RateLimiter do
           severity: :medium,
           reason: {:rate_limited, scope},
           requested_tokens: tokens,
-          timestamp: System.monotonic_time(:millisecond),
+          timestamp: System.monotonic_time(:millisecond)
         })
 
         {:reply, {:error, :rate_limited}, state}
@@ -249,7 +249,7 @@ defmodule AutonomousOpponent.Core.RateLimiter do
     metrics = %{
       total_requests: :ets.lookup_element(state.metrics_table, :total_requests, 2),
       total_allowed: :ets.lookup_element(state.metrics_table, :total_allowed, 2),
-      total_limited: :ets.lookup_element(state.metrics_table, :total_limited, 2),
+      total_limited: :ets.lookup_element(state.metrics_table, :total_limited, 2)
     }
 
     reply = %{
@@ -257,7 +257,7 @@ defmodule AutonomousOpponent.Core.RateLimiter do
       subsystem_tokens: subsystem_tokens,
       bucket_size: state.bucket_size,
       refill_rate: state.refill_rate,
-      metrics: metrics,
+      metrics: metrics
     }
 
     {:reply, reply, state}
@@ -392,7 +392,7 @@ defmodule AutonomousOpponent.Core.RateLimiter do
         state.token_table,
         {:client, client_id},
         client_refill,
-        client_max,
+        client_max
       )
     end)
   end
@@ -442,7 +442,7 @@ defmodule AutonomousOpponent.Core.RateLimiter do
       state.token_table,
       {:subsystem, :s1},
       state.tokens_per_interval * 2,
-      state.bucket_size * 2,
+      state.bucket_size * 2
     )
 
     # S2-S3 get normal refill rate
@@ -451,7 +451,7 @@ defmodule AutonomousOpponent.Core.RateLimiter do
         state.token_table,
         {:subsystem, subsystem},
         state.tokens_per_interval,
-        state.bucket_size,
+        state.bucket_size
       )
     end
 
@@ -460,7 +460,7 @@ defmodule AutonomousOpponent.Core.RateLimiter do
       state.token_table,
       {:subsystem, :s4},
       state.tokens_per_interval / 2.0,
-      div(state.bucket_size, 2),
+      div(state.bucket_size, 2)
     )
 
     # S5 gets quarter refill rate (most deliberate)
@@ -468,7 +468,7 @@ defmodule AutonomousOpponent.Core.RateLimiter do
       state.token_table,
       {:subsystem, :s5},
       state.tokens_per_interval / 4.0,
-      div(state.bucket_size, 4),
+      div(state.bucket_size, 4)
     )
   end
 end
