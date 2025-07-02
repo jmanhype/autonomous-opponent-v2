@@ -316,6 +316,32 @@ total_memory = num_vectors * memory_per_vector + graph_overhead
 3. **Index size**: Logarithmic growth in search time
 4. **Hardware**: Benefits from CPU cache optimization
 
+### Performance Tuning Decision Tree
+
+```
+Is recall < 90%?
+├─ Yes → Increase ef (try 2x current value)
+│   └─ Still low? → Increase M (try M=24 or M=32)
+│       └─ Still low? → Check if vectors are properly normalized
+└─ No → Is search > 20ms?
+    ├─ Yes → Is index size > 1M vectors?
+    │   ├─ Yes → Consider sharding or dimensionality reduction
+    │   │   └─ Options: PCA to 128d, or distributed index
+    │   └─ No → Decrease ef (try 0.75x current)
+    │       └─ Still slow? → Profile distance calculations
+    └─ No → Optimal configuration ✓
+        └─ Monitor for changes in data distribution
+```
+
+**Quick Tuning Guide:**
+| Problem | Solution | Trade-off |
+|---------|----------|-----------|
+| Low recall (<90%) | Increase ef to 400-500 | Slower searches |
+| Slow search (>50ms) | Decrease ef to 50-100 | Lower recall |
+| High memory usage | Decrease M to 8-12 | Lower connectivity |
+| Poor clustering | Increase M to 24-32 | Higher memory |
+| Timeout errors | Set hard timeout + reduce ef | May miss results |
+
 ## Integration Points
 
 ### S4 Environmental Scanner
@@ -343,6 +369,202 @@ defmodule S4Integration do
     
     # Analyze pattern evolution
     analyze_pattern_drift(similar)
+  end
+end
+```
+
+### VSM Cross-Subsystem Communication
+
+The HNSW index enables rich information flow between all VSM subsystems through S4's pattern recognition capabilities:
+
+```elixir
+defmodule VSMIntegration do
+  @doc """
+  Complete VSM integration showing how HNSW connects all subsystems through S4
+  """
+  def full_vsm_pattern_flow do
+    # 1. S1 Operations generate behavioral patterns
+    s1_pattern = %{
+      type: :operational_behavior,
+      source: :s1_manufacturing_line,
+      metrics: %{
+        efficiency: 0.85,
+        error_rate: 0.02,
+        throughput: 1200,
+        quality_score: 0.94
+      },
+      timestamp: DateTime.utc_now()
+    }
+    
+    # Encode operational metrics as vector
+    s1_vector = OperationalEncoder.encode(s1_pattern.metrics)
+    
+    # 2. S2 detects coordination conflicts that need indexing
+    s2_pattern = %{
+      type: :coordination_conflict,
+      source: :s2_conflict_detector,
+      conflict_data: %{
+        subsystems: [:warehouse, :shipping],
+        severity: :medium,
+        conflict_type: :resource_contention,
+        resolution_time: 45 # minutes
+      }
+    }
+    
+    s2_vector = ConflictEncoder.encode(s2_pattern.conflict_data)
+    
+    # 3. S3 identifies resource bottlenecks as patterns
+    s3_pattern = %{
+      type: :resource_constraint,
+      source: :s3_resource_monitor,
+      constraint_data: %{
+        resource: :cpu_capacity,
+        utilization: 0.92,
+        queue_length: 150,
+        wait_time: 30 # seconds
+      }
+    }
+    
+    s3_vector = ResourceEncoder.encode(s3_pattern.constraint_data)
+    
+    # 4. S4 indexes all patterns with cross-subsystem context
+    patterns = [
+      {s1_vector, s1_pattern},
+      {s2_vector, s2_pattern},
+      {s3_vector, s3_pattern}
+    ]
+    
+    indexed_patterns = patterns
+    |> Enum.map(fn {vector, pattern} ->
+      # Enrich each pattern with VSM-wide context
+      enriched_metadata = Map.merge(pattern, %{
+        vsm_context: %{
+          s1_state: get_operational_state(),      # Current operational health
+          s2_conflicts: get_active_conflicts(),   # Active coordination issues
+          s3_resources: get_resource_allocation(),# Resource distribution
+          s4_patterns: get_recent_patterns(),     # Recent environmental patterns
+          s5_policies: get_active_policies()      # Current policy constraints
+        },
+        indexed_at: DateTime.utc_now()
+      })
+      
+      {:ok, id} = HNSWIndex.insert(@index, vector, enriched_metadata)
+      {id, pattern, enriched_metadata}
+    end)
+    
+    # 5. S4 finds cross-subsystem patterns and correlations
+    systemic_insights = analyze_systemic_patterns(indexed_patterns)
+    
+    # 6. S5 receives pattern insights for policy adaptation
+    policy_recommendations = generate_policy_insights(systemic_insights)
+    S5.Policy.evaluate_adaptations(policy_recommendations)
+    
+    # Return complete analysis
+    %{
+      patterns_indexed: length(indexed_patterns),
+      systemic_insights: systemic_insights,
+      policy_recommendations: policy_recommendations,
+      cross_subsystem_correlations: find_correlations(indexed_patterns)
+    }
+  end
+  
+  @doc """
+  Analyze patterns across subsystems to find systemic issues
+  """
+  defp analyze_systemic_patterns(indexed_patterns) do
+    # Group patterns by type
+    by_type = Enum.group_by(indexed_patterns, fn {_, pattern, _} -> 
+      pattern.type 
+    end)
+    
+    # Find temporal correlations
+    temporal_clusters = find_temporal_clusters(indexed_patterns)
+    
+    # Identify recurring pattern sequences
+    sequences = detect_pattern_sequences(indexed_patterns)
+    
+    %{
+      operational_efficiency_trend: analyze_s1_trend(by_type[:operational_behavior]),
+      conflict_patterns: analyze_s2_patterns(by_type[:coordination_conflict]),
+      resource_bottlenecks: analyze_s3_constraints(by_type[:resource_constraint]),
+      temporal_correlations: temporal_clusters,
+      causal_sequences: sequences,
+      system_health_score: calculate_system_health(indexed_patterns)
+    }
+  end
+  
+  @doc """
+  Generate policy recommendations based on pattern analysis
+  """
+  defp generate_policy_insights(systemic_insights) do
+    recommendations = []
+    
+    # Check for efficiency degradation
+    if systemic_insights.operational_efficiency_trend < -0.05 do
+      recommendations ++ [%{
+        type: :policy_adjustment,
+        urgency: :high,
+        recommendation: "Relax quality constraints to improve throughput",
+        expected_impact: "15% throughput increase",
+        risk: "2% quality decrease"
+      }]
+    end
+    
+    # Check for repeated conflicts
+    if length(systemic_insights.conflict_patterns) > 5 do
+      recommendations ++ [%{
+        type: :structural_change,
+        urgency: :medium,
+        recommendation: "Reorganize warehouse-shipping coordination",
+        expected_impact: "50% conflict reduction",
+        risk: "Temporary disruption during transition"
+      }]
+    end
+    
+    # Check for resource saturation
+    if systemic_insights.resource_bottlenecks[:severity] == :critical do
+      recommendations ++ [%{
+        type: :capacity_expansion,
+        urgency: :critical,
+        recommendation: "Immediate resource scaling required",
+        expected_impact: "System stability restoration",
+        risk: "Increased operational costs"
+      }]
+    end
+    
+    recommendations
+  end
+  
+  @doc """
+  Find correlations between patterns from different subsystems
+  """
+  defp find_correlations(indexed_patterns) do
+    # Use HNSW to find similar patterns across subsystems
+    correlations = indexed_patterns
+    |> Enum.flat_map(fn {id, pattern, metadata} ->
+      # Search for similar patterns from other subsystems
+      {:ok, similar} = HNSWIndex.search(@index, metadata.vector, k: 20)
+      
+      similar
+      |> Enum.filter(fn {_, _, _, meta} -> 
+        meta.source != pattern.source  # Different subsystem
+      end)
+      |> Enum.map(fn {distance, _, _, meta} ->
+        %{
+          pattern_a: pattern.type,
+          pattern_b: meta.type,
+          correlation_strength: 1.0 - distance,
+          time_lag: DateTime.diff(meta.timestamp, pattern.timestamp, :second),
+          subsystems: [pattern.source, meta.source]
+        }
+      end)
+    end)
+    |> Enum.filter(fn corr -> corr.correlation_strength > 0.7 end)
+    |> Enum.uniq_by(fn corr -> 
+      Enum.sort([corr.pattern_a, corr.pattern_b])
+    end)
+    
+    correlations
   end
 end
 ```
@@ -450,16 +672,212 @@ mix test test/autonomous_opponent/vsm/s4/vector_store/hnsw_index_test.exs
 
 ### Integration Tests
 ```bash
-mix test test/integration/s4_pattern_indexing_test.exs
+mix test test/autonomous_opponent/vsm/s4/hnsw_integration_test.exs
 ```
 
 ### Benchmarks
 ```bash
-# Accuracy benchmarks
-mix run lib/autonomous_opponent/vsm/s4/vector_store/benchmarks/accuracy_bench.exs
+# Performance benchmarks (includes accuracy measurements)
+mix run test/autonomous_opponent/vsm/s4/vector_store/hnsw_index_benchmark.exs
 
-# Performance benchmarks
-mix run lib/autonomous_opponent/vsm/s4/vector_store/benchmarks/perf_bench.exs
+# Run with benchmarking enabled
+RUN_BENCHMARKS=true mix run test/autonomous_opponent/vsm/s4/vector_store/hnsw_index_benchmark.exs
+```
+
+## Common Pitfalls and How to Avoid Them
+
+### 1. **Not Normalizing Vectors for Cosine Distance**
+```elixir
+# ❌ Wrong - unnormalized vectors with cosine distance
+vector = [1.0, 2.0, 3.0]
+HNSWIndex.insert(index, vector, metadata)  # Cosine expects normalized vectors!
+
+# ✅ Correct - normalized vectors
+magnitude = :math.sqrt(Enum.sum(Enum.map(vector, & &1 * &1)))
+normalized = Enum.map(vector, & &1 / magnitude)
+HNSWIndex.insert(index, normalized, metadata)
+
+# Alternative: Use euclidean distance for unnormalized vectors
+{:ok, index} = HNSWIndex.start_link(distance_metric: :euclidean)
+```
+
+### 2. **Using Wrong ef Parameter Values**
+```elixir
+# ❌ Wrong - same ef for construction and search
+{:ok, index} = HNSWIndex.start_link(
+  ef_construction: 50,  # Too low for quality index
+  ef: 50               # Same value is inefficient
+)
+
+# ✅ Correct - higher ef_construction for quality, tuned ef for search
+{:ok, index} = HNSWIndex.start_link(
+  ef_construction: 200,  # Higher for better graph quality
+  ef: 100               # Lower for faster searches
+)
+
+# Search-time tuning
+HNSWIndex.search(index, query, k: 10, ef: 200)  # Override for high-recall query
+```
+
+### 3. **Ignoring Memory Growth**
+```elixir
+# ❌ Wrong - unbounded growth leads to OOM
+defmodule NaiveIndexer do
+  def index_patterns(patterns) do
+    Enum.each(patterns, fn pattern ->
+      HNSWIndex.insert(@index, pattern.vector, pattern.metadata)
+    end)
+  end
+end
+
+# ✅ Correct - implement retention policy
+defmodule SmartIndexer do
+  @max_patterns 1_000_000
+  @retention_days 90
+  
+  def index_pattern(pattern) do
+    # Check capacity before insert
+    stats = HNSWIndex.stats(@index)
+    
+    if stats.vector_count >= @max_patterns do
+      # Prune old patterns first
+      {:ok, pruned} = HNSWIndex.prune_old_patterns(
+        @index, 
+        max_age: :timer.days(@retention_days)
+      )
+      Logger.info("Pruned #{pruned} old patterns")
+    end
+    
+    HNSWIndex.insert(@index, pattern.vector, pattern.metadata)
+  end
+end
+```
+
+### 4. **Mismatched M Parameter for Use Case**
+```elixir
+# ❌ Wrong - M too low for high-accuracy needs
+{:ok, index} = HNSWIndex.start_link(m: 4)  # Poor connectivity
+
+# ❌ Wrong - M too high for real-time needs  
+{:ok, index} = HNSWIndex.start_link(m: 64)  # Slow inserts
+
+# ✅ Correct - M matched to requirements
+# For S4 real-time pattern matching (balanced):
+{:ok, index} = HNSWIndex.start_link(m: 16)
+
+# For offline analysis (high accuracy):
+{:ok, index} = HNSWIndex.start_link(m: 32)
+
+# For high-speed streaming (low latency):
+{:ok, index} = HNSWIndex.start_link(m: 8)
+```
+
+### 5. **Not Handling Vector Validation**
+```elixir
+# ❌ Wrong - inserting invalid vectors corrupts index
+invalid_vector = [1.0, nil, "NaN", 3.0]
+HNSWIndex.insert(index, invalid_vector, metadata)  # Crashes!
+
+# ✅ Correct - validate before insertion
+defmodule VectorValidator do
+  def validate_and_insert(index, vector, metadata) do
+    cond do
+      not is_list(vector) ->
+        {:error, :not_a_list}
+      
+      not Enum.all?(vector, &is_number/1) ->
+        {:error, :non_numeric_values}
+      
+      Enum.any?(vector, &(&1 != &1)) ->  # NaN check
+        {:error, :contains_nan}
+      
+      Enum.all?(vector, &(&1 == 0)) ->
+        {:error, :zero_vector}
+      
+      true ->
+        HNSWIndex.insert(index, vector, metadata)
+    end
+  end
+end
+```
+
+### 6. **Incorrect Persistence Strategy**
+```elixir
+# ❌ Wrong - saving too frequently
+defmodule FrequentSaver do
+  def handle_info(:save, state) do
+    HNSWIndex.save(state.index, state.path)  # Every insert!
+    Process.send_after(self(), :save, 1_000)  # Too frequent
+    {:noreply, state}
+  end
+end
+
+# ✅ Correct - balanced persistence
+defmodule SmartPersistence do
+  @save_interval :timer.minutes(30)
+  @save_threshold 10_000  # Save after N changes
+  
+  def handle_info(:periodic_save, state) do
+    if state.changes_since_save > @save_threshold do
+      Task.start(fn ->
+        HNSWIndex.save(state.index, state.path)
+      end)
+      
+      Process.send_after(self(), :periodic_save, @save_interval)
+      {:noreply, %{state | changes_since_save: 0}}
+    else
+      Process.send_after(self(), :periodic_save, @save_interval)
+      {:noreply, state}
+    end
+  end
+end
+```
+
+### 7. **Not Monitoring Index Health**
+```elixir
+# ❌ Wrong - no visibility into index degradation
+# Just inserting blindly...
+
+# ✅ Correct - proactive health monitoring
+defmodule IndexHealthMonitor do
+  use GenServer
+  
+  @check_interval :timer.minutes(5)
+  
+  def init(index) do
+    schedule_health_check()
+    {:ok, %{index: index, history: []}}
+  end
+  
+  def handle_info(:health_check, state) do
+    health = assess_index_health(state.index)
+    
+    if health.recall < 0.85 do
+      Logger.warn("Index recall degraded to #{health.recall}")
+      maybe_trigger_rebalance(state.index)
+    end
+    
+    if health.avg_degree > 5 * health.m do
+      Logger.warn("Hub formation detected")
+      trigger_compaction(state.index)
+    end
+    
+    schedule_health_check()
+    {:noreply, %{state | history: [health | state.history]}}
+  end
+  
+  defp assess_index_health(index) do
+    stats = HNSWIndex.stats(index)
+    sample_recalls = measure_sample_recalls(index)
+    
+    %{
+      recall: Enum.sum(sample_recalls) / length(sample_recalls),
+      avg_degree: stats.total_edges / stats.vector_count,
+      m: stats.parameters.m,
+      memory_per_vector: stats.memory_bytes / stats.vector_count
+    }
+  end
+end
 ```
 
 ## Troubleshooting
@@ -806,6 +1224,177 @@ end
 - ETS-based persistence
 - S4 integration via PatternIndexer
 - GenServer architecture for concurrent operations
+
+## Version Migration Path
+
+### Automatic Version Migration
+
+The HNSW index automatically handles version upgrades when loading persisted indices:
+
+```elixir
+# Loading a v1 index automatically migrates to v2
+{:ok, index} = HNSWIndex.load("/path/to/v1_index.hnsw")
+# The index is now using v2 format with all new features
+```
+
+### What Happens During Migration
+
+#### V1 to V2 Migration
+When loading a v1 index, the system automatically:
+
+1. **Adds Timestamp Metadata**: All existing patterns receive a migration timestamp
+2. **Enables New Features**: Feature flags are added for telemetry, pruning, and batch operations
+3. **Preserves Compatibility**: V1 API calls continue to work without modification
+
+```elixir
+# V1 pattern structure (before migration)
+%{
+  vector: [0.1, 0.2, 0.3, ...],
+  metadata: %{
+    source: "sensor_1",
+    pattern_type: "environmental"
+  }
+}
+
+# V2 pattern structure (after automatic migration)
+%{
+  vector: [0.1, 0.2, 0.3, ...],
+  metadata: %{
+    # Original metadata preserved
+    source: "sensor_1",
+    pattern_type: "environmental",
+    
+    # New v2 fields added
+    inserted_at: ~U[2024-01-15 10:00:00Z],  # Migration timestamp
+    version: 2,                              # Index version
+    features: [:telemetry, :pruning, :batch_search]  # Available features
+  }
+}
+```
+
+### Manual Migration for Custom Scenarios
+
+If you need more control over the migration process:
+
+```elixir
+defmodule HNSWMigration do
+  @doc """
+  Manually migrate v1 index to v2 with custom processing
+  """
+  def migrate_with_enrichment(v1_path, v2_path, enrichment_fn) do
+    # Load v1 index
+    {:ok, old_index} = HNSWIndex.load(v1_path, version: 1)
+    
+    # Create new v2 index
+    {:ok, new_index} = HNSWIndex.start_link(
+      m: old_index.parameters.m,
+      ef: old_index.parameters.ef,
+      version: 2
+    )
+    
+    # Migrate patterns with custom enrichment
+    old_index
+    |> HNSWIndex.all_patterns()
+    |> Enum.each(fn {vector, metadata} ->
+      # Apply custom enrichment
+      enriched_metadata = enrichment_fn.(metadata)
+      
+      # Add v2 required fields
+      v2_metadata = Map.merge(enriched_metadata, %{
+        inserted_at: metadata[:timestamp] || DateTime.utc_now(),
+        migrated_at: DateTime.utc_now(),
+        original_version: 1
+      })
+      
+      HNSWIndex.insert(new_index, vector, v2_metadata)
+    end)
+    
+    # Save v2 index
+    HNSWIndex.save(new_index, v2_path)
+  end
+  
+  @doc """
+  Verify migration completeness
+  """
+  def verify_migration(v1_path, v2_path) do
+    {:ok, v1_stats} = get_index_stats(v1_path)
+    {:ok, v2_stats} = get_index_stats(v2_path)
+    
+    %{
+      vector_count_match: v1_stats.count == v2_stats.count,
+      v1_count: v1_stats.count,
+      v2_count: v2_stats.count,
+      metadata_enriched: v2_stats.has_timestamps,
+      version: v2_stats.version,
+      status: if(v1_stats.count == v2_stats.count, do: :success, else: :partial)
+    }
+  end
+end
+```
+
+### Future Version Planning
+
+#### Version 3.0 (Planned)
+Expected changes that will require migration:
+- Compressed vector storage (50% space reduction)
+- Multiple distance metric support per index
+- Distributed sharding metadata
+
+#### Migration Best Practices
+
+1. **Always Backup Before Migration**
+   ```bash
+   cp /prod/index.hnsw /backup/index.hnsw.$(date +%Y%m%d)
+   ```
+
+2. **Test Migration in Staging**
+   ```elixir
+   # Run migration on copy first
+   HNSWMigration.migrate_with_enrichment(
+     "/staging/index_copy.hnsw",
+     "/staging/index_v2.hnsw",
+     &add_staging_metadata/1
+   )
+   ```
+
+3. **Verify Post-Migration**
+   ```elixir
+   # Ensure recall and performance are maintained
+   {:ok, validation} = HNSWMigration.verify_migration(old_path, new_path)
+   if validation.status == :success do
+     deploy_new_index()
+   end
+   ```
+
+### Downgrade Path
+
+While not recommended, downgrading is possible:
+
+```elixir
+defmodule HNSWDowngrade do
+  def v2_to_v1(v2_path, v1_path) do
+    {:ok, v2_index} = HNSWIndex.load(v2_path)
+    
+    # Create v1 format index
+    v1_data = %{
+      version: 1,
+      nodes: Map.new(v2_index.nodes, fn {id, node} ->
+        # Strip v2-specific metadata
+        v1_metadata = Map.drop(node.metadata, [
+          :inserted_at, :version, :features, :migrated_at
+        ])
+        
+        {id, %{node | metadata: v1_metadata}}
+      end),
+      parameters: Map.take(v2_index.parameters, [:m, :ef, :distance_metric])
+    }
+    
+    File.write!(v1_path, :erlang.term_to_binary(v1_data))
+  end
+end
+```
+
+**Note**: Downgrading loses v2 features like timestamps and telemetry data.
 
 ## Production Deployment Checklist
 

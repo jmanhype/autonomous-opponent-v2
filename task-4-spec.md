@@ -83,6 +83,50 @@ For S4's use case with 100k environmental patterns:
 - Search: ~10-12ms for k=20 similar patterns
 - Memory: ~300MB for complete index
 
+### Capacity Planning for Production
+
+Based on S4's operational requirements and 10-second environmental scan cycle:
+
+**Daily Pattern Volume:**
+- Scans per day: 8,640 (24 hours × 60 minutes × 6 per minute)
+- With pattern detection rate ~30%: ~2,600 patterns/day
+- Peak hours may see 2-3x average: ~500 patterns/hour peak
+
+**Monthly and Yearly Projections:**
+- Monthly accumulation: ~78,000 patterns (2,600 × 30)
+- Quarterly accumulation: ~234,000 patterns
+- Yearly capacity needed: ~950,000 patterns
+
+**Memory Requirements by Time Horizon:**
+| Retention Period | Pattern Count | Memory Usage | Disk Space (with metadata) |
+|-----------------|---------------|--------------|---------------------------|
+| 1 week          | ~18,200       | ~55MB        | ~150MB                   |
+| 1 month         | ~78,000       | ~235MB       | ~650MB                   |
+| 3 months        | ~234,000      | ~700MB       | ~2GB                     |
+| 6 months        | ~468,000      | ~1.4GB       | ~4GB                     |
+| 1 year          | ~950,000      | ~2.8GB       | ~8GB                     |
+
+**Recommendations:**
+1. **Default Configuration**: 3-month retention with automatic archival
+   - Provides sufficient history for pattern analysis
+   - Manageable memory footprint (~700MB)
+   - Allows for seasonal pattern detection
+
+2. **Archival Strategy**: 
+   - Keep full vectors for 3 months
+   - Archive older patterns with compressed representations
+   - Maintain metadata and pattern signatures indefinitely
+
+3. **Scaling Triggers**:
+   - At 500K patterns: Consider index sharding
+   - At 1M patterns: Implement distributed indexing
+   - At 5M patterns: Move to specialized vector database
+
+4. **Hardware Planning**:
+   - Minimum: 4GB RAM for 3-month retention + system overhead
+   - Recommended: 8GB RAM for comfortable operation
+   - SSD storage: 20GB for index + backups + growth buffer
+
 ## Layer Assignment Mathematics
 
 ### Probability Distribution
@@ -272,6 +316,29 @@ end
 - **Cosine similarity**: 1 - (dot_product(a,b) / (norm(a) * norm(b)))
 - **Euclidean distance**: sqrt(sum((a[i] - b[i])^2))
 - Implement both with SIMD optimizations where possible
+
+### Distance Metric Selection Guide
+
+| Data Type | Recommended Metric | Rationale |
+|-----------|-------------------|-----------|
+| Normalized text embeddings | Cosine | Direction matters more than magnitude |
+| Raw sensor readings | Euclidean | Absolute differences are meaningful |
+| Binary features | Hamming (future) | Bit differences indicate dissimilarity |
+| Probability distributions | JS Divergence (future) | Statistical distance for distributions |
+
+For S4 environmental patterns, we default to cosine since patterns are normalized feature vectors where relative proportions matter more than absolute values.
+
+**Decision Process:**
+1. **Are your vectors normalized?** → Use Cosine
+2. **Do absolute magnitudes matter?** → Use Euclidean
+3. **Working with sparse data?** → Cosine handles sparsity better
+4. **Need scale invariance?** → Cosine is scale-invariant
+5. **Comparing probability distributions?** → Consider JS Divergence (future enhancement)
+
+**Performance Considerations:**
+- Euclidean is ~20% faster than Cosine (no normalization overhead)
+- Cosine is more robust to scale differences between features
+- Both metrics benefit from SIMD optimizations in future NIF implementation
 
 ### 3. Pure Elixir Implementation
 
@@ -517,6 +584,155 @@ end
 - Handle out-of-memory conditions
 - Recover from corrupted persistence files
 - Validate vector dimensions on insert
+
+### Enhanced Error Recovery Examples
+
+```elixir
+defmodule S4.Intelligence.ErrorRecovery do
+  @doc """
+  Comprehensive error handling for HNSW operations with fallback strategies
+  """
+  def handle_search_failure(query, error, options \\ []) do
+    case error do
+      :timeout ->
+        # Search timeout - reduce ef parameter for faster results
+        Logger.warn("HNSW search timeout, reducing ef parameter")
+        reduced_ef = Keyword.get(options, :ef, 200) |> div(4)
+        
+        HNSWIndex.search(:s4_pattern_index, query, 
+          k: 10, 
+          ef: max(reduced_ef, 10),
+          timeout: 5_000
+        )
+      
+      :corrupted_index ->
+        # Index corruption - attempt recovery then fallback
+        Logger.error("HNSW index corruption detected")
+        
+        case attempt_index_recovery() do
+          {:ok, recovered_index} ->
+            HNSWIndex.search(recovered_index, query, k: 10)
+          
+          {:error, :recovery_failed} ->
+            # Fall back to brute force search
+            Logger.warn("Recovery failed, using exact search")
+            S4.ExactSearch.find_nearest(query, k: 10)
+        end
+      
+      :empty_index ->
+        # No patterns indexed yet - bootstrap with synthetic data
+        Logger.info("Empty index, bootstrapping with synthetic patterns")
+        
+        # Generate representative patterns for cold start
+        synthetic_patterns = S4.PatternGenerator.create_bootstrap_patterns(
+          count: 100,
+          dimensions: length(query),
+          distribution: :environmental_baseline
+        )
+        
+        # Index synthetic patterns
+        Enum.each(synthetic_patterns, fn pattern ->
+          HNSWIndex.insert(:s4_pattern_index, pattern.vector, pattern.metadata)
+        end)
+        
+        # Return empty result for now
+        {:ok, []}
+      
+      {:dimension_mismatch, expected, actual} ->
+        # Dimension mismatch - attempt to fix query vector
+        Logger.warn("Dimension mismatch: expected #{expected}, got #{actual}")
+        
+        fixed_query = case {expected, actual} do
+          {exp, act} when act < exp ->
+            # Pad with zeros
+            query ++ List.duplicate(0.0, exp - act)
+          
+          {exp, act} when act > exp ->
+            # Truncate
+            Enum.take(query, exp)
+        end
+        
+        HNSWIndex.search(:s4_pattern_index, fixed_query, k: 10)
+      
+      :memory_exhausted ->
+        # Out of memory - trigger emergency cleanup
+        Logger.error("Memory exhausted during HNSW operation")
+        
+        # Free memory by pruning old patterns
+        {:ok, pruned_count} = HNSWIndex.prune_old_patterns(
+          :s4_pattern_index,
+          max_age_ms: :timer.hours(24)
+        )
+        
+        Logger.info("Pruned #{pruned_count} old patterns")
+        
+        # Trigger garbage collection
+        :erlang.garbage_collect()
+        
+        # Retry with reduced batch size
+        HNSWIndex.search(:s4_pattern_index, query, k: 5, ef: 50)
+    end
+  end
+  
+  @doc """
+  Attempt to recover a corrupted index
+  """
+  defp attempt_index_recovery do
+    backup_paths = [
+      "/var/lib/autonomous_opponent/s4_patterns.hnsw.backup",
+      "/var/lib/autonomous_opponent/s4_patterns.hnsw.1",
+      "/backup/hnsw/latest/s4_patterns.hnsw"
+    ]
+    
+    Enum.find_value(backup_paths, {:error, :recovery_failed}, fn path ->
+      if File.exists?(path) do
+        case HNSWIndex.load(path) do
+          {:ok, index} -> 
+            Logger.info("Successfully recovered index from #{path}")
+            {:ok, index}
+          _ -> nil
+        end
+      end
+    end)
+  end
+end
+
+@doc """
+Error handling for batch operations with partial success tracking
+"""
+def handle_batch_insert_errors(vectors_with_metadata, index) do
+  results = vectors_with_metadata
+  |> Enum.map(fn {vector, metadata} ->
+    try do
+      case HNSWIndex.insert(index, vector, metadata) do
+        {:ok, id} -> {:ok, id}
+        {:error, reason} -> {:error, {vector, reason}}
+      end
+    rescue
+      error -> {:error, {vector, error}}
+    end
+  end)
+  
+  {successes, failures} = Enum.split_with(results, &match?({:ok, _}, &1))
+  
+  # Log failure patterns for analysis
+  if length(failures) > 0 do
+    failure_reasons = failures
+    |> Enum.map(fn {:error, {_vector, reason}} -> reason end)
+    |> Enum.frequencies()
+    
+    Logger.warn("Batch insert had #{length(failures)} failures: #{inspect(failure_reasons)}")
+  end
+  
+  %{
+    succeeded: length(successes),
+    failed: length(failures),
+    success_ids: Enum.map(successes, fn {:ok, id} -> id end),
+    failure_details: failures,
+    success_rate: length(successes) / length(vectors_with_metadata)
+  }
+end
+```
 
 ### Monitoring
 - Track search latency percentiles
