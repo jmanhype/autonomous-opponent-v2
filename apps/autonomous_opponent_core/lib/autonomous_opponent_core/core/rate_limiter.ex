@@ -230,6 +230,14 @@ defmodule AutonomousOpponentV2Core.Core.RateLimiter do
           requested_tokens: tokens,
           timestamp: System.monotonic_time(:millisecond)
         })
+        
+        # Also publish specific rate limited event for metrics
+        EventBus.publish(:rate_limited, %{
+          name: state.name,
+          scope: scope,
+          tokens_requested: tokens,
+          timestamp: System.monotonic_time(:millisecond)
+        })
 
         {:reply, {:error, :rate_limited}, state}
     end
@@ -421,6 +429,16 @@ defmodule AutonomousOpponentV2Core.Core.RateLimiter do
       end)
 
     :ets.insert(state.metrics_table, {:variety_flow, updated_flow})
+    
+    # Publish variety flow event for metrics
+    if result == :allowed do
+      EventBus.publish(:variety_absorbed, %{
+        subsystem: subsystem,
+        source: :rate_limiter,
+        name: state.name,
+        timestamp: System.monotonic_time(:millisecond)
+      })
+    end
   end
 
   defp update_variety_metrics(_state, _scope, _result), do: :ok

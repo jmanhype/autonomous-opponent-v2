@@ -353,6 +353,13 @@ defmodule AutonomousOpponentV2Core.Core.CircuitBreaker do
       reason: reason,
       timestamp: System.monotonic_time(:millisecond)
     })
+    
+    # Also publish specific circuit breaker event for metrics
+    EventBus.publish(:circuit_breaker_opened, %{
+      name: state.name,
+      reason: reason,
+      timestamp: System.monotonic_time(:millisecond)
+    })
 
     # Record state transition for learning
     record_state_transition(state, :open)
@@ -390,6 +397,12 @@ defmodule AutonomousOpponentV2Core.Core.CircuitBreaker do
       source: :circuit_breaker,
       name: state.name,
       reason: :service_recovered,
+      timestamp: System.monotonic_time(:millisecond)
+    })
+    
+    # Also publish specific circuit breaker event for metrics
+    EventBus.publish(:circuit_breaker_closed, %{
+      name: state.name,
       timestamp: System.monotonic_time(:millisecond)
     })
 

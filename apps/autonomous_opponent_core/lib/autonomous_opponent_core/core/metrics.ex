@@ -194,6 +194,7 @@ defmodule AutonomousOpponentV2Core.Core.Metrics do
     EventBus.subscribe(:circuit_breaker_closed)
     EventBus.subscribe(:rate_limit_allowed)
     EventBus.subscribe(:rate_limited)
+    EventBus.subscribe(:variety_absorbed)
     
     # Restore persisted metrics if available
     restore_metrics(state)
@@ -354,6 +355,9 @@ defmodule AutonomousOpponentV2Core.Core.Metrics do
         
       :rate_limited ->
         counter(state.name, "rate_limiter.limited", 1, %{name: data.name})
+        
+      :variety_absorbed ->
+        vsm_metric(state.name, data.subsystem, "variety_absorbed", 1, :counter)
         
       _ ->
         :ok
