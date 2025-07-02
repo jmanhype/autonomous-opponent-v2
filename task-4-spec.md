@@ -15,4 +15,6 @@ Task dependencies: None
 ## Implementation Status
 This file tracks the implementation of Task 4.
 
+<!-- Triggering CI/CD check with updated OAuth workflows -->
+
 @claude Please implement this task according to the specifications above.
