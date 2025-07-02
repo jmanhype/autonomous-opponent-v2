@@ -5,8 +5,11 @@ defmodule AutonomousOpponent.VSM.Algedonic.SystemTest do
   alias AutonomousOpponent.EventBus
 
   setup do
-    # Start EventBus
-    {:ok, _} = EventBus.start_link()
+    # Start EventBus if not already started
+    case Process.whereis(AutonomousOpponent.EventBus) do
+      nil -> {:ok, _} = EventBus.start_link()
+      _ -> :ok
+    end
 
     # Start Algedonic System
     {:ok, _} = System.start_link([])

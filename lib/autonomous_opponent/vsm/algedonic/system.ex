@@ -529,8 +529,10 @@ end
 # Simple Priority Queue implementation
 defmodule PriorityQueue do
   @moduledoc """
-  Simple priority queue implementation for managing algedonic signals.
+  A simple priority queue implementation for managing signals by priority.
+  Higher priority values are processed first.
   """
+  
   def new, do: []
 
   def insert(queue, priority, item) do

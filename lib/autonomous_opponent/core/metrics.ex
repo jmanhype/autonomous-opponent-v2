@@ -276,7 +276,8 @@ defmodule AutonomousOpponent.Core.Metrics do
     metrics = :ets.tab2list(state.metrics_table)
     
     prometheus_text = 
-      Enum.map_join(metrics, "\n", &format_prometheus_metric/1)
+      metrics
+      |> Enum.map_join("\n", &format_prometheus_metric/1)
     
     {:reply, prometheus_text, state}
   end

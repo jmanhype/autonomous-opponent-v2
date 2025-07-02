@@ -5,7 +5,11 @@ defmodule AutonomousOpponent.VSM.S3.ControlTest do
   alias AutonomousOpponent.EventBus
 
   setup do
-    {:ok, _} = EventBus.start_link()
+    # Start EventBus if not already started
+    case Process.whereis(AutonomousOpponent.EventBus) do
+      nil -> {:ok, _} = EventBus.start_link()
+      _ -> :ok
+    end
     {:ok, pid} = Control.start_link(id: "test_s3")
 
     {:ok, pid: pid}

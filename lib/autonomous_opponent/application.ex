@@ -24,7 +24,7 @@ defmodule AutonomousOpponent.Application do
       # Circuit Breaker for fault tolerance
       {AutonomousOpponent.Core.CircuitBreaker, name: AutonomousOpponent.Core.CircuitBreaker},
 
-      # Rate Limiter for request throttling
+      # Rate Limiter for resource protection
       {AutonomousOpponent.Core.RateLimiter, name: AutonomousOpponent.Core.RateLimiter},
 
       # Metrics system for VSM monitoring
