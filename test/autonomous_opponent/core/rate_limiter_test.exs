@@ -1,4 +1,9 @@
 defmodule AutonomousOpponent.Core.RateLimiterTest do
+  @moduledoc """
+  Test suite for the Token Bucket Rate Limiter implementation.
+  Tests token consumption, refill mechanics, per-client isolation,
+  VSM subsystem integration, and concurrent access safety.
+  """
   use ExUnit.Case, async: true
   alias AutonomousOpponent.Core.RateLimiter
 
