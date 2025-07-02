@@ -381,7 +381,7 @@ defmodule AutonomousOpponent.Core.Metrics do
   end
   
   defp build_metric_key(name, tags) do
-    tag_string =
+    tag_string = 
       tags
       |> Enum.sort()
       |> Enum.map_join(",", fn {k, v} -> "#{k}=#{v}" end)
@@ -457,7 +457,7 @@ defmodule AutonomousOpponent.Core.Metrics do
     # Format histogram
     base_name = String.replace(key, ~r/\{.*\}/, "")
     
-    bucket_lines =
+    bucket_lines = 
       buckets
       |> Enum.sort()
       |> Enum.map_join("\n", fn {limit, count} ->
