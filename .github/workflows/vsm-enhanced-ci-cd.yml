@@ -65,13 +65,25 @@ jobs:
         
         # Extract the relevant body text
         if [[ "${{ github.event_name }}" == "issue_comment" ]]; then
-          BODY="${{ github.event.comment.body }}"
+          BODY=$(cat << 'GITHUB_BODY_EOF'
+${{ github.event.comment.body }}
+GITHUB_BODY_EOF
+          )
         elif [[ "${{ github.event_name }}" == "pull_request_review_comment" ]]; then
-          BODY="${{ github.event.comment.body }}"
+          BODY=$(cat << 'GITHUB_BODY_EOF'
+${{ github.event.comment.body }}
+GITHUB_BODY_EOF
+          )
         elif [[ "${{ github.event_name }}" == "issues" ]]; then
-          BODY="${{ github.event.issue.body }}"
+          BODY=$(cat << 'GITHUB_BODY_EOF'
+${{ github.event.issue.body }}
+GITHUB_BODY_EOF
+          )
         elif [[ "${{ github.event_name }}" == "pull_request" ]]; then
-          BODY="${{ github.event.pull_request.body }}"
+          BODY=$(cat << 'GITHUB_BODY_EOF'
+${{ github.event.pull_request.body }}
+GITHUB_BODY_EOF
+          )
         fi
         
         # Store for later use (escape special characters)
