@@ -108,7 +108,7 @@ jobs:
         echo "EOF" >> $GITHUB_ENV
     
     - name: Claude Assistant with Validation Context
-      uses: grll/claude-code-action@beta
+      uses: grll/claude-code-action@v0.0.19-oauth
       with:
         use_oauth: true
         claude_access_token: ${{ secrets.CLAUDE_ACCESS_TOKEN }}
