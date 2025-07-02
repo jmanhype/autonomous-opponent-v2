@@ -11,10 +11,10 @@ if Code.ensure_loaded?(AMQP) do
     use GenServer
     require Logger
 
-    alias AMQP.Connection
     alias AMQP.Channel
-    alias AutonomousOpponentV2Core.AMCP.Topology
+    alias AMQP.Connection
     alias Application
+    alias AutonomousOpponentV2Core.AMCP.Topology
 
     def start_link(opts) do
       GenServer.start_link(__MODULE__, opts, name: __MODULE__)

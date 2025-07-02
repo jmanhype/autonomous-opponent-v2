@@ -10,7 +10,7 @@ if Code.ensure_loaded?(AMQP) do
     DLQs are a critical defense against message loss and system instability.
     """
     require Logger
-    alias AMQP.{Exchange, Queue, Basic}
+    alias AMQP.{Basic, Exchange, Queue}
 
     @exchange "amcp.events"
     @dlx_exchange "amcp.events.dlx"
@@ -76,7 +76,7 @@ if Code.ensure_loaded?(AMQP) do
     """
     def consume_messages(channel, queue_name, consumer_fun) do
       {:ok, _consumer_tag} = Basic.consume(channel, queue_name)
-      
+
       # Return a function that can be used to handle messages
       fn ->
         receive do
