@@ -27,7 +27,10 @@ defmodule AutonomousOpponent.VSM.S4.VectorStore.Persistence do
   
   require Logger
   
-  @current_version 1
+  # WISDOM: Index version for future migration support
+  # Increment this when breaking changes are made to the index format
+  @index_version 2
+  @current_version 1  # Legacy support
   @file_extension ".hnsw"
   
   @doc """
@@ -41,14 +44,17 @@ defmodule AutonomousOpponent.VSM.S4.VectorStore.Persistence do
     
     # Create persistence data structure
     persistence_data = %{
-      version: @current_version,
+      version: @index_version,
+      legacy_version: @current_version,  # For backwards compatibility
       timestamp: DateTime.utc_now(),
       index_state: extract_index_state(state),
       metadata: %{
         node_count: state.node_count,
         m: state.m,
         ef: state.ef,
-        distance_metric: detect_distance_metric(state.distance_fn)
+        distance_metric: detect_distance_metric(state.distance_fn),
+        index_version: @index_version,
+        features: [:telemetry, :batch_search, :pattern_expiry, :compaction]
       }
     }
     
@@ -91,30 +97,22 @@ defmodule AutonomousOpponent.VSM.S4.VectorStore.Persistence do
         binary = File.read!(path)
         persistence_data = :erlang.binary_to_term(binary)
         
-        # Version check
-        if persistence_data.version > @current_version do
-          {:error, {:unsupported_version, persistence_data.version}}
-        else
-          # Create new ETS tables
-          graph = :ets.new(:hnsw_graph_loaded, [:set, :protected])
-          data_table = :ets.new(:hnsw_data_loaded, [:set, :protected])
-          level_table = :ets.new(:hnsw_levels_loaded, [:set, :protected])
-          
-          # Load ETS data
-          load_ets_table(graph, graph_path(path))
-          load_ets_table(data_table, data_path(path))
-          load_ets_table(level_table, level_path(path))
-          
-          # Reconstruct state
-          state = Map.merge(persistence_data.index_state, %{
-            graph: graph,
-            data_table: data_table,
-            level_table: level_table,
-            distance_fn: get_distance_function(persistence_data.metadata.distance_metric)
-          })
-          
-          Logger.info("HNSW index loaded from #{path} (#{state.node_count} nodes)")
-          {:ok, state}
+        # Version check and migration
+        index_version = persistence_data[:version] || persistence_data[:legacy_version] || 1
+        
+        cond do
+          index_version > @index_version ->
+            {:error, {:unsupported_version, index_version}}
+            
+          index_version < @index_version ->
+            # Perform migration
+            Logger.info("Migrating index from version #{index_version} to #{@index_version}")
+            migrated_data = migrate_index_data(persistence_data, index_version)
+            load_migrated_index(migrated_data, path)
+            
+          true ->
+            # Same version, load directly
+            load_current_version_index(persistence_data, path)
         end
       rescue
         error ->
@@ -160,11 +158,15 @@ defmodule AutonomousOpponent.VSM.S4.VectorStore.Persistence do
         binary = File.read!(path)
         persistence_data = :erlang.binary_to_term(binary)
         
+        index_version = persistence_data[:version] || persistence_data[:legacy_version] || 1
+        
         {:ok, %{
-          version: persistence_data.version,
+          version: index_version,
           saved_at: persistence_data.timestamp,
           node_count: persistence_data.metadata.node_count,
-          parameters: Map.take(persistence_data.metadata, [:m, :ef, :distance_metric])
+          parameters: Map.take(persistence_data.metadata, [:m, :ef, :distance_metric]),
+          features: persistence_data.metadata[:features] || [],
+          needs_migration: index_version < @index_version
         }}
       rescue
         _ -> {:error, :invalid_format}
@@ -219,5 +221,72 @@ defmodule AutonomousOpponent.VSM.S4.VectorStore.Persistence do
   
   defp get_distance_function(:euclidean) do
     &AutonomousOpponent.VSM.S4.VectorStore.HNSWIndex.euclidean_distance/2
+  end
+  
+  # WISDOM: Version migration ensures forward compatibility
+  # Old indexes can be upgraded to use new features
+  defp migrate_index_data(data, from_version) do
+    case from_version do
+      1 ->
+        # Migration from v1 to v2
+        # Add new fields that didn't exist in v1
+        Map.merge(data, %{
+          version: @index_version,
+          metadata: Map.merge(data.metadata, %{
+            index_version: @index_version,
+            features: [:telemetry, :batch_search, :pattern_expiry, :compaction]
+          })
+        })
+        
+      _ ->
+        # Unknown version, try to load anyway
+        data
+    end
+  end
+  
+  defp load_current_version_index(persistence_data, path) do
+    # Create new ETS tables
+    graph = :ets.new(:hnsw_graph_loaded, [:set, :protected])
+    data_table = :ets.new(:hnsw_data_loaded, [:set, :protected])
+    level_table = :ets.new(:hnsw_levels_loaded, [:set, :protected])
+    
+    # Load ETS data
+    load_ets_table(graph, graph_path(path))
+    load_ets_table(data_table, data_path(path))
+    load_ets_table(level_table, level_path(path))
+    
+    # Add timestamps to metadata if missing (for pattern expiry)
+    maybe_add_timestamps(data_table)
+    
+    # Reconstruct state
+    state = Map.merge(persistence_data.index_state, %{
+      graph: graph,
+      data_table: data_table,
+      level_table: level_table,
+      distance_fn: get_distance_function(persistence_data.metadata.distance_metric)
+    })
+    
+    Logger.info("HNSW index loaded from #{path} (#{state.node_count} nodes, v#{@index_version})")
+    {:ok, state}
+  end
+  
+  defp load_migrated_index(migrated_data, path) do
+    load_current_version_index(migrated_data, path)
+  end
+  
+  defp maybe_add_timestamps(data_table) do
+    # Add timestamps to patterns that don't have them
+    now = DateTime.utc_now()
+    
+    :ets.foldl(
+      fn {node_id, vector, metadata}, _acc ->
+        if not Map.has_key?(metadata, :inserted_at) do
+          updated_metadata = Map.put(metadata, :inserted_at, now)
+          :ets.insert(data_table, {node_id, vector, updated_metadata})
+        end
+      end,
+      nil,
+      data_table
+    )
   end
 end

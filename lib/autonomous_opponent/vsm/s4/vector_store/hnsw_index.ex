@@ -64,7 +64,10 @@ defmodule AutonomousOpponent.VSM.S4.VectorStore.HNSWIndex do
     :graph,
     :data_table,
     :level_table,
-    :persist_path
+    :persist_path,
+    :prune_timer,
+    :prune_interval,
+    :prune_max_age
   ]
   
   @type vector :: list(float)
@@ -82,6 +85,14 @@ defmodule AutonomousOpponent.VSM.S4.VectorStore.HNSWIndex do
     * `:ef` - Size of the candidate list (default: 200)
     * `:distance_metric` - :cosine or :euclidean (default: :cosine)
     * `:persist_path` - Path for persistence (optional)
+    * `:prune_interval` - Milliseconds between automatic pruning (optional)
+    * `:prune_max_age` - Max age in ms for patterns before pruning (optional)
+  
+  Example with automatic pruning:
+      {:ok, index} = HNSWIndex.start_link(
+        prune_interval: :timer.hours(1),
+        prune_max_age: :timer.hours(24)
+      )
   """
   def start_link(opts) do
     GenServer.start_link(__MODULE__, opts, name: opts[:name] || __MODULE__)
@@ -113,6 +124,46 @@ defmodule AutonomousOpponent.VSM.S4.VectorStore.HNSWIndex do
   """
   def stats(server \\ __MODULE__) do
     GenServer.call(server, :stats)
+  end
+  
+  @doc """
+  Compacts the index by removing orphaned nodes and optimizing connections.
+  
+  This operation:
+  - Removes nodes with no connections
+  - Rebalances heavily connected nodes
+  - Optimizes graph structure for better search performance
+  
+  Returns {:ok, stats} with compaction statistics.
+  """
+  def compact(server \\ __MODULE__) do
+    GenServer.call(server, :compact, :infinity)
+  end
+  
+  @doc """
+  Searches for k nearest neighbors for multiple query vectors in parallel.
+  
+  Options:
+    * `:ef` - Search beam width (default: index ef)
+    * `:max_concurrency` - Max parallel searches (default: System.schedulers_online())
+    * `:timeout` - Per-search timeout in ms (default: 5000)
+  
+  Returns results in the same order as query vectors.
+  """
+  def search_batch(server \\ __MODULE__, query_vectors, k, opts \\ []) when is_list(query_vectors) do
+    GenServer.call(server, {:search_batch, query_vectors, k, opts}, :infinity)
+  end
+  
+  @doc """
+  Removes patterns older than the specified age in milliseconds.
+  
+  This helps maintain index freshness for temporal pattern relevance.
+  Patterns without :inserted_at timestamp are preserved.
+  
+  Returns {:ok, removed_count}.
+  """
+  def prune_old_patterns(server \\ __MODULE__, max_age_ms) when is_integer(max_age_ms) and max_age_ms > 0 do
+    GenServer.call(server, {:prune_old_patterns, max_age_ms})
   end
   
   # Server Callbacks
@@ -148,7 +199,9 @@ defmodule AutonomousOpponent.VSM.S4.VectorStore.HNSWIndex do
       graph: graph,
       data_table: data_table,
       level_table: level_table,
-      persist_path: opts[:persist_path]
+      persist_path: opts[:persist_path],
+      prune_interval: opts[:prune_interval],
+      prune_max_age: opts[:prune_max_age]
     }
     
     # Restore from persistence if path provided and file exists
@@ -174,19 +227,33 @@ defmodule AutonomousOpponent.VSM.S4.VectorStore.HNSWIndex do
     
     Logger.info("HNSW index initialized with M=#{m}, ef=#{ef}")
     
-    {:ok, final_state}
+    # Schedule periodic pruning if configured
+    final_state_with_timer = 
+      if final_state.prune_interval && final_state.prune_max_age do
+        timer_ref = Process.send_after(self(), :prune_tick, final_state.prune_interval)
+        %{final_state | prune_timer: timer_ref}
+      else
+        final_state
+      end
+    
+    {:ok, final_state_with_timer}
   end
   
   @impl true
   def handle_call({:insert, vector, metadata}, _from, state) do
+    start_time = System.monotonic_time(:microsecond)
+    
     # Generate node ID
     node_id = state.node_count
     
     # Randomly select layer based on exponential decay distribution
     level = select_level(state.ml)
     
+    # Add timestamp to metadata if not present
+    enhanced_metadata = Map.put_new(metadata, :inserted_at, DateTime.utc_now())
+    
     # Store vector and metadata
-    :ets.insert(state.data_table, {node_id, vector, metadata})
+    :ets.insert(state.data_table, {node_id, vector, enhanced_metadata})
     :ets.insert(state.level_table, {node_id, level})
     
     # Update graph structure
@@ -201,6 +268,14 @@ defmodule AutonomousOpponent.VSM.S4.VectorStore.HNSWIndex do
         %{state | node_count: node_id + 1}
       end
     
+    # Emit telemetry event
+    duration = System.monotonic_time(:microsecond) - start_time
+    :telemetry.execute(
+      [:hnsw, :insert],
+      %{duration: duration, vector_size: length(vector)},
+      %{node_id: node_id, level: level, m: state.m}
+    )
+    
     {:reply, {:ok, node_id}, new_state}
   end
   
@@ -209,6 +284,8 @@ defmodule AutonomousOpponent.VSM.S4.VectorStore.HNSWIndex do
     if state.entry_point == nil do
       {:reply, {:ok, []}, state}
     else
+      start_time = System.monotonic_time(:microsecond)
+      
       ef = opts[:ef] || state.ef
       results = search_layer(state, query_vector, state.entry_point, k, ef)
       
@@ -225,6 +302,14 @@ defmodule AutonomousOpponent.VSM.S4.VectorStore.HNSWIndex do
             metadata: metadata
           }
         end)
+      
+      # Emit telemetry event
+      duration = System.monotonic_time(:microsecond) - start_time
+      :telemetry.execute(
+        [:hnsw, :search],
+        %{duration: duration, results_count: length(formatted_results)},
+        %{k: k, ef: ef, vector_size: length(query_vector), m: state.m}
+      )
       
       {:reply, {:ok, formatted_results}, state}
     end
@@ -269,6 +354,118 @@ defmodule AutonomousOpponent.VSM.S4.VectorStore.HNSWIndex do
       {:error, reason} = error ->
         {:reply, error, state}
     end
+  end
+  
+  @impl true
+  def handle_call(:compact, _from, state) do
+    start_time = System.monotonic_time(:microsecond)
+    
+    # Compact the graph by removing orphaned nodes and optimizing connections
+    {compacted_state, stats} = compact_graph(state)
+    
+    # Emit telemetry event
+    duration = System.monotonic_time(:microsecond) - start_time
+    :telemetry.execute(
+      [:hnsw, :compact],
+      %{duration: duration, removed_nodes: stats.removed_nodes, optimized_connections: stats.optimized_connections},
+      %{node_count: state.node_count, m: state.m}
+    )
+    
+    Logger.info("HNSW index compacted: removed #{stats.removed_nodes} nodes, optimized #{stats.optimized_connections} connections")
+    
+    {:reply, {:ok, stats}, compacted_state}
+  end
+  
+  @impl true
+  def handle_call({:search_batch, query_vectors, k, opts}, _from, state) when is_list(query_vectors) do
+    if state.entry_point == nil do
+      {:reply, {:ok, List.duplicate([], length(query_vectors))}, state}
+    else
+      start_time = System.monotonic_time(:microsecond)
+      
+      # Process queries in parallel
+      max_concurrency = opts[:max_concurrency] || System.schedulers_online()
+      timeout = opts[:timeout] || 5_000
+      
+      results = 
+        query_vectors
+        |> Enum.with_index()
+        |> Task.async_stream(
+          fn {query_vector, index} ->
+            ef = opts[:ef] || state.ef
+            search_results = search_layer(state, query_vector, state.entry_point, k, ef)
+            
+            formatted_results = 
+              search_results
+              |> Enum.take(k)
+              |> Enum.map(fn {dist, node_id} ->
+                [{^node_id, vector, metadata}] = :ets.lookup(state.data_table, node_id)
+                %{
+                  node_id: node_id,
+                  distance: dist,
+                  vector: vector,
+                  metadata: metadata
+                }
+              end)
+              
+            {index, formatted_results}
+          end,
+          max_concurrency: max_concurrency,
+          timeout: timeout,
+          ordered: false
+        )
+        |> Enum.map(fn
+          {:ok, {index, result}} -> {index, result}
+          {:exit, :timeout} -> {nil, {:error, :timeout}}
+        end)
+        |> Enum.sort_by(&elem(&1, 0))
+        |> Enum.map(&elem(&1, 1))
+      
+      # Emit telemetry event
+      duration = System.monotonic_time(:microsecond) - start_time
+      :telemetry.execute(
+        [:hnsw, :search_batch],
+        %{duration: duration, batch_size: length(query_vectors)},
+        %{k: k, ef: opts[:ef] || state.ef, max_concurrency: max_concurrency}
+      )
+      
+      {:reply, {:ok, results}, state}
+    end
+  end
+  
+  @impl true
+  def handle_call({:prune_old_patterns, max_age_ms}, _from, state) do
+    start_time = System.monotonic_time(:microsecond)
+    
+    # Prune patterns older than max_age_ms
+    {pruned_state, removed_count} = prune_old_patterns(state, max_age_ms)
+    
+    # Emit telemetry event
+    duration = System.monotonic_time(:microsecond) - start_time
+    :telemetry.execute(
+      [:hnsw, :prune],
+      %{duration: duration, removed_count: removed_count},
+      %{max_age_ms: max_age_ms, remaining_nodes: pruned_state.node_count}
+    )
+    
+    Logger.info("Pruned #{removed_count} old patterns from HNSW index")
+    
+    {:reply, {:ok, removed_count}, pruned_state}
+  end
+  
+  @impl true
+  def handle_info(:prune_tick, state) do
+    # Perform periodic pruning
+    {pruned_state, removed_count} = prune_old_patterns(state, state.prune_max_age)
+    
+    if removed_count > 0 do
+      Logger.info("Periodic pruning removed #{removed_count} old patterns")
+    end
+    
+    # Schedule next prune
+    timer_ref = Process.send_after(self(), :prune_tick, state.prune_interval)
+    
+    {:noreply, %{pruned_state | prune_timer: timer_ref}}
   end
   
   # Private Functions
@@ -525,6 +722,148 @@ defmodule AutonomousOpponent.VSM.S4.VectorStore.HNSWIndex do
       data_size: :ets.info(state.data_table, :memory) * :erlang.system_info(:wordsize),
       level_size: :ets.info(state.level_table, :memory) * :erlang.system_info(:wordsize)
     }
+  end
+  
+  # WISDOM: Graph compaction removes orphaned nodes and optimizes connections
+  # This prevents memory bloat and maintains search performance
+  defp compact_graph(state) do
+    # Find all active nodes (those with connections or as entry point)
+    active_nodes = find_active_nodes(state)
+    orphaned_nodes = MapSet.new(0..(state.node_count - 1)) |> MapSet.difference(active_nodes)
+    
+    # Count optimized connections
+    optimized_count = optimize_connections(state)
+    
+    stats = %{
+      removed_nodes: MapSet.size(orphaned_nodes),
+      optimized_connections: optimized_count,
+      total_nodes: state.node_count
+    }
+    
+    # Remove orphaned nodes from tables
+    Enum.each(orphaned_nodes, fn node_id ->
+      :ets.delete(state.data_table, node_id)
+      :ets.delete(state.level_table, node_id)
+      
+      # Remove from graph at all levels
+      max_level = get_node_level(state, node_id)
+      for level <- 0..max_level do
+        :ets.delete(state.graph, {node_id, level})
+      end
+    end)
+    
+    {state, stats}
+  end
+  
+  defp find_active_nodes(state) do
+    # Start with entry point
+    active = if state.entry_point, do: MapSet.new([state.entry_point]), else: MapSet.new()
+    
+    # Add all nodes that have connections
+    :ets.foldl(
+      fn {{node_id, _level}, neighbors}, acc ->
+        # Add node and its neighbors
+        acc
+        |> MapSet.put(node_id)
+        |> MapSet.union(MapSet.new(neighbors))
+      end,
+      active,
+      state.graph
+    )
+  end
+  
+  defp optimize_connections(state) do
+    # Count nodes with excessive connections that were pruned
+    optimized = 0
+    
+    :ets.foldl(
+      fn {{node_id, level}, neighbors}, count ->
+        m = if level == 0, do: state.max_m0, else: state.max_m
+        
+        if length(neighbors) > m * 1.5 do
+          # Re-prune connections for over-connected nodes
+          prune_connections(state, node_id, level)
+          count + 1
+        else
+          count
+        end
+      end,
+      optimized,
+      state.graph
+    )
+  end
+  
+  # WISDOM: Pattern expiry removes old patterns based on timestamp
+  # Keeps the index focused on recent, relevant patterns
+  defp prune_old_patterns(state, max_age_ms) do
+    cutoff_time = DateTime.add(DateTime.utc_now(), -max_age_ms, :millisecond)
+    
+    removed_nodes = 
+      :ets.foldl(
+        fn {node_id, _vector, metadata}, acc ->
+          case Map.get(metadata, :inserted_at) do
+            nil -> 
+              # Keep patterns without timestamp
+              acc
+              
+            inserted_at ->
+              if DateTime.compare(inserted_at, cutoff_time) == :lt do
+                [node_id | acc]
+              else
+                acc
+              end
+          end
+        end,
+        [],
+        state.data_table
+      )
+    
+    # Remove expired nodes
+    Enum.each(removed_nodes, fn node_id ->
+      # Remove from data and level tables
+      :ets.delete(state.data_table, node_id)
+      :ets.delete(state.level_table, node_id)
+      
+      # Remove from graph and update neighbors
+      max_level = get_node_level(state, node_id)
+      for level <- 0..max_level do
+        neighbors = get_neighbors(state, node_id, level)
+        :ets.delete(state.graph, {node_id, level})
+        
+        # Remove this node from its neighbors' connections
+        Enum.each(neighbors, fn neighbor ->
+          neighbor_connections = get_neighbors(state, neighbor, level)
+          updated_connections = List.delete(neighbor_connections, node_id)
+          :ets.insert(state.graph, {{neighbor, level}, updated_connections})
+        end)
+      end
+    end)
+    
+    # Update entry point if it was removed
+    new_state = if state.entry_point in removed_nodes do
+      # Find new entry point from remaining nodes
+      new_entry = find_highest_level_node(state)
+      %{state | entry_point: new_entry}
+    else
+      state
+    end
+    
+    {new_state, length(removed_nodes)}
+  end
+  
+  defp find_highest_level_node(state) do
+    # Find node with highest level to use as new entry point
+    :ets.foldl(
+      fn {node_id, level}, {best_node, best_level} ->
+        if level > best_level do
+          {node_id, level}
+        else
+          {best_node, best_level}
+        end
+      end,
+      {nil, -1},
+      state.level_table
+    ) |> elem(0)
   end
   
 end

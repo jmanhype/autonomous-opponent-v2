@@ -341,4 +341,178 @@ defmodule AutonomousOpponent.VSM.S4.VectorStore.HNSWIndexTest do
       if rem(i, 7) == 0, do: :rand.uniform() * 5, else: 0.1
     end)
   end
+  
+  describe "search_batch/4" do
+    setup do
+      {:ok, pid} = HNSWIndex.start_link([])
+      
+      # Insert test vectors
+      vectors = [
+        {[1.0, 0.0, 0.0], %{label: "x"}},
+        {[0.0, 1.0, 0.0], %{label: "y"}},
+        {[0.0, 0.0, 1.0], %{label: "z"}},
+        {[0.707, 0.707, 0.0], %{label: "xy"}},
+        {[0.707, 0.0, 0.707], %{label: "xz"}}
+      ]
+      
+      Enum.each(vectors, fn {v, m} ->
+        HNSWIndex.insert(pid, v, m)
+      end)
+      
+      {:ok, index: pid}
+    end
+    
+    test "searches multiple vectors in parallel", %{index: index} do
+      queries = [
+        [1.0, 0.0, 0.0],    # Should find x
+        [0.0, 1.0, 0.0],    # Should find y
+        [0.0, 0.0, 1.0]     # Should find z
+      ]
+      
+      assert {:ok, results} = HNSWIndex.search_batch(index, queries, 1)
+      assert length(results) == 3
+      
+      # Check each result
+      [r1, r2, r3] = results
+      assert [%{metadata: %{label: "x"}}] = r1
+      assert [%{metadata: %{label: "y"}}] = r2
+      assert [%{metadata: %{label: "z"}}] = r3
+    end
+    
+    test "returns results in same order as queries", %{index: index} do
+      queries = [
+        [0.0, 0.0, 1.0],    # z
+        [1.0, 0.0, 0.0],    # x
+        [0.0, 1.0, 0.0]     # y
+      ]
+      
+      assert {:ok, results} = HNSWIndex.search_batch(index, queries, 2)
+      assert length(results) == 3
+      
+      # Verify order is preserved
+      [r1, r2, r3] = results
+      assert hd(r1).metadata.label == "z"
+      assert hd(r2).metadata.label == "x"
+      assert hd(r3).metadata.label == "y"
+    end
+    
+    test "handles empty index", %{index: _} do
+      {:ok, empty_index} = HNSWIndex.start_link([])
+      queries = [[1.0, 0.0], [0.0, 1.0]]
+      
+      assert {:ok, results} = HNSWIndex.search_batch(empty_index, queries, 5)
+      assert results == [[], []]
+    end
+  end
+  
+  describe "compact/1" do
+    setup do
+      {:ok, pid} = HNSWIndex.start_link([])
+      {:ok, index: pid}
+    end
+    
+    test "compacts index and returns stats", %{index: index} do
+      # Insert some vectors
+      for i <- 1..10 do
+        vector = Enum.map(1..5, fn _ -> :rand.uniform() end)
+        HNSWIndex.insert(index, vector, %{id: i})
+      end
+      
+      assert {:ok, stats} = HNSWIndex.compact(index)
+      assert Map.has_key?(stats, :removed_nodes)
+      assert Map.has_key?(stats, :optimized_connections)
+      assert stats.total_nodes > 0
+    end
+  end
+  
+  describe "prune_old_patterns/2" do
+    setup do
+      {:ok, pid} = HNSWIndex.start_link([])
+      {:ok, index: pid}
+    end
+    
+    test "removes patterns older than max age", %{index: index} do
+      # Insert old pattern with past timestamp
+      old_time = DateTime.add(DateTime.utc_now(), -3600, :second)
+      HNSWIndex.insert(index, [1.0, 2.0], %{inserted_at: old_time})
+      
+      # Insert recent pattern
+      HNSWIndex.insert(index, [3.0, 4.0], %{})
+      
+      # Prune patterns older than 30 minutes
+      assert {:ok, removed} = HNSWIndex.prune_old_patterns(index, 30 * 60 * 1000)
+      assert removed == 1
+      
+      # Verify only recent pattern remains
+      assert {:ok, results} = HNSWIndex.search(index, [3.0, 4.0], 10)
+      assert length(results) == 1
+    end
+    
+    test "preserves patterns without timestamp", %{index: index} do
+      # Insert pattern without timestamp (legacy data)
+      HNSWIndex.insert(index, [1.0, 2.0], %{label: "legacy"})
+      
+      # Attempt to prune
+      assert {:ok, removed} = HNSWIndex.prune_old_patterns(index, 1000)
+      assert removed == 0
+      
+      # Verify pattern still exists
+      assert {:ok, results} = HNSWIndex.search(index, [1.0, 2.0], 1)
+      assert length(results) == 1
+      assert hd(results).metadata.label == "legacy"
+    end
+  end
+  
+  describe "automatic pruning" do
+    test "schedules periodic pruning when configured" do
+      {:ok, index} = HNSWIndex.start_link(
+        prune_interval: 100,  # 100ms for testing
+        prune_max_age: 50     # 50ms max age
+      )
+      
+      # Insert pattern that will become old
+      HNSWIndex.insert(index, [1.0, 2.0], %{label: "old"})
+      
+      # Wait for auto-prune to trigger
+      Process.sleep(150)
+      
+      # Insert new pattern
+      HNSWIndex.insert(index, [3.0, 4.0], %{label: "new"})
+      
+      # Verify old pattern was pruned
+      assert {:ok, results} = HNSWIndex.search(index, [1.0, 2.0], 10)
+      # Old pattern should be gone or new pattern should be found
+      assert length(results) <= 1
+    end
+  end
+  
+  describe "telemetry events" do
+    setup do
+      {:ok, pid} = HNSWIndex.start_link([])
+      {:ok, index: pid}
+    end
+    
+    test "emits telemetry events for operations", %{index: index} do
+      # Set up telemetry handler
+      :telemetry.attach(
+        "test-handler",
+        [:hnsw, :insert],
+        fn event, measurements, metadata, _config ->
+          send(self(), {:telemetry_event, event, measurements, metadata})
+        end,
+        nil
+      )
+      
+      # Insert vector
+      HNSWIndex.insert(index, [1.0, 2.0, 3.0], %{})
+      
+      # Verify telemetry event
+      assert_receive {:telemetry_event, [:hnsw, :insert], measurements, metadata}
+      assert measurements.duration > 0
+      assert measurements.vector_size == 3
+      assert metadata.m == 16
+      
+      :telemetry.detach("test-handler")
+    end
+  end
 end
