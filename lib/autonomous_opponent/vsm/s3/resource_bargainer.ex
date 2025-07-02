@@ -354,4 +354,3 @@ defmodule AutonomousOpponent.VSM.S3.ResourceBargainer do
     end
   end
 end
-
