@@ -109,9 +109,12 @@ jobs:
     - name: Claude Assistant with Validation Context
       uses: grll/claude-code-action@beta
       with:
-        claude_api_key: ${{ secrets.CLAUDE_API_KEY }}
-        pr_number: ${{ steps.context.outputs.pr_number }}
-        additional_context: |
+        use_oauth: true
+        claude_access_token: ${{ secrets.CLAUDE_ACCESS_TOKEN }}
+        claude_refresh_token: ${{ secrets.CLAUDE_REFRESH_TOKEN }}
+        claude_expires_at: ${{ secrets.CLAUDE_EXPIRES_AT }}
+        secrets_admin_pat: ${{ secrets.SECRETS_ADMIN_PAT }}
+        custom_instructions: |
           Task ID: ${{ steps.context.outputs.task_id }}
           ${{ env.VALIDATION_RESULTS }}
           
