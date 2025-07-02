@@ -91,7 +91,8 @@ jobs:
         git config user.email "action@github.com"
         
         TASK_ID="${{ matrix.task.id }}"
-        BRANCH_NAME="task/${TASK_ID}-autonomous"
+        TIMESTAMP=$(date +%Y%m%d-%H%M%S)
+        BRANCH_NAME="task/${TASK_ID}-auto-${TIMESTAMP}"
         
         # Create and push branch
         git checkout -b "$BRANCH_NAME"
