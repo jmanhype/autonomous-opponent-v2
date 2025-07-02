@@ -6,6 +6,12 @@ on:
   pull_request:
     branches: [ main, develop, master ]
 
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+  actions: read
+
 env:
   MIX_ENV: test
   ELIXIR_VERSION: 1.16.3

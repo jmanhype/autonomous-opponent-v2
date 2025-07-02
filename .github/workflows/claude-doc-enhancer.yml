@@ -24,6 +24,11 @@ on:
           - emergence-patterns
           - vsm-documentation
 
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
 jobs:
   # Analyze documentation quality and request Claude help
   doc-analysis:
