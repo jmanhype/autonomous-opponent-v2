@@ -53,6 +53,170 @@ These trade-offs are acceptable given S4's 10-second environmental scan cycle.
 - **ef**: Size of dynamic candidate list during search
 - **mL**: Normalization factor for layer assignment probability (1/ln(2.0))
 
+## Algorithm Complexity Analysis
+
+### Time Complexity
+- **Insert**: O(log n × M × ef_construction) where n = number of vectors
+  - Layer assignment: O(1) probabilistic selection
+  - Neighbor search: O(log n × ef_construction) traversal through layers
+  - Connection updates: O(M²) for pruning excess connections
+- **Search**: O(log n × ef) for approximate k-NN search
+  - Layer descent: O(log n) expected layers to traverse
+  - Layer 0 search: O(ef × M) neighbor evaluations
+  - Result extraction: O(k × log k) for k nearest neighbors
+- **Delete** (rarely used): O(M² × L) where L = number of layers
+  - Find node: O(log n) search operation
+  - Update neighbors: O(M × L) bidirectional link removal
+  - Rebalance: O(M²) connection reconstruction
+
+### Space Complexity
+- **Memory per vector**: O(d + M × L) where d = dimensions, L = expected log n layers
+  - Vector storage: d × 4 bytes (32-bit floats)
+  - Graph connections: M × L × 8 bytes (64-bit node IDs)
+  - Metadata overhead: ~100 bytes per node
+- **Total index memory**: O(n × (d + M × log n))
+  - Example: 1M vectors, 128d, M=16 ≈ 2.5GB total
+
+### Practical Impact
+For S4's use case with 100k environmental patterns:
+- Insert: ~3-5ms per pattern (acceptable for 10-second scan cycle)
+- Search: ~10-12ms for k=20 similar patterns
+- Memory: ~300MB for complete index
+
+## Layer Assignment Mathematics
+
+### Probability Distribution
+The layer assignment follows an exponential decay distribution:
+- **P(layer = 0)** = 1.0 (all nodes exist in base layer)
+- **P(layer ≥ l)** = e^(-l/mL) where mL = 1/ln(2.0)
+- **Expected max layer** = -ln(n) × mL ≈ log₂(n)
+
+### Why mL = 1/ln(2.0)?
+This specific value ensures optimal layer distribution:
+```
+mL = 1/ln(2.0) ≈ 1.442695
+```
+
+This creates a probability where:
+- 100% of nodes appear in layer 0
+- ~50% of nodes appear in layer 1 (e^(-1/1.44) ≈ 0.5)
+- ~25% of nodes appear in layer 2 (e^(-2/1.44) ≈ 0.25)
+- ~12.5% of nodes appear in layer 3, and so on...
+
+### Concrete Examples for Different Dataset Sizes
+| Dataset Size | Expected Layers | Layer 0 | Layer 1 | Layer 2 | Layer 3 |
+|-------------|-----------------|---------|---------|---------|---------|
+| 1,000       | ~10            | 1,000   | ~500    | ~250    | ~125    |
+| 10,000      | ~13            | 10,000  | ~5,000  | ~2,500  | ~1,250  |
+| 100,000     | ~17            | 100,000 | ~50,000 | ~25,000 | ~12,500 |
+| 1,000,000   | ~20            | 1M      | ~500K   | ~250K   | ~125K   |
+
+This exponential decay ensures:
+1. Efficient long-range navigation in upper layers
+2. Dense local connectivity in lower layers
+3. Logarithmic hop count for any search path
+
+## Known Failure Modes and Mitigations
+
+### 1. Graph Disconnection
+**Risk**: Poor parameter choices or edge cases can create isolated subgraphs, making some vectors unreachable.
+
+**Detection**:
+- Monitor average shortest path length between random node pairs
+- Track percentage of successful searches reaching all candidates
+- Alert if any insert operation creates an isolated component
+
+**Mitigation**:
+- Ensure M ≥ 2 (minimum connectivity for robustness)
+- Implement connectivity check during insert:
+  ```elixir
+  if not connected_to_main_graph?(new_node) do
+    force_connection_to_entry_point(new_node)
+  end
+  ```
+- Add periodic connectivity verification in background process
+
+### 2. Hub Formation (Over-Connected Nodes)
+**Risk**: Popular vectors accumulate excessive connections, becoming bottlenecks that slow down all searches.
+
+**Detection**:
+- Track node degree distribution: `degree_stats = calculate_degree_distribution(index)`
+- Alert when max_degree > 3 × M × expected_layers
+- Monitor search path concentration through specific nodes
+
+**Mitigation**:
+- Implement degree-based pruning with diversity heuristic:
+  ```elixir
+  def prune_connections(node, candidates, m) do
+    # Prefer diverse neighbors over closest ones
+    candidates
+    |> group_by_region()
+    |> take_diverse_sample(m)
+  end
+  ```
+- Use soft degree limits: gradually increase distance threshold for hub nodes
+- Consider node splitting when degree exceeds 5 × M
+
+### 3. Dimension Curse Effects
+**Risk**: In very high dimensions (>500), distance metrics become less meaningful, degrading search quality.
+
+**Detection**:
+- Monitor relative contrast: `avg_distance / min_distance` ratio
+- Track recall degradation as dimensions increase
+- Alert when distance distribution becomes too uniform
+
+**Mitigation**:
+- Apply dimensionality reduction before indexing:
+  ```elixir
+  reduced_vector = PCA.reduce(vector, target_dims: 128)
+  ```
+- Use learned embeddings that preserve semantic similarity
+- Consider product quantization for extreme dimensions
+
+### 4. Memory Exhaustion During Construction
+**Risk**: Large batch inserts can cause memory spikes exceeding available RAM.
+
+**Detection**:
+- Monitor process memory: `:erlang.memory(:processes)`
+- Track ETS table size growth rate
+- Set memory usage alerts at 80% of available RAM
+
+**Mitigation**:
+- Implement streaming batch inserts with backpressure:
+  ```elixir
+  vectors
+  |> Stream.chunk_every(100)
+  |> Stream.map(&insert_batch/1)
+  |> Stream.run()
+  ```
+- Use disk-based buffer for large import operations
+- Enable swap space as emergency fallback
+
+### Monitoring Recommendations
+
+Deploy these monitors for production HNSW indices:
+
+1. **Health Metrics**:
+   - Graph connectivity percentage
+   - Node degree distribution (p50, p95, p99, max)
+   - Layer distribution vs. expected theoretical distribution
+
+2. **Performance Metrics**:
+   - Insert latency by layer count
+   - Search latency by result set size
+   - Recall@k for sample queries
+
+3. **Resource Metrics**:
+   - Memory usage per vector
+   - CPU usage during peak operations
+   - Disk I/O for persistence operations
+
+4. **Alerts**:
+   - Connectivity < 99.9%
+   - Max node degree > 5 × M × layers
+   - Search recall < 90%
+   - Memory usage > 85% of limit
+
 ## Implementation Details
 
 ### 1. Core Data Structures
