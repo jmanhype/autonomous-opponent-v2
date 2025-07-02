@@ -159,15 +159,17 @@ defmodule AutonomousOpponent.Core.MetricsIntegrationTest do
       
       Process.sleep(50)
       
-      # Get variety metrics
-      variety_metrics = Metrics.get_variety_metrics(limiter)
+      # Get all metrics to verify subsystem activity was recorded
+      all_metrics = Metrics.get_all_metrics(metrics)
       
-      # Each subsystem should have recorded activity
-      assert variety_metrics.s1 > 0
-      assert variety_metrics.s2 > 0
-      assert variety_metrics.s3 > 0
-      assert variety_metrics.s4 > 0
-      assert variety_metrics.s5 > 0
+      # Each subsystem should have recorded rate limiter activity
+      for subsystem <- [:s1, :s2, :s3, :s4, :s5] do
+        subsystem_metrics = Enum.filter(all_metrics, fn
+          {"rate_limiter.allowed" <> rest, _} -> String.contains?(rest, "subsystem=#{subsystem}")
+          _ -> false
+        end)
+        assert length(subsystem_metrics) > 0, "No metrics found for subsystem #{subsystem}"
+      end
     end
   end
   
