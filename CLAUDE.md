@@ -20,6 +20,12 @@ iex -S mix phx.server
 
 # Run with specific environment
 MIX_ENV=dev mix phx.server
+
+# Install Claude Code dependency (if needed)
+npm install
+
+# Setup assets (Tailwind + esbuild)
+mix assets.setup
 ```
 
 ### Testing
@@ -66,6 +72,12 @@ mix dialyxir
 
 # Security audit
 mix deps.audit
+
+# Dependency audit
+mix deps.audit
+
+# Run all quality checks together
+mix format && mix credo --strict && mix dialyxir
 ```
 
 ### Asset Management
@@ -118,7 +130,7 @@ apps/
    ```
    The internal module likely doesn't exist or returns hardcoded values.
 
-2. **VSM (Viable System Model)**: Despite extensive documentation, VSM is 95% unimplemented. Only database schemas and supervisors exist - no actual S1-S5 workers or Kalman filters.
+2. **VSM (Viable System Model)**: Despite extensive documentation, VSM is 95% unimplemented. Only database schemas and supervisors exist - no actual S1-S5 workers or Kalman filters. However, according to recent commits, S1-S5 subsystems and Algedonic system are now implemented (40% of Phase 1).
 
 3. **Event Bus**: One of the few fully functional components. All modules communicate through:
    ```elixir
@@ -223,6 +235,10 @@ This is normal - consciousness is mostly unimplemented. The facade returns:
 
 5. **Database Migrations**: Always check migration status - many tables exist but aren't used.
 
+6. **Run Tests Early**: Use `mix test` before making changes to establish baseline. Many tests may fail due to unimplemented features.
+
+7. **Use IEx for Exploration**: `iex -S mix phx.server` gives you a REPL to test modules interactively.
+
 ## Testing Approach
 
 ```bash
@@ -267,3 +283,26 @@ This codebase is a "beautifully architected skeleton" - excellent structure with
 - Focus on making claimed features actually work
 - Don't add new facades - complete existing ones
 - Remember: consciousness here is just a variable name, not AGI
+
+## Important Dependencies
+
+- **Elixir**: ~> 1.16 (required)
+- **PostgreSQL**: 16+ recommended (Alpine in Docker)
+- **RabbitMQ**: Optional but recommended for AMQP features
+- **Node.js**: Required for asset compilation and Claude Code integration
+
+## Useful IEx Commands
+
+```elixir
+# Check EventBus subscriptions
+AutonomousOpponent.EventBus.list_subscribers()
+
+# Trigger a health check
+AutonomousOpponent.HealthCheck.check_all()
+
+# See running processes
+:observer.start()
+
+# Check VSM supervisor tree
+Supervisor.which_children(AutonomousOpponent.VSM.Supervisor)
+```
