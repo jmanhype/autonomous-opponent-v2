@@ -1,4 +1,4 @@
-defmodule AutonomousOpponent.VSM.S4.Intelligence.VectorStore do
+defmodule AutonomousOpponentCore.VSM.S4.Intelligence.VectorStore do
   @moduledoc """
   Vector Store Integration for S4 Intelligence
   
@@ -24,8 +24,9 @@ defmodule AutonomousOpponent.VSM.S4.Intelligence.VectorStore do
   use GenServer
   require Logger
   
-  alias AutonomousOpponent.EventBus
-  alias AutonomousOpponent.VSM.S4.Intelligence.VectorStore.{Quantizer, HNSWInterface}
+  alias AutonomousOpponentCore.EventBus
+  alias AutonomousOpponentCore.VSM.S4.Intelligence.VectorStore.Quantizer
+  # alias AutonomousOpponentCore.VSM.S4.Intelligence.VectorStore.HNSWInterface  # Future use
   
   defstruct [
     :id,
@@ -131,7 +132,7 @@ defmodule AutonomousOpponent.VSM.S4.Intelligence.VectorStore do
         
         {:reply, {:ok, pattern_id}, new_state}
         
-      {:error, reason} = error ->
+      {:error, _reason} = error ->
         {:reply, error, state}
     end
   end

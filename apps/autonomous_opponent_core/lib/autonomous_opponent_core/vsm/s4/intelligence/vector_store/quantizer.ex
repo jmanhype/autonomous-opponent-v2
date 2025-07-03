@@ -1,4 +1,4 @@
-defmodule AutonomousOpponent.VSM.S4.Intelligence.VectorStore.Quantizer do
+defmodule AutonomousOpponentCore.VSM.S4.Intelligence.VectorStore.Quantizer do
   @moduledoc """
   Vector Quantizer for S4 Intelligence Pattern Recognition
   
@@ -42,7 +42,7 @@ defmodule AutonomousOpponent.VSM.S4.Intelligence.VectorStore.Quantizer do
   use GenServer
   require Logger
   
-  alias AutonomousOpponent.EventBus
+  alias AutonomousOpponentCore.EventBus
   
   # WISDOM: 256 centroids = 8-bit encoding, optimal for RAM/accuracy trade-off
   @default_centroids_per_subspace 256
@@ -155,7 +155,7 @@ defmodule AutonomousOpponent.VSM.S4.Intelligence.VectorStore.Quantizer do
         
         {:reply, {:ok, quantized, error}, new_state}
         
-      {:error, reason} = error ->
+      {:error, _reason} = error ->
         {:reply, error, state}
     end
   end
@@ -221,7 +221,7 @@ defmodule AutonomousOpponent.VSM.S4.Intelligence.VectorStore.Quantizer do
         
         {:reply, {:ok, new_stats}, new_state}
         
-      {:error, reason} = error ->
+      {:error, _reason} = error ->
         {:reply, error, state}
     end
   end
@@ -278,7 +278,7 @@ defmodule AutonomousOpponent.VSM.S4.Intelligence.VectorStore.Quantizer do
   def handle_info({:event, :vector_index_update, %{operation: :search, vector: vector}}, state) do
     # Pre-quantize search vectors for HNSW when it's implemented
     case quantize_vector(vector, state) do
-      {:ok, quantized, _error} ->
+      {:ok, _quantized, _error} ->
         # Future: Forward to HNSW index
         Logger.debug("Pre-quantized search vector for future HNSW integration")
         {:noreply, state}
@@ -392,11 +392,15 @@ defmodule AutonomousOpponent.VSM.S4.Intelligence.VectorStore.Quantizer do
   # and works well for product quantization. The key is good initialization -
   # k-means++ ensures centroids are spread out, avoiding local minima.
   defp train_codebooks(vectors, config, opts) do
-    iterations = opts[:iterations] || 20
-    
-    try do
-      # Split vectors into subspaces
-      subspace_vectors = prepare_training_data(vectors, config)
+    # Validate input
+    if Enum.empty?(vectors) do
+      {:error, :empty_training_set}
+    else
+      iterations = opts[:iterations] || 20
+      
+      try do
+        # Split vectors into subspaces
+        subspace_vectors = prepare_training_data(vectors, config)
       
       # Train codebook for each subspace
       codebooks = 
@@ -418,10 +422,11 @@ defmodule AutonomousOpponent.VSM.S4.Intelligence.VectorStore.Quantizer do
           }
         end)
       
-      {:ok, codebooks}
-    catch
-      error ->
-        {:error, error}
+        {:ok, codebooks}
+      catch
+        error ->
+          {:error, error}
+      end
     end
   end
   

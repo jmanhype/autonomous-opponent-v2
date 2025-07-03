@@ -1,4 +1,4 @@
-defmodule AutonomousOpponent.VSM.S4.Intelligence.VectorStore.HNSWInterface do
+defmodule AutonomousOpponentCore.VSM.S4.Intelligence.VectorStore.HNSWInterface do
   @moduledoc """
   Interface for HNSW (Hierarchical Navigable Small World) Index Integration
   
@@ -57,7 +57,7 @@ defmodule AutonomousOpponent.VSM.S4.Intelligence.VectorStore.HNSWInterface do
   """
   def quantized_search_example(quantizer_pid, query_vector, index_ref, k) do
     # 1. Quantize the query vector
-    case AutonomousOpponent.VSM.S4.Intelligence.VectorStore.Quantizer.quantize(quantizer_pid, query_vector) do
+    case AutonomousOpponentCore.VSM.S4.Intelligence.VectorStore.Quantizer.quantize(quantizer_pid, query_vector) do
       {:ok, quantized_query, _error} ->
         # 2. Search using quantized representation
         # In actual implementation, HNSW will use quantized codes for fast similarity computation
@@ -74,21 +74,19 @@ defmodule AutonomousOpponent.VSM.S4.Intelligence.VectorStore.HNSWInterface do
   def build_quantized_index_example(quantizer_pid, vectors) do
     # 1. Quantize all vectors
     quantized_results = 
-      AutonomousOpponent.VSM.S4.Intelligence.VectorStore.Quantizer.quantize_batch(
+      AutonomousOpponentCore.VSM.S4.Intelligence.VectorStore.Quantizer.quantize_batch(
         quantizer_pid, 
         vectors
       )
     
     # 2. Extract successfully quantized vectors
     quantized_vectors = 
-      Enum.filter_map(
-        quantized_results,
-        fn 
-          {:ok, _, _} -> true
-          _ -> false
-        end,
-        fn {:ok, quantized, _} -> quantized end
-      )
+      quantized_results
+      |> Enum.filter(fn 
+        {:ok, _, _} -> true
+        _ -> false
+      end)
+      |> Enum.map(fn {:ok, quantized, _} -> quantized end)
     
     # 3. Build HNSW index with quantized representations
     # Actual implementation will store codes and build graph structure

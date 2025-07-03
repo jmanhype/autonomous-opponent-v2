@@ -1,17 +1,23 @@
-defmodule AutonomousOpponent.VSM.S4.Intelligence.VectorStore.QuantizerTest do
-  use ExUnit.Case, async: true
+defmodule AutonomousOpponentCore.VSM.S4.Intelligence.VectorStore.QuantizerTest do
+  use ExUnit.Case, async: false
   
-  alias AutonomousOpponent.VSM.S4.Intelligence.VectorStore.Quantizer
-  alias AutonomousOpponent.EventBus
+  alias AutonomousOpponentCore.VSM.S4.Intelligence.VectorStore.Quantizer
+  alias AutonomousOpponentCore.EventBus
   
   @vector_dim 64
   @test_vectors_count 1000
   
   setup do
-    {:ok, _} = EventBus.start_link()
+    # EventBus might already be started by the application
+    case EventBus.start_link() do
+      {:ok, _} -> :ok
+      {:error, {:already_started, _}} -> :ok
+    end
     
+    test_id = "test_quantizer_#{:rand.uniform(1000000)}"
     {:ok, pid} = Quantizer.start_link(
-      id: "test_quantizer",
+      id: test_id,
+      name: String.to_atom("quantizer_#{:rand.uniform(1000000)}"),
       vector_dim: @vector_dim,
       subspaces: 8
     )
@@ -35,6 +41,7 @@ defmodule AutonomousOpponent.VSM.S4.Intelligence.VectorStore.QuantizerTest do
     
     test "supports custom configuration" do
       {:ok, custom_pid} = Quantizer.start_link(
+        name: String.to_atom("custom_quantizer_#{:rand.uniform(1000000)}"),
         vector_dim: 128,
         subspaces: 16,
         centroids: 512,
@@ -120,7 +127,10 @@ defmodule AutonomousOpponent.VSM.S4.Intelligence.VectorStore.QuantizerTest do
     end
     
     test "returns error when not trained", %{vectors: vectors} do
-      {:ok, untrained_pid} = Quantizer.start_link(vector_dim: @vector_dim)
+      {:ok, untrained_pid} = Quantizer.start_link(
+        name: String.to_atom("untrained_quantizer_#{:rand.uniform(1000000)}"),
+        vector_dim: @vector_dim
+      )
       
       test_vector = hd(vectors)
       assert {:error, :not_trained} = Quantizer.quantize(untrained_pid, test_vector)
