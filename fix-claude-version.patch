@@ -1,0 +1,13 @@
+diff --git a/.github/workflows/claude-pr-assistant.yml b/.github/workflows/claude-pr-assistant.yml
+index abc123..def456 100644
+--- a/.github/workflows/claude-pr-assistant.yml
++++ b/.github/workflows/claude-pr-assistant.yml
+@@ -28,7 +28,7 @@ jobs:
+       - uses: actions/checkout@v4
+       
+       - name: Run Claude
+-        uses: grll/claude-code-action@v0.0.19-oauth
++        uses: grll/claude-code-action@beta
+         with:
+           use_oauth: true
+           claude_access_token: ${{ secrets.CLAUDE_ACCESS_TOKEN }}

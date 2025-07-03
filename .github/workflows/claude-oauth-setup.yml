@@ -84,7 +84,7 @@ jobs:
     - uses: actions/checkout@v4
     
     - name: Test OAuth with Claude
-      uses: grll/claude-code-action@v0.0.19-oauth
+      uses: grll/claude-code-action@beta
       with:
         use_oauth: true
         claude_access_token: ${{ secrets.CLAUDE_ACCESS_TOKEN }}
