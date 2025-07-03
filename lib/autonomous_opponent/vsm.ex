@@ -33,14 +33,14 @@ defmodule AutonomousOpponent.VSM do
   """
 
   alias AutonomousOpponent.VSM.{
-    Supervisor,
+    Algedonic.System,
+    ControlLoop,
     S1.Operations,
     S2.Coordination,
     S3.Control,
     S4.Intelligence,
     S5.Policy,
-    Algedonic.System,
-    ControlLoop
+    Supervisor
   }
 
   @doc """
@@ -223,16 +223,8 @@ defmodule AutonomousOpponent.VSM do
   # Private functions
 
   defp get_subsystem_pid(subsystem) do
-    pid =
-      case subsystem do
-        :s1 -> Process.whereis(S1.Operations)
-        :s2 -> Process.whereis(S2.Coordination)
-        :s3 -> Process.whereis(S3.Control)
-        :s4 -> Process.whereis(S4.Intelligence)
-        :s5 -> Process.whereis(S5.Policy)
-        :algedonic -> Process.whereis(Algedonic.System)
-        :control_loop -> Process.whereis(VSM.ControlLoop)
-      end
+    module = get_subsystem_module(subsystem)
+    pid = Process.whereis(module)
 
     if pid && Process.alive?(pid) do
       {:ok, pid}
@@ -240,6 +232,14 @@ defmodule AutonomousOpponent.VSM do
       {:error, {:subsystem_not_available, subsystem}}
     end
   end
+
+  defp get_subsystem_module(:s1), do: S1.Operations
+  defp get_subsystem_module(:s2), do: S2.Coordination
+  defp get_subsystem_module(:s3), do: S3.Control
+  defp get_subsystem_module(:s4), do: S4.Intelligence
+  defp get_subsystem_module(:s5), do: S5.Policy
+  defp get_subsystem_module(:algedonic), do: Algedonic.System
+  defp get_subsystem_module(:control_loop), do: VSM.ControlLoop
 
   defp get_control_loop_status do
     case get_subsystem_pid(:control_loop) do

@@ -35,7 +35,7 @@ defmodule AutonomousOpponent.VSM.S3.ResourceBargainer do
     final_state = run_bargaining_rounds(initial_state)
 
     # Extract reallocations from final state
-    calculate_reallocations(initial_state.allocations, final_state.allocations)
+    calculate_reallocations(initial_state.allocations, final_state.allocations, final_state)
   end
 
   # Private functions
@@ -58,57 +58,65 @@ defmodule AutonomousOpponent.VSM.S3.ResourceBargainer do
     # Each participant evaluates their needs and creates bids
     bids =
       Enum.map(state.participants, fn participant ->
-        current_alloc = Map.get(state.allocations, participant, %{})
-        performance = estimate_performance(participant, current_alloc)
-
-        # Generate bids for resources they need more of
-        resource_bids =
-          Enum.map([:cpu, :memory, :variety_capacity], fn resource ->
-            if needs_more_resource?(participant, resource, performance, state.targets) do
-              %{
-                participant: participant,
-                resource: resource,
-                amount: calculate_bid_amount(resource, performance),
-                urgency: calculate_urgency(performance, state.targets),
-                max_price: calculate_max_price(resource, performance)
-              }
-            end
-          end)
-          |> Enum.filter(&(&1 != nil))
-
-        {participant, resource_bids}
+        generate_participant_bids(participant, state)
       end)
       |> Map.new()
 
     %{state | bids: bids}
   end
 
+  defp generate_participant_bids(participant, state) do
+    current_alloc = Map.get(state.allocations, participant, %{})
+    performance = estimate_performance(participant, current_alloc)
+
+    # Generate bids for resources they need more of
+    resource_bids =
+      Enum.map([:cpu, :memory, :variety_capacity], fn resource ->
+        if needs_more_resource?(participant, resource, performance, state.targets) do
+          %{
+            participant: participant,
+            resource: resource,
+            amount: calculate_bid_amount(resource, performance),
+            urgency: calculate_urgency(performance, state.targets),
+            max_price: calculate_max_price(resource, performance)
+          }
+        end
+      end)
+      |> Enum.filter(&(&1 != nil))
+
+    {participant, resource_bids}
+  end
+
   defp collect_offers(state) do
     # Participants with excess resources create offers
     offers =
       Enum.map(state.participants, fn participant ->
-        current_alloc = Map.get(state.allocations, participant, %{})
-        performance = estimate_performance(participant, current_alloc)
-
-        # Generate offers for resources they can spare
-        resource_offers =
-          Enum.map([:cpu, :memory, :variety_capacity], fn resource ->
-            if can_spare_resource?(participant, resource, performance, state.targets) do
-              %{
-                participant: participant,
-                resource: resource,
-                amount: calculate_offer_amount(resource, performance, current_alloc),
-                min_price: calculate_min_price(resource, performance)
-              }
-            end
-          end)
-          |> Enum.filter(&(&1 != nil))
-
-        {participant, resource_offers}
+        generate_participant_offers(participant, state)
       end)
       |> Map.new()
 
     %{state | offers: offers}
+  end
+
+  defp generate_participant_offers(participant, state) do
+    current_alloc = Map.get(state.allocations, participant, %{})
+    performance = estimate_performance(participant, current_alloc)
+
+    # Generate offers for resources they can spare
+    resource_offers =
+      Enum.map([:cpu, :memory, :variety_capacity], fn resource ->
+        if can_spare_resource?(participant, resource, performance, state.targets) do
+          %{
+            participant: participant,
+            resource: resource,
+            amount: calculate_offer_amount(resource, performance, current_alloc),
+            min_price: calculate_min_price(resource, performance)
+          }
+        end
+      end)
+      |> Enum.filter(&(&1 != nil))
+
+    {participant, resource_offers}
   end
 
   defp match_bids_and_offers(state) do
@@ -196,30 +204,38 @@ defmodule AutonomousOpponent.VSM.S3.ResourceBargainer do
     state.round > 0 and Enum.empty?(state.matched_trades || [])
   end
 
-  defp calculate_reallocations(initial_allocations, final_allocations) do
+  defp calculate_reallocations(initial_allocations, final_allocations, state) do
     # Calculate the net reallocations needed
-    reallocations = []
-
-    Enum.each(final_allocations, fn {participant, final_alloc} ->
-      initial_alloc = Map.get(initial_allocations, participant, %{resources: %{}})
-
-      Enum.each([:cpu, :memory, :variety_capacity], fn resource ->
-        initial_amount = get_in(initial_alloc, [:resources, resource]) || 0
-        final_amount = get_in(final_alloc, [:resources, resource]) || 0
-
-        if final_amount != initial_amount do
-          # Record reallocation
-          # This is simplified - real implementation would batch these
-          {:reallocation, participant, resource, final_amount - initial_amount}
-        end
-      end)
-    end)
+    reallocations = calculate_allocation_differences(initial_allocations, final_allocations)
 
     %{
       reallocations: reallocations,
       trades: Map.get(state, :matched_trades, []),
       rounds: state.round
     }
+  end
+
+  defp calculate_allocation_differences(initial_allocations, final_allocations) do
+    final_allocations
+    |> Enum.flat_map(fn {participant, final_alloc} ->
+      initial_alloc = Map.get(initial_allocations, participant, %{resources: %{}})
+      calculate_participant_differences(participant, initial_alloc, final_alloc)
+    end)
+    |> Enum.filter(&(&1 != nil))
+  end
+
+  defp calculate_participant_differences(participant, initial_alloc, final_alloc) do
+    [:cpu, :memory, :variety_capacity]
+    |> Enum.map(fn resource ->
+      initial_amount = get_in(initial_alloc, [:resources, resource]) || 0
+      final_amount = get_in(final_alloc, [:resources, resource]) || 0
+
+      if final_amount != initial_amount do
+        # Record reallocation
+        # This is simplified - real implementation would batch these
+        {:reallocation, participant, resource, final_amount - initial_amount}
+      end
+    end)
   end
 
   defp estimate_performance(participant, allocation) do

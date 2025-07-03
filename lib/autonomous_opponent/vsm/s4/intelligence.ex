@@ -46,7 +46,7 @@ defmodule AutonomousOpponent.VSM.S4.Intelligence do
   require Logger
 
   alias AutonomousOpponent.EventBus
-  alias AutonomousOpponent.VSM.S4.{PatternExtractor, ScenarioModeler, EnvironmentalScanner}
+  alias AutonomousOpponent.VSM.S4.{EnvironmentalScanner, PatternExtractor, ScenarioModeler}
 
   # WISDOM: Scan interval matches biological attention spans
   # 10s = long enough to focus, short enough to stay alert
@@ -440,33 +440,31 @@ defmodule AutonomousOpponent.VSM.S4.Intelligence do
   # is survivable, permanent blindness is fatal. LLM amplification is optional -
   # basic scanning must work without it.
   defp perform_environmental_scan(focus_areas, state) do
-    try do
-      # Use environmental scanner
-      scan_data =
-        EnvironmentalScanner.scan(
-          state.scanning_state.scanner,
-          focus_areas,
-          state.environmental_model
-        )
+    # Use environmental scanner
+    scan_data =
+      EnvironmentalScanner.scan(
+        state.scanning_state.scanner,
+        focus_areas,
+        state.environmental_model
+      )
 
-      # WISDOM: Conditional LLM amplification
-      # LLM is powerful but not required. System must function without it.
-      # This resilience principle: enhance when possible, survive when not.
-      amplified_data =
-        if llm_available?(state) do
-          amplify_scan_with_llm(scan_data, state)
-        else
-          scan_data
-        end
+    # WISDOM: Conditional LLM amplification
+    # LLM is powerful but not required. System must function without it.
+    # This resilience principle: enhance when possible, survive when not.
+    amplified_data =
+      if llm_available?(state) do
+        amplify_scan_with_llm(scan_data, state)
+      else
+        scan_data
+      end
 
-      # Update metrics
-      new_metrics = Map.update!(state.metrics, :scans_performed, &(&1 + 1))
+    # Update metrics
+    new_metrics = Map.update!(state.metrics, :scans_performed, &(&1 + 1))
 
-      {:ok, amplified_data, %{state | metrics: new_metrics}}
-    catch
-      error ->
-        {:error, error}
-    end
+    {:ok, amplified_data, %{state | metrics: new_metrics}}
+  catch
+    error ->
+      {:error, error}
   end
 
   # WISDOM: LLM amplification - using AI as a cognitive telescope
@@ -651,7 +649,7 @@ defmodule AutonomousOpponent.VSM.S4.Intelligence do
     relationship_change = abs(length(new_model.relationships) - length(old_model.relationships))
 
     # WISDOM: 10 entities or 20 relationships = significant
-    # Why these numbers? Empirical observation: systems typically have 5:1 
+    # Why these numbers? Empirical observation: systems typically have 5:1
     # relationship:entity ratio. 10 entities implies ~50 relationship changes.
     # 20 relationships alone suggests hidden entity changes S4 hasn't detected yet.
     entity_change > 10 or relationship_change > 20

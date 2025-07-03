@@ -49,7 +49,7 @@ defmodule AutonomousOpponent.VSM.S5.Policy do
   require Logger
 
   alias AutonomousOpponent.EventBus
-  alias AutonomousOpponent.VSM.S5.{IdentityManager, ValueSystem, GovernanceEngine}
+  alias AutonomousOpponent.VSM.S5.{GovernanceEngine, IdentityManager, ValueSystem}
 
   # WISDOM: Policy review interval - the governance heartbeat
   # 60 seconds balances adaptation with stability. Too fast = policy thrashing,
@@ -700,7 +700,7 @@ defmodule AutonomousOpponent.VSM.S5.Policy do
 
   # WISDOM: Identity change detection - when have we truly changed?
   # Two criteria: evolution stage change (child->adult) or trait distance > 0.2.
-  # The 0.2 threshold means personality traits shifted by 20% on average - 
+  # The 0.2 threshold means personality traits shifted by 20% on average -
   # significant but not radical. This prevents both identity rigidity and
   # identity crisis. We change gradually through experience, not suddenly.
   defp significant_identity_change?(old_identity, new_identity) do

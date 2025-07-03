@@ -166,34 +166,38 @@ defmodule AutonomousOpponent.VSM.S3.KalmanFilter do
         if length(recent) < 2 do
           0.0
         else
-          {times, values} =
-            recent
-            |> Enum.map(fn {time, measurement} ->
-              {time, measurement.utilization}
-            end)
-            |> Enum.unzip()
-
-          # Calculate slope using least squares
-          n = length(times)
-          sum_x = Enum.sum(times)
-          sum_y = Enum.sum(values)
-
-          sum_xy =
-            Enum.zip(times, values)
-            |> Enum.map(fn {x, y} -> x * y end)
-            |> Enum.sum()
-
-          sum_x2 = Enum.map(times, &(&1 * &1)) |> Enum.sum()
-
-          denominator = n * sum_x2 - sum_x * sum_x
-
-          if denominator == 0 do
-            0.0
-          else
-            # Per second
-            (n * sum_xy - sum_x * sum_y) / denominator / 1000
-          end
+          calculate_trend_from_history(recent)
         end
+    end
+  end
+
+  defp calculate_trend_from_history(recent) do
+    {times, values} =
+      recent
+      |> Enum.map(fn {time, measurement} ->
+        {time, measurement.utilization}
+      end)
+      |> Enum.unzip()
+
+    # Calculate slope using least squares
+    n = length(times)
+    sum_x = Enum.sum(times)
+    sum_y = Enum.sum(values)
+
+    sum_xy =
+      Enum.zip(times, values)
+      |> Enum.map(fn {x, y} -> x * y end)
+      |> Enum.sum()
+
+    sum_x2 = Enum.map(times, &(&1 * &1)) |> Enum.sum()
+
+    denominator = n * sum_x2 - sum_x * sum_x
+
+    if denominator == 0 do
+      0.0
+    else
+      # Per second
+      (n * sum_xy - sum_x * sum_y) / denominator / 1000
     end
   end
 

@@ -15,13 +15,13 @@ defmodule AutonomousOpponent.VSM.Supervisor do
   require Logger
 
   alias AutonomousOpponent.VSM.{
+    Algedonic.System,
+    ControlLoop,
     S1.Operations,
     S2.Coordination,
     S3.Control,
     S4.Intelligence,
-    S5.Policy,
-    Algedonic.System,
-    ControlLoop
+    S5.Policy
   }
 
   def start_link(opts) do
@@ -171,6 +171,7 @@ defmodule AutonomousOpponent.VSM.Supervisor do
       timestamp: System.monotonic_time(:millisecond)
     }
   end
+
 
   # Private functions
 

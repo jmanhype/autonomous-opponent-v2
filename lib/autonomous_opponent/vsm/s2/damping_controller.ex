@@ -25,8 +25,8 @@ defmodule AutonomousOpponent.VSM.S2.DampingController do
     GenServer.call(server, {:apply_damping, units, params})
   end
 
-  def is_active?(server \\ __MODULE__) do
-    GenServer.call(server, :is_active?)
+  def active?(server \\ __MODULE__) do
+    GenServer.call(server, :active?)
   end
 
   def get_effectiveness(server \\ __MODULE__) do
@@ -86,7 +86,7 @@ defmodule AutonomousOpponent.VSM.S2.DampingController do
   end
 
   @impl true
-  def handle_call(:is_active?, _from, state) do
+  def handle_call(:active?, _from, state) do
     is_active = map_size(state.active_dampings) > 0
     {:reply, is_active, state}
   end

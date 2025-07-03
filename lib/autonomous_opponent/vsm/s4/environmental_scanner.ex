@@ -219,21 +219,23 @@ defmodule AutonomousOpponent.VSM.S4.EnvironmentalScanner do
   end
 
   defp extract_relationships(scan_results) do
-    relationships = []
-
     # Extract relationships from relational scan
-    if relational = scan_results[:relational] do
-      deps = relational[:dependency_graph] || %{}
-
-      relationships =
-        Enum.flat_map(deps, fn {from, tos} ->
-          Enum.map(tos, fn to ->
-            %{from: from, to: to, type: :depends_on}
-          end)
-        end)
+    case scan_results[:relational] do
+      nil -> 
+        []
+      
+      relational ->
+        deps = relational[:dependency_graph] || %{}
+        extract_dependency_relationships(deps)
     end
+  end
 
-    relationships
+  defp extract_dependency_relationships(deps) do
+    Enum.flat_map(deps, fn {from, tos} ->
+      Enum.map(tos, fn to ->
+        %{from: from, to: to, type: :depends_on}
+      end)
+    end)
   end
 
   defp detect_changes(scan_results, current_model) do

@@ -8,7 +8,6 @@ defmodule AutonomousOpponentV2Core.VSM.System do
 
   @primary_key {:id, :binary_id, primary_key: true} # ID should be set externally, ideally with a content-based hash
   @foreign_key_type :binary_id
-  
 
   schema "vsm_systems" do
     field :name, :string

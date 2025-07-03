@@ -273,7 +273,7 @@ defmodule AutonomousOpponent.VSM.S5.IdentityManager do
   end
 
   defp calculate_experience_diversity(experiences) do
-    if length(experiences) == 0 do
+    if Enum.empty?(experiences) do
       0.0
     else
       unique_types =
@@ -287,7 +287,7 @@ defmodule AutonomousOpponent.VSM.S5.IdentityManager do
   end
 
   defp calculate_achievement_rate(achievements) do
-    if length(achievements) == 0 do
+    if Enum.empty?(achievements) do
       0.5
     else
       successful = Enum.count(achievements, & &1[:success])
@@ -327,34 +327,40 @@ defmodule AutonomousOpponent.VSM.S5.IdentityManager do
     # Move capabilities based on achievements
     achievements
     |> Enum.reduce(capabilities, fn achievement, caps ->
-      if achievement[:success] and achievement[:skill] do
-        skill = achievement.skill
-
-        cond do
-          skill in caps.developing ->
-            # Promote to mastered
-            %{
-              caps
-              | developing: List.delete(caps.developing, skill),
-                mastered: [skill | caps.mastered] |> Enum.uniq()
-            }
-
-          skill in caps.learned ->
-            # Promote to developing
-            %{
-              caps
-              | learned: List.delete(caps.learned, skill),
-                developing: [skill | caps.developing] |> Enum.uniq()
-            }
-
-          true ->
-            # New skill learned
-            %{caps | learned: [skill | caps.learned] |> Enum.uniq()}
-        end
-      else
-        caps
-      end
+      update_capability_for_achievement(achievement, caps)
     end)
+  end
+
+  defp update_capability_for_achievement(achievement, caps) do
+    if achievement[:success] and achievement[:skill] do
+      promote_skill(achievement.skill, caps)
+    else
+      caps
+    end
+  end
+
+  defp promote_skill(skill, caps) do
+    cond do
+      skill in caps.developing ->
+        # Promote to mastered
+        %{
+          caps
+          | developing: List.delete(caps.developing, skill),
+            mastered: [skill | caps.mastered] |> Enum.uniq()
+        }
+
+      skill in caps.learned ->
+        # Promote to developing
+        %{
+          caps
+          | learned: List.delete(caps.learned, skill),
+            developing: [skill | caps.developing] |> Enum.uniq()
+        }
+
+      true ->
+        # New skill learned
+        %{caps | learned: [skill | caps.learned] |> Enum.uniq()}
+    end
   end
 
   defp extract_behavioral_patterns(experiences, existing_patterns) do

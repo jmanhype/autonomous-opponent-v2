@@ -45,7 +45,7 @@ defmodule AutonomousOpponent.VSM.S2.Coordination do
   require Logger
 
   alias AutonomousOpponent.EventBus
-  alias AutonomousOpponent.VSM.S2.{OscillationDetector, DampingController}
+  alias AutonomousOpponent.VSM.S2.{DampingController, OscillationDetector}
 
   # WISDOM: These constants embody decades of control theory research
   # 2 seconds - matches S1 rhythms
@@ -557,19 +557,23 @@ defmodule AutonomousOpponent.VSM.S2.Coordination do
 
       [next_request | _] ->
         # Grant lock to next in queue
-        case acquire_resource_lock(
-               next_request.unit_id,
-               next_request.resource,
-               next_request.duration,
-               state
-             ) do
-          {:ok, _, new_state} ->
-            # Remove from queue
-            update_in(new_state.coordination_state.pending, fn _ -> remaining end)
+        process_next_lock_request(next_request, remaining, state)
+    end
+  end
 
-          _ ->
-            state
-        end
+  defp process_next_lock_request(request, remaining_requests, state) do
+    case acquire_resource_lock(
+           request.unit_id,
+           request.resource,
+           request.duration,
+           state
+         ) do
+      {:ok, _, new_state} ->
+        # Remove from queue
+        update_in(new_state.coordination_state.pending, fn _ -> remaining_requests end)
+
+      _ ->
+        state
     end
   end
 
