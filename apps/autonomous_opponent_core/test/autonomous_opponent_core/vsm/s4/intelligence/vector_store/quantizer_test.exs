@@ -1,8 +1,8 @@
-defmodule AutonomousOpponentCore.VSM.S4.Intelligence.VectorStore.QuantizerTest do
+defmodule AutonomousOpponentV2Core.VSM.S4.Intelligence.VectorStore.QuantizerTest do
   use ExUnit.Case, async: false
   
-  alias AutonomousOpponentCore.VSM.S4.Intelligence.VectorStore.Quantizer
-  alias AutonomousOpponentCore.EventBus
+  alias AutonomousOpponentV2Core.VSM.S4.Intelligence.VectorStore.Quantizer
+  alias AutonomousOpponentV2Core.EventBus
   
   @vector_dim 64
   @test_vectors_count 1000

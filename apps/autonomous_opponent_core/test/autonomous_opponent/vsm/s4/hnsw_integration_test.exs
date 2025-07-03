@@ -1,4 +1,4 @@
-defmodule AutonomousOpponent.VSM.S4.HNSWIntegrationTest do
+defmodule AutonomousOpponentV2Core.VSM.S4.HNSWIntegrationTest do
   @moduledoc """
   Integration tests for HNSW index with S4 environmental scanning.
   Tests the complete flow of pattern detection, indexing, and retrieval.
@@ -6,9 +6,9 @@ defmodule AutonomousOpponent.VSM.S4.HNSWIntegrationTest do
   
   use ExUnit.Case, async: false
   
-  alias AutonomousOpponent.VSM.S4.Intelligence
-  alias AutonomousOpponent.VSM.S4.VectorStore.HNSWIndex
-  alias AutonomousOpponent.EventBus
+  alias AutonomousOpponentV2Core.VSM.S4.Intelligence
+  alias AutonomousOpponentV2Core.VSM.S4.VectorStore.HNSWIndex
+  alias AutonomousOpponentV2Core.EventBus
   
   setup do
     # Start required processes

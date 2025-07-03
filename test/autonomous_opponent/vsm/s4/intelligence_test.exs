@@ -1,4 +1,4 @@
-defmodule AutonomousOpponent.VSM.S4.IntelligenceTest do
+defmodule AutonomousOpponentV2Core.VSM.S4.IntelligenceTest do
   use ExUnit.Case, async: true
 
   alias AutonomousOpponent.VSM.S4.Intelligence

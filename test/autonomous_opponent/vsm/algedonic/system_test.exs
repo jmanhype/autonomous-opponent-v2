@@ -1,4 +1,4 @@
-defmodule AutonomousOpponent.VSM.Algedonic.SystemTest do
+defmodule AutonomousOpponentV2Core.VSM.Algedonic.SystemTest do
   use ExUnit.Case, async: true
 
   alias AutonomousOpponent.VSM.Algedonic.System

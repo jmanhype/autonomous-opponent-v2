@@ -1,4 +1,4 @@
-defmodule AutonomousOpponent.VSM.ControlLoopTest do
+defmodule AutonomousOpponentV2Core.VSM.ControlLoopTest do
   use ExUnit.Case, async: true
 
   alias AutonomousOpponent.VSM.ControlLoop

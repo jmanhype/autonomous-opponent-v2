@@ -1,4 +1,4 @@
-defmodule AutonomousOpponent.VSM.S4.VectorStore.PatternIndexer do
+defmodule AutonomousOpponentV2Core.VSM.S4.VectorStore.PatternIndexer do
   @moduledoc """
   Pattern indexing service for S4 Intelligence subsystem.
   
@@ -31,7 +31,7 @@ defmodule AutonomousOpponent.VSM.S4.VectorStore.PatternIndexer do
   use GenServer
   require Logger
   
-  alias AutonomousOpponent.VSM.S4.VectorStore.HNSWIndex
+  alias AutonomousOpponentV2Core.VSM.S4.VectorStore.HNSWIndex
   
   # WISDOM: 100-dimensional vectors balance expressiveness with efficiency
   # Enough dimensions to capture pattern nuance, not so many that distance

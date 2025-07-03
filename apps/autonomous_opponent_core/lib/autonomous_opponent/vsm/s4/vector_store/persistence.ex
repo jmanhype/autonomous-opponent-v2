@@ -1,4 +1,4 @@
-defmodule AutonomousOpponent.VSM.S4.VectorStore.Persistence do
+defmodule AutonomousOpponentV2Core.VSM.S4.VectorStore.Persistence do
   @moduledoc """
   Persistence layer for HNSW vector index.
   
@@ -216,11 +216,11 @@ defmodule AutonomousOpponent.VSM.S4.VectorStore.Persistence do
   end
   
   defp get_distance_function(:cosine) do
-    &AutonomousOpponent.VSM.S4.VectorStore.HNSWIndex.cosine_distance/2
+    &AutonomousOpponentV2Core.VSM.S4.VectorStore.HNSWIndex.cosine_distance/2
   end
   
   defp get_distance_function(:euclidean) do
-    &AutonomousOpponent.VSM.S4.VectorStore.HNSWIndex.euclidean_distance/2
+    &AutonomousOpponentV2Core.VSM.S4.VectorStore.HNSWIndex.euclidean_distance/2
   end
   
   # WISDOM: Version migration ensures forward compatibility

@@ -1,4 +1,4 @@
-defmodule AutonomousOpponent.VSMTest do
+defmodule AutonomousOpponentV2Core.VSMTest do
   # Not async due to named processes
   use ExUnit.Case, async: false
 

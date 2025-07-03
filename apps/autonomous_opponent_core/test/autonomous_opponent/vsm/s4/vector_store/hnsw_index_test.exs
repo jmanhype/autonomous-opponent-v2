@@ -1,7 +1,7 @@
-defmodule AutonomousOpponent.VSM.S4.VectorStore.HNSWIndexTest do
+defmodule AutonomousOpponentV2Core.VSM.S4.VectorStore.HNSWIndexTest do
   use ExUnit.Case, async: true
   
-  alias AutonomousOpponent.VSM.S4.VectorStore.HNSWIndex
+  alias AutonomousOpponentV2Core.VSM.S4.VectorStore.HNSWIndex
   
   describe "start_link/1" do
     test "starts with default configuration" do

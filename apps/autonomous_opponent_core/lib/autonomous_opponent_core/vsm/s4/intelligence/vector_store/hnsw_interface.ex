@@ -1,4 +1,4 @@
-defmodule AutonomousOpponentCore.VSM.S4.Intelligence.VectorStore.HNSWInterface do
+defmodule AutonomousOpponentV2Core.VSM.S4.Intelligence.VectorStore.HNSWInterface do
   @moduledoc """
   Interface for HNSW (Hierarchical Navigable Small World) Index Integration
   
@@ -57,7 +57,7 @@ defmodule AutonomousOpponentCore.VSM.S4.Intelligence.VectorStore.HNSWInterface d
   """
   def quantized_search_example(quantizer_pid, query_vector, index_ref, k) do
     # 1. Quantize the query vector
-    case AutonomousOpponentCore.VSM.S4.Intelligence.VectorStore.Quantizer.quantize(quantizer_pid, query_vector) do
+    case AutonomousOpponentV2Core.VSM.S4.Intelligence.VectorStore.Quantizer.quantize(quantizer_pid, query_vector) do
       {:ok, quantized_query, _error} ->
         # 2. Search using quantized representation
         # In actual implementation, HNSW will use quantized codes for fast similarity computation
@@ -74,7 +74,7 @@ defmodule AutonomousOpponentCore.VSM.S4.Intelligence.VectorStore.HNSWInterface d
   def build_quantized_index_example(quantizer_pid, vectors) do
     # 1. Quantize all vectors
     quantized_results = 
-      AutonomousOpponentCore.VSM.S4.Intelligence.VectorStore.Quantizer.quantize_batch(
+      AutonomousOpponentV2Core.VSM.S4.Intelligence.VectorStore.Quantizer.quantize_batch(
         quantizer_pid, 
         vectors
       )

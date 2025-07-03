@@ -1,4 +1,4 @@
-defmodule AutonomousOpponent.Core.RateLimiterTest do
+defmodule AutonomousOpponentV2Core.Core.RateLimiterTest do
   @moduledoc """
   Test suite for the Token Bucket Rate Limiter implementation.
   Tests token consumption, refill mechanics, per-client isolation,

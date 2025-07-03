@@ -1,4 +1,4 @@
-defmodule AutonomousOpponent.VSM.S4.VectorStore.HNSWIndex do
+defmodule AutonomousOpponentV2Core.VSM.S4.VectorStore.HNSWIndex do
   @moduledoc """
   Hierarchical Navigable Small World (HNSW) index for efficient vector similarity search.
   
@@ -206,7 +206,7 @@ defmodule AutonomousOpponent.VSM.S4.VectorStore.HNSWIndex do
     
     # Restore from persistence if path provided and file exists
     final_state = if opts[:persist_path] do
-      alias AutonomousOpponent.VSM.S4.VectorStore.Persistence
+      alias AutonomousOpponentV2Core.VSM.S4.VectorStore.Persistence
       
       if Persistence.index_exists?(opts[:persist_path]) do
         case Persistence.load_index(opts[:persist_path]) do
@@ -335,7 +335,7 @@ defmodule AutonomousOpponent.VSM.S4.VectorStore.HNSWIndex do
         {:reply, {:error, :no_persist_path}, state}
       
       path ->
-        alias AutonomousOpponent.VSM.S4.VectorStore.Persistence
+        alias AutonomousOpponentV2Core.VSM.S4.VectorStore.Persistence
         result = Persistence.save_index(path, state)
         {:reply, result, state}
     end
@@ -343,7 +343,7 @@ defmodule AutonomousOpponent.VSM.S4.VectorStore.HNSWIndex do
   
   @impl true
   def handle_call({:load_from_disk, path}, _from, state) do
-    alias AutonomousOpponent.VSM.S4.VectorStore.Persistence
+    alias AutonomousOpponentV2Core.VSM.S4.VectorStore.Persistence
     
     case Persistence.load_index(path) do
       {:ok, loaded_state} ->

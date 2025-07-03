@@ -1,4 +1,4 @@
-defmodule AutonomousOpponent.VSM.S3.KalmanFilterTest do
+defmodule AutonomousOpponentV2Core.VSM.S3.KalmanFilterTest do
   use ExUnit.Case, async: true
 
   alias AutonomousOpponent.VSM.S3.KalmanFilter

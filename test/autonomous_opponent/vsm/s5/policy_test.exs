@@ -1,4 +1,4 @@
-defmodule AutonomousOpponent.VSM.S5.PolicyTest do
+defmodule AutonomousOpponentV2Core.VSM.S5.PolicyTest do
   use ExUnit.Case, async: true
 
   alias AutonomousOpponent.VSM.S5.Policy

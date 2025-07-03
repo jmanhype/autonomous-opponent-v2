@@ -1,11 +1,11 @@
-defmodule AutonomousOpponent.VSM.S4.VectorStore.HNSWIndexBenchmark do
+defmodule AutonomousOpponentV2Core.VSM.S4.VectorStore.HNSWIndexBenchmark do
   @moduledoc """
   Performance benchmarks for HNSW index implementation.
   
   Run with: mix run test/autonomous_opponent/vsm/s4/vector_store/hnsw_index_benchmark.exs
   """
   
-  alias AutonomousOpponent.VSM.S4.VectorStore.HNSWIndex
+  alias AutonomousOpponentV2Core.VSM.S4.VectorStore.HNSWIndex
   
   @vector_dimensions [10, 50, 128, 256]
   @dataset_sizes [100, 1000, 5000]

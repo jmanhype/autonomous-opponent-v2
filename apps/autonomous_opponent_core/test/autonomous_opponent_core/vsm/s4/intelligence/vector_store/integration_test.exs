@@ -1,7 +1,7 @@
-defmodule AutonomousOpponentCore.VSM.S4.Intelligence.VectorStore.IntegrationTest do
+defmodule AutonomousOpponentV2Core.VSM.S4.Intelligence.VectorStore.IntegrationTest do
   use ExUnit.Case, async: false
 
-  alias AutonomousOpponentCore.VSM.S4.Intelligence.VectorStore.Quantizer
+  alias AutonomousOpponentV2Core.VSM.S4.Intelligence.VectorStore.Quantizer
   alias AutonomousOpponentV2Core.EventBus
 
   @vector_dim 8  # Small dimension for fast tests

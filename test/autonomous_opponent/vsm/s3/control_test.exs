@@ -1,4 +1,4 @@
-defmodule AutonomousOpponent.VSM.S3.ControlTest do
+defmodule AutonomousOpponentV2Core.VSM.S3.ControlTest do
   use ExUnit.Case, async: true
 
   alias AutonomousOpponent.VSM.S3.Control

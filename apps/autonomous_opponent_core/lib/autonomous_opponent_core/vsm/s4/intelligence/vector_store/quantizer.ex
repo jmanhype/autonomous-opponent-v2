@@ -1,4 +1,4 @@
-defmodule AutonomousOpponentCore.VSM.S4.Intelligence.VectorStore.Quantizer do
+defmodule AutonomousOpponentV2Core.VSM.S4.Intelligence.VectorStore.Quantizer do
   @moduledoc """
   Vector Quantizer for S4 Intelligence Pattern Recognition
   
