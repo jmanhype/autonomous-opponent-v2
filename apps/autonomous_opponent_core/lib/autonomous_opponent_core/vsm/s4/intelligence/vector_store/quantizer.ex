@@ -42,7 +42,7 @@ defmodule AutonomousOpponentCore.VSM.S4.Intelligence.VectorStore.Quantizer do
   use GenServer
   require Logger
   
-  alias AutonomousOpponentCore.EventBus
+  alias AutonomousOpponentV2Core.EventBus
   
   # WISDOM: 256 centroids = 8-bit encoding, optimal for RAM/accuracy trade-off
   @default_centroids_per_subspace 256
