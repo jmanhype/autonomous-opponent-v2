@@ -8,8 +8,8 @@ defmodule AutonomousOpponentV2Core.Application do
     children = [
       # Start the Ecto repository
       AutonomousOpponentV2Core.Repo,
-      # Start the EventBus for inter-module communication
-      AutonomousOpponentCore.EventBus,
+      # Start the EventBus
+      {AutonomousOpponentV2Core.EventBus, name: AutonomousOpponentV2Core.EventBus},
       # Start the Telemetry supervisor
       # AutonomousOpponentV2Core.Telemetry,
       # Start the VSM Registry (must be started before VSM Supervisor)

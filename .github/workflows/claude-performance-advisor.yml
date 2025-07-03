@@ -23,6 +23,12 @@ on:
           - claude-usage-analysis
           - emergence-efficiency
 
+permissions:
+  contents: read
+  actions: read
+  issues: write
+  pull-requests: write
+
 jobs:
   # Collect performance metrics
   collect-metrics:
@@ -40,6 +46,7 @@ jobs:
       id: collect
       uses: actions/github-script@v7
       with:
+        github-token: ${{ secrets.AUTONOMOUS_PAT || secrets.GITHUB_TOKEN }}
         script: |
           // Get recent workflow runs
           const runs = await github.rest.actions.listWorkflowRunsForRepo({
@@ -131,6 +138,7 @@ jobs:
     - name: Create Optimization Issue
       uses: actions/github-script@v7
       with:
+        github-token: ${{ secrets.AUTONOMOUS_PAT || secrets.GITHUB_TOKEN }}
         script: |
           const eventType = context.eventName;
           const avgDuration = '${{ needs.collect-metrics.outputs.ci_duration }}';
@@ -222,6 +230,7 @@ jobs:
     - name: Analyze Claude Efficiency
       uses: actions/github-script@v7
       with:
+        github-token: ${{ secrets.AUTONOMOUS_PAT || secrets.GITHUB_TOKEN }}
         script: |
           // Get Claude-related workflow runs from the last week
           const oneWeekAgo = new Date();
@@ -310,6 +319,7 @@ jobs:
     - name: Trigger Emergency Analysis
       uses: actions/github-script@v7
       with:
+        github-token: ${{ secrets.AUTONOMOUS_PAT || secrets.GITHUB_TOKEN }}
         script: |
           const issue = await github.rest.issues.create({
             owner: context.repo.owner,

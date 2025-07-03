@@ -1,3 +1,6 @@
+# Start the EventBus before tests
+Application.ensure_all_started(:autonomous_opponent_core)
+
 ExUnit.start()
 
 # Set up Ecto for testing

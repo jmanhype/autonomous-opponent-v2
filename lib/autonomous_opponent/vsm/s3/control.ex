@@ -100,6 +100,15 @@ defmodule AutonomousOpponent.VSM.S3.Control do
     GenServer.call(server, {:audit_intervention, intervention_type, params})
   end
 
+  @doc """
+  Get the current resource status and allocation summary.
+
+  Returns a summary of the current resource pool state and active allocations.
+  """
+  def get_resource_status(server \\ __MODULE__) do
+    GenServer.call(server, :get_resource_status)
+  end
+
   # Server Callbacks
 
   @impl true
@@ -193,6 +202,33 @@ defmodule AutonomousOpponent.VSM.S3.Control do
       error ->
         {:reply, error, state}
     end
+  end
+
+  @impl true
+  def handle_call(:get_resource_status, _from, state) do
+    # Calculate current resource utilization
+    total_allocated =
+      Enum.reduce(state.allocations, %{}, fn {_unit_id, allocation}, acc ->
+        Enum.reduce(allocation.resources, acc, fn {resource, amount}, acc ->
+          Map.update(acc, resource, amount, &(&1 + amount))
+        end)
+      end)
+
+    # Build status summary
+    status = %{
+      resource_pool: state.resource_pool,
+      total_allocated: total_allocated,
+      active_allocations: map_size(state.allocations),
+      performance_targets: state.performance_targets,
+      bargaining_active: state.bargaining_state.active,
+      metrics: %{
+        allocations_made: state.metrics.allocations_made,
+        allocations_denied: state.metrics.allocations_denied,
+        reallocations: state.metrics.reallocations
+      }
+    }
+
+    {:reply, status, state}
   end
 
   @impl true
@@ -412,11 +448,11 @@ defmodule AutonomousOpponent.VSM.S3.Control do
   end
 
   defp maybe_trigger_bargaining(state, unit_id, request) do
-    if state.bargaining_state.active do
-      state
-    else
+    unless state.bargaining_state.active do
       Logger.info("Triggering resource bargaining due to request from #{unit_id}")
       run_bargaining_round(state)
+    else
+      state
     end
   end
 

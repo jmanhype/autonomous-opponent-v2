@@ -1,0 +1,122 @@
+name: Claude PR Assistant Enhanced
+
+on:
+  issue_comment:
+    types: [created]
+  pull_request_review_comment:
+    types: [created]
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+  actions: read
+  id-token: write
+
+jobs:
+  claude-assist-with-validation:
+    if: |
+      contains(github.event.comment.body, '@claude') &&
+      (github.event.issue.pull_request || github.event.pull_request)
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Extract context
+      id: context
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const pr_number = context.issue.number || context.payload.pull_request.number;
+          const pr = await github.rest.pulls.get({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            pull_number: pr_number
+          });
+          
+          // Get task info from PR
+          const taskMatch = pr.data.title.match(/Task (\d+):/);
+          const taskId = taskMatch ? taskMatch[1] : 'unknown';
+          
+          core.setOutput('pr_number', pr_number);
+          core.setOutput('branch', pr.data.head.ref);
+          core.setOutput('task_id', taskId);
+          
+          // Check if validation is requested
+          const needsValidation = github.event.comment.body.includes('mix') || 
+                                 github.event.comment.body.includes('format') ||
+                                 github.event.comment.body.includes('credo') ||
+                                 github.event.comment.body.includes('test');
+          core.setOutput('needs_validation', needsValidation);
+    
+    - uses: actions/checkout@v4
+      if: steps.context.outputs.needs_validation == 'true'
+      with:
+        ref: ${{ steps.context.outputs.branch }}
+    
+    - name: Set up Elixir
+      if: steps.context.outputs.needs_validation == 'true'
+      uses: erlef/setup-beam@v1
+      with:
+        elixir-version: '1.14'
+        otp-version: '25'
+    
+    - name: Run validation
+      if: steps.context.outputs.needs_validation == 'true'
+      id: validation
+      run: |
+        mix deps.get
+        
+        # Capture validation outputs
+        echo "VALIDATION_RESULTS<<EOF" >> $GITHUB_ENV
+        echo "### Validation Results for Task ${{ steps.context.outputs.task_id }}" >> $GITHUB_ENV
+        echo "" >> $GITHUB_ENV
+        
+        # Format check
+        echo "**Mix Format:**" >> $GITHUB_ENV
+        if mix format --check-formatted; then
+          echo "✅ Properly formatted" >> $GITHUB_ENV
+        else
+          echo "❌ Needs formatting" >> $GITHUB_ENV
+          echo '```' >> $GITHUB_ENV
+          mix format --dry-run --check-formatted 2>&1 | head -20 >> $GITHUB_ENV || true
+          echo '```' >> $GITHUB_ENV
+        fi
+        echo "" >> $GITHUB_ENV
+        
+        # Credo
+        echo "**Credo:**" >> $GITHUB_ENV
+        if mix credo --strict; then
+          echo "✅ No issues" >> $GITHUB_ENV
+        else
+          echo "❌ Issues found" >> $GITHUB_ENV
+          echo '```' >> $GITHUB_ENV
+          mix credo list --strict 2>&1 | head -30 >> $GITHUB_ENV || true
+          echo '```' >> $GITHUB_ENV
+        fi
+        echo "" >> $GITHUB_ENV
+        
+        # Tests
+        echo "**Tests:**" >> $GITHUB_ENV
+        if mix test; then
+          echo "✅ All passing" >> $GITHUB_ENV
+        else
+          echo "❌ Failures" >> $GITHUB_ENV
+          echo '```' >> $GITHUB_ENV
+          mix test 2>&1 | grep -A 10 -B 5 "failure\|error" | head -30 >> $GITHUB_ENV || true
+          echo '```' >> $GITHUB_ENV
+        fi
+        echo "EOF" >> $GITHUB_ENV
+    
+    - name: Claude Assistant with Validation Context
+      uses: grll/claude-code-action@v0.0.19-oauth
+      with:
+        use_oauth: true
+        claude_access_token: ${{ secrets.CLAUDE_ACCESS_TOKEN }}
+        claude_refresh_token: ${{ secrets.CLAUDE_REFRESH_TOKEN }}
+        claude_expires_at: ${{ secrets.CLAUDE_EXPIRES_AT }}
+        secrets_admin_pat: ${{ secrets.SECRETS_ADMIN_PAT }}
+        custom_instructions: |
+          Task ID: ${{ steps.context.outputs.task_id }}
+          ${{ env.VALIDATION_RESULTS }}
+          
+          IMPORTANT: If validation shows issues, please fix them and push to the branch.

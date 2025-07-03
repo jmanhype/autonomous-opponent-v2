@@ -24,6 +24,11 @@ on:
           - emergence-patterns
           - vsm-documentation
 
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
 jobs:
   # Analyze documentation quality and request Claude help
   doc-analysis:
@@ -86,6 +91,7 @@ jobs:
     - name: Request Documentation Enhancement
       uses: actions/github-script@v7
       with:
+        github-token: ${{ secrets.AUTONOMOUS_PAT || secrets.GITHUB_TOKEN }}
         script: |
           const areas = '${{ needs.doc-analysis.outputs.areas }}'.split(',').filter(Boolean);
           const pr = context.payload.pull_request;
@@ -132,6 +138,7 @@ jobs:
     - name: Create Weekly Review Issue
       uses: actions/github-script@v7
       with:
+        github-token: ${{ secrets.AUTONOMOUS_PAT || secrets.GITHUB_TOKEN }}
         script: |
           const issue = await github.rest.issues.create({
             owner: context.repo.owner,
@@ -178,6 +185,7 @@ jobs:
     - name: Create Enhancement Issue
       uses: actions/github-script@v7
       with:
+        github-token: ${{ secrets.AUTONOMOUS_PAT || secrets.GITHUB_TOKEN }}
         script: |
           const enhancementType = '${{ inputs.enhancement_type }}';
           
@@ -271,6 +279,7 @@ jobs:
       if: steps.consistency.outputs.needs_doc_update == 'true'
       uses: actions/github-script@v7
       with:
+        github-token: ${{ secrets.AUTONOMOUS_PAT || secrets.GITHUB_TOKEN }}
         script: |
           const pr = context.payload.pull_request;
           

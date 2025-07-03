@@ -7,7 +7,8 @@ defmodule AutonomousOpponentV2Web.Endpoint do
   @session_options [
     store: :cookie,
     key: "_autonomous_opponent_v2_web_key",
-    signing_salt: "YOUR_SIGNING_SALT_HERE"
+    signing_salt: "aBcDeFgH",
+    same_site: "Lax"
   ]
 
   socket "/live", Phoenix.LiveView.Socket, websocket: [connect_info: %{session: @session_options}]

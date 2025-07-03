@@ -5,7 +5,12 @@ defmodule AutonomousOpponent.VSM.S4.IntelligenceTest do
   alias AutonomousOpponent.EventBus
 
   setup do
-    {:ok, _} = EventBus.start_link()
+    # Start EventBus if not already started
+    case Process.whereis(AutonomousOpponent.EventBus) do
+      nil -> {:ok, _} = EventBus.start_link()
+      _ -> :ok
+    end
+
     {:ok, pid} = Intelligence.start_link(id: "test_s4")
 
     {:ok, pid: pid}

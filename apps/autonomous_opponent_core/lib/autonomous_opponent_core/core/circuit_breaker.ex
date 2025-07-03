@@ -1,4 +1,4 @@
-defmodule AutonomousOpponent.Core.CircuitBreaker do
+defmodule AutonomousOpponentV2Core.Core.CircuitBreaker do
   @moduledoc """
   Circuit breaker pattern implementation for VSM algedonic system.
   Prevents cascade failures in cybernetic control loops.
@@ -43,7 +43,7 @@ defmodule AutonomousOpponent.Core.CircuitBreaker do
   use GenServer
   require Logger
 
-  alias AutonomousOpponentV2.EventBus
+  alias AutonomousOpponentV2Core.EventBus
 
   # Client API
 
@@ -145,7 +145,7 @@ defmodule AutonomousOpponent.Core.CircuitBreaker do
   # timeouts, slow services become service denials. The try/rescue/catch ensures
   # we capture ALL failure modes, not just exceptions. Every failure is data.
   @impl true
-  def handle_call({:call, fun}, from, %{state: :closed} = state) do
+  def handle_call({:call, fun}, _from, %{state: :closed} = state) do
     # Circuit is closed, execute the function with timeout protection
     task =
       Task.async(fn ->
@@ -206,7 +206,7 @@ defmodule AutonomousOpponent.Core.CircuitBreaker do
   # This is cautious optimism encoded in software.
   def handle_call(
         {:call, fun},
-        from,
+        _from,
         %{state: :half_open, half_open_test_in_progress: false} = state
       ) do
     # Half-open state - allow one test call
@@ -340,7 +340,7 @@ defmodule AutonomousOpponent.Core.CircuitBreaker do
   # feeling pain and responding. Beer's insight: organisms that can't feel pain
   # can't protect themselves.
   defp transition_to_open(state, reason) do
-    Logger.warn("Circuit breaker #{state.name} opening due to: #{inspect(reason)}")
+    Logger.warning("Circuit breaker #{state.name} opening due to: #{inspect(reason)}")
 
     # WISDOM: Algedonic pain - the system's cry for help
     # This pain signal triggers visceral response throughout the VSM. S5 feels
@@ -350,6 +350,13 @@ defmodule AutonomousOpponent.Core.CircuitBreaker do
       source: :circuit_breaker,
       name: state.name,
       severity: :high,
+      reason: reason,
+      timestamp: System.monotonic_time(:millisecond)
+    })
+    
+    # Also publish specific circuit breaker event for metrics
+    EventBus.publish(:circuit_breaker_opened, %{
+      name: state.name,
       reason: reason,
       timestamp: System.monotonic_time(:millisecond)
     })
@@ -390,6 +397,12 @@ defmodule AutonomousOpponent.Core.CircuitBreaker do
       source: :circuit_breaker,
       name: state.name,
       reason: :service_recovered,
+      timestamp: System.monotonic_time(:millisecond)
+    })
+    
+    # Also publish specific circuit breaker event for metrics
+    EventBus.publish(:circuit_breaker_closed, %{
+      name: state.name,
       timestamp: System.monotonic_time(:millisecond)
     })
 

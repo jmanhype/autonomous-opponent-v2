@@ -5,7 +5,11 @@ defmodule AutonomousOpponent.VSM.ControlLoopTest do
   alias AutonomousOpponent.EventBus
 
   setup do
-    {:ok, _} = EventBus.start_link()
+    # Start EventBus if not already started
+    case Process.whereis(AutonomousOpponent.EventBus) do
+      nil -> {:ok, _} = EventBus.start_link()
+      _ -> :ok
+    end
 
     # Start all subsystems
     {:ok, s1} = AutonomousOpponent.VSM.S1.Operations.start_link(id: "test_s1")

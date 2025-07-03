@@ -25,6 +25,7 @@ permissions:
   contents: write
   pull-requests: write
   issues: write
+  actions: write
 
 jobs:
   # Find next tasks to work on
@@ -91,7 +92,9 @@ jobs:
         git config user.email "action@github.com"
         
         TASK_ID="${{ matrix.task.id }}"
-        BRANCH_NAME="task/${TASK_ID}-autonomous"
+        # Use GitHub run ID + job attempt for uniqueness
+        RUN_HASH="${{ github.run_id }}-${{ github.run_attempt }}"
+        BRANCH_NAME="task/${TASK_ID}-auto-${RUN_HASH}"
         
         # Create and push branch
         git checkout -b "$BRANCH_NAME"
@@ -133,6 +136,9 @@ jobs:
     - name: Create Pull Request
       uses: actions/github-script@v7
       with:
+        # Use PAT to allow triggering Claude workflows
+        # GITHUB_TOKEN cannot trigger other workflows
+        github-token: ${{ secrets.AUTONOMOUS_PAT || secrets.GITHUB_TOKEN }}
         script: |
           const taskId = ${{ matrix.task.id }};
           const branchName = '${{ steps.branch.outputs.branch_name }}';
@@ -177,10 +183,10 @@ jobs:
             - Suggest follow-up tasks if needed
             
             **IMPORTANT**: Before marking ready for review:
-            1. Run `mix test` - all tests must pass
-            2. Run `mix format` - code must be formatted
-            3. Run `mix credo --strict` - no credo issues
-            4. Run `mix dialyzer` - no type errors
+            1. Run 'mix test' - all tests must pass
+            2. Run 'mix format' - code must be formatted
+            3. Run 'mix credo --strict' - no credo issues
+            4. Run 'mix dialyzer' - no type errors
             5. Ensure Docker build succeeds
             6. Update CLAUDE.md if you discover important patterns
             
@@ -286,7 +292,7 @@ jobs:
             4. Keep iterating until all checks are green
             
             Common issues to watch for:
-            - Formatting: Run \`mix format\` before committing
+            - Formatting: Run 'mix format' before committing
             - Test failures: Ensure new code has tests
             - Coverage: Add tests if coverage drops below threshold
             - Credo: Fix any code style issues

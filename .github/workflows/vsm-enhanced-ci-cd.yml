@@ -65,19 +65,31 @@ jobs:
         
         # Extract the relevant body text
         if [[ "${{ github.event_name }}" == "issue_comment" ]]; then
-          BODY="${{ github.event.comment.body }}"
+          BODY=$(cat << 'GITHUB_BODY_EOF'
+${{ github.event.comment.body }}
+GITHUB_BODY_EOF
+          )
         elif [[ "${{ github.event_name }}" == "pull_request_review_comment" ]]; then
-          BODY="${{ github.event.comment.body }}"
+          BODY=$(cat << 'GITHUB_BODY_EOF'
+${{ github.event.comment.body }}
+GITHUB_BODY_EOF
+          )
         elif [[ "${{ github.event_name }}" == "issues" ]]; then
-          BODY="${{ github.event.issue.body }}"
+          BODY=$(cat << 'GITHUB_BODY_EOF'
+${{ github.event.issue.body }}
+GITHUB_BODY_EOF
+          )
         elif [[ "${{ github.event_name }}" == "pull_request" ]]; then
-          BODY="${{ github.event.pull_request.body }}"
+          BODY=$(cat << 'GITHUB_BODY_EOF'
+${{ github.event.pull_request.body }}
+GITHUB_BODY_EOF
+          )
         fi
         
-        # Store for later use (escape for multiline)
-        echo "content_body<<EOF" >> $GITHUB_OUTPUT
-        echo "$BODY" >> $GITHUB_OUTPUT
-        echo "EOF" >> $GITHUB_OUTPUT
+        # Store for later use (escape special characters)
+        # Use base64 encoding to safely store the body content
+        BODY_ENCODED=$(echo "$BODY" | base64 -w 0)
+        echo "content_body=$BODY_ENCODED" >> $GITHUB_OUTPUT
         
         # Analyze task type using S4 intelligence
         if echo "$BODY" | grep -qi "review\|analyze\|explain\|describe"; then
@@ -167,7 +179,7 @@ jobs:
     
     - name: S1 Operations - Execute Claude with OAuth (Max Subscription)
       if: needs.claude-policy.outputs.use_oauth == 'true'
-      uses: grll/claude-code-action@beta
+      uses: grll/claude-code-action@v0.0.19-oauth
       with:
         use_oauth: true
         claude_access_token: ${{ secrets.CLAUDE_ACCESS_TOKEN }}
@@ -518,7 +530,7 @@ jobs:
       uses: trufflesecurity/trufflehog@main
       with:
         path: ./
-        base: ${{ github.event.repository.default_branch }}
+        base: ${{ github.event_name == 'pull_request' && github.event.repository.default_branch || 'HEAD~1' }}
         head: HEAD
         extra_args: --only-verified
 
@@ -599,6 +611,7 @@ jobs:
       if: env.ALGEDONIC_SIGNAL == 'severe_pain'
       uses: actions/github-script@v7
       with:
+        github-token: ${{ secrets.AUTONOMOUS_PAT || secrets.GITHUB_TOKEN }}
         script: |
           await github.rest.issues.create({
             owner: context.repo.owner,

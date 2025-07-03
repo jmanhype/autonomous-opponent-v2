@@ -37,6 +37,7 @@ defmodule AutonomousOpponentV2Web.MixProject do
   # Run "mix help deps" to learn about dependencies.
   defp deps do
     [
+      {:autonomous_opponent_core, in_umbrella: true},
       {:phoenix, "~> 1.7"},
       {:phoenix_live_view, "~> 0.20"},
       {:phoenix_html, "~> 4.1"},

@@ -135,6 +135,7 @@ jobs:
       if: steps.health.outputs.rotation_needed == 'true'
       uses: actions/github-script@v7
       with:
+        github-token: ${{ secrets.AUTONOMOUS_PAT || secrets.GITHUB_TOKEN }}
         script: |
           const issues = await github.rest.issues.listForRepo({
             owner: context.repo.owner,
@@ -248,13 +249,25 @@ jobs:
       run: |
         # Extract body text
         if [[ "${{ github.event_name }}" == "issue_comment" ]]; then
-          BODY="${{ github.event.comment.body }}"
+          BODY=$(cat << 'GITHUB_BODY_EOF'
+${{ github.event.comment.body }}
+GITHUB_BODY_EOF
+          )
         elif [[ "${{ github.event_name }}" == "pull_request_review_comment" ]]; then
-          BODY="${{ github.event.comment.body }}"
+          BODY=$(cat << 'GITHUB_BODY_EOF'
+${{ github.event.comment.body }}
+GITHUB_BODY_EOF
+          )
         elif [[ "${{ github.event_name }}" == "issues" ]]; then
-          BODY="${{ github.event.issue.body }}"
+          BODY=$(cat << 'GITHUB_BODY_EOF'
+${{ github.event.issue.body }}
+GITHUB_BODY_EOF
+          )
         else
-          BODY="${{ github.event.pull_request.body }}"
+          BODY=$(cat << 'GITHUB_BODY_EOF'
+${{ github.event.pull_request.body }}
+GITHUB_BODY_EOF
+          )
         fi
         
         # Analyze task type
@@ -320,7 +333,7 @@ jobs:
     
     - name: Execute Claude with OAuth
       if: needs.claude-policy.outputs.use_oauth == 'true'
-      uses: grll/claude-code-action@beta
+      uses: grll/claude-code-action@v0.0.19-oauth
       with:
         use_oauth: true
         claude_access_token: ${{ secrets.CLAUDE_ACCESS_TOKEN }}

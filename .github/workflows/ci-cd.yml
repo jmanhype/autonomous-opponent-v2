@@ -6,6 +6,12 @@ on:
   pull_request:
     branches: [ main, develop, master ]
 
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+  actions: read
+
 env:
   MIX_ENV: test
   ELIXIR_VERSION: 1.16.3
@@ -28,6 +34,7 @@ jobs:
         id: check
         uses: actions/github-script@v7
         with:
+        github-token: ${{ secrets.AUTONOMOUS_PAT || secrets.GITHUB_TOKEN }}
           script: |
             const pr = context.payload.pull_request;
             const hasAcceptanceCriteria = pr.body.includes('## Acceptance Criteria') || pr.body.includes('acceptance criteria');
@@ -52,6 +59,7 @@ jobs:
     - name: Request Claude Assistance
       uses: actions/github-script@v7
       with:
+        github-token: ${{ secrets.AUTONOMOUS_PAT || secrets.GITHUB_TOKEN }}
         script: |
           const pr = context.payload.pull_request;
           const comment = `@claude This PR is missing required sections. Please help by:

@@ -206,10 +206,10 @@ defmodule AutonomousOpponent.VSM.S2.Coordination do
     # Only apply damping when needed. Unnecessary damping itself causes oscillations!
     # This is why many control systems fail - they try to control too much.
     new_state =
-      if Enum.empty?(oscillations) do
-        state
-      else
+      unless Enum.empty?(oscillations) do
         apply_anti_oscillation(oscillations, state)
+      else
+        state
       end
 
     # Process pending coordinations
