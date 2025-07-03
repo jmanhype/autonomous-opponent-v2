@@ -210,12 +210,12 @@
       },
       {
         "id": 13,
-        "title": "Integrate Workflow Engine with S3 Control",
-        "description": "Implement workflow engine integration for S3 Control procedures using Handoff or alternative",
-        "details": "Create workflow integration with: 1) Handoff library integration (when Elixir 1.18+ available) or alternative workflow engine 2) S3 Control procedure execution via workflows 3) Workflow conflict resolution in S2 Coordination 4) Dynamic workflow generation from successful patterns 5) Workflow performance monitoring and optimization 6) Integration with existing VSM control loops 7) Workflow versioning and rollback capabilities 8) Distributed workflow execution support",
+        "title": "Integrate Handoff Workflow Engine with VSM Control Layers",
+        "description": "Implement Handoff as the critical workflow engine for S3 Control procedures, S2 Coordination, and S1 Operations",
+        "details": "Implement Handoff workflow engine integration with: 1) Enable Handoff dependency in mix.exs (Elixir 1.18.4 is available) 2) S3 Control: Implement Beer's resource bargaining workflows and intervention procedures 3) S2 Coordination: Workflow conflict resolution and anti-oscillation patterns 4) S1 Operations: Variety absorption workflows and operational procedures 5) Dynamic workflow generation from successful VSM patterns 6) Workflow performance monitoring tied to variety metrics 7) Integration with algedonic signals for emergency workflow triggers 8) Distributed workflow execution across VSM nodes",
         "testStrategy": "Unit tests for workflow execution, integration tests with S3 Control, conflict resolution scenarios, performance tests for workflow throughput, distributed execution tests",
-        "priority": "medium",
-        "dependencies": [8],
+        "priority": "high",
+        "dependencies": [6, 8],
         "status": "pending",
         "subtasks": []
       },
