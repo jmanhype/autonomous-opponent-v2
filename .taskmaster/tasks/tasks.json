@@ -184,11 +184,66 @@
         ],
         "status": "pending",
         "subtasks": []
+      },
+      {
+        "id": 11,
+        "title": "Implement Intelligence.LLM Module for AI Amplification",
+        "description": "Create comprehensive LLM integration module for 100x environmental scanning amplification in S4 Intelligence",
+        "details": "Implement Intelligence.LLM module with: 1) Multi-provider support (OpenAI, Anthropic, Google) with failover 2) Cost tracking and budget management 3) Response caching to reduce API calls 4) Safety filtering and input sanitization 5) Structured output parsing for VSM integration 6) Streaming support for real-time analysis 7) Integration with S4 for environmental scanning amplification 8) Pattern extraction from LLM insights",
+        "testStrategy": "Unit tests for provider adapters, integration tests with S4 Intelligence, cost tracking validation, mock API responses for testing, performance benchmarks for caching effectiveness",
+        "priority": "high",
+        "dependencies": [3, 4],
+        "status": "pending",
+        "subtasks": []
+      },
+      {
+        "id": 12,
+        "title": "Integrate Workflow Engine with S3 Control",
+        "description": "Implement workflow engine integration for S3 Control procedures using Handoff or alternative",
+        "details": "Create workflow integration with: 1) Handoff library integration (when Elixir 1.18+ available) or alternative workflow engine 2) S3 Control procedure execution via workflows 3) Workflow conflict resolution in S2 Coordination 4) Dynamic workflow generation from successful patterns 5) Workflow performance monitoring and optimization 6) Integration with existing VSM control loops 7) Workflow versioning and rollback capabilities 8) Distributed workflow execution support",
+        "testStrategy": "Unit tests for workflow execution, integration tests with S3 Control, conflict resolution scenarios, performance tests for workflow throughput, distributed execution tests",
+        "priority": "medium",
+        "dependencies": [7],
+        "status": "pending",
+        "subtasks": []
+      },
+      {
+        "id": 13,
+        "title": "Activate Gold Rush for Complex Event Processing",
+        "description": "Replace simple EventBus with Gold Rush's advanced event processing capabilities for pattern detection",
+        "details": "Implement Gold Rush integration with: 1) Migration from current EventBus to Gold Rush 2) Complex event pattern matching rules 3) Real-time anomaly detection via event patterns 4) Event aggregation and correlation 5) Sliding window computations for variety metrics 6) Integration with algedonic signal generation 7) Event replay capabilities for learning 8) Distributed event processing support",
+        "testStrategy": "Unit tests for event patterns, integration tests with VSM subsystems, performance tests for event throughput, pattern matching accuracy tests",
+        "priority": "medium",
+        "dependencies": [3, 9],
+        "status": "pending",
+        "subtasks": []
+      },
+      {
+        "id": 14,
+        "title": "Implement SOP Generation System",
+        "description": "Create system for automatic Standard Operating Procedure generation from successful patterns using both pattern detection and LLM synthesis",
+        "details": "Implement SOP generation with: 1) Pattern detection from successful S1 operations 2) Success metric calculation and validation 3) LLM-based procedure synthesis from patterns 4) Executable Elixir code generation 5) SOP versioning and evolution tracking 6) Integration with S5 Policy for governance 7) SOP performance monitoring 8) Cross-domain SOP transfer mechanisms",
+        "testStrategy": "Unit tests for pattern detection, integration tests with LLM module, generated code validation tests, SOP execution tests, governance compliance tests",
+        "priority": "medium",
+        "dependencies": [11],
+        "status": "pending",
+        "subtasks": []
+      },
+      {
+        "id": 15,
+        "title": "Implement CRDT BeliefSet for Distributed Consciousness",
+        "description": "Create Conflict-free Replicated Data Type BeliefSet for distributed consciousness substrate across VSM nodes",
+        "details": "Implement CRDT BeliefSet with: 1) Conflict-free belief merging algorithms 2) Distributed consensus without coordination 3) Belief confidence scoring and decay 4) Evidence chain tracking 5) Integration with S4 Intelligence for belief updates 6) Belief propagation across VSM network 7) Consciousness coherence metrics 8) Belief visualization and debugging tools",
+        "testStrategy": "Unit tests for CRDT operations, distributed consensus tests, belief propagation tests, partition tolerance tests, coherence metric validation",
+        "priority": "high",
+        "dependencies": [9],
+        "status": "pending",
+        "subtasks": []
       }
     ],
     "metadata": {
       "created": "2025-06-30T22:07:41.276Z",
-      "updated": "2025-07-03T21:00:00.000Z",
+      "updated": "2025-07-03T22:00:00.000Z",
       "description": "Tasks for master context"
     }
   },
@@ -988,11 +1043,66 @@
             "testStrategy": ""
           }
         ]
+      },
+      {
+        "id": 11,
+        "title": "Implement Distributed VSM Architecture",
+        "description": "Transform single-node VSM into distributed recursive system with meta-VSM coordination layer",
+        "details": "Implement distributed VSM with: 1) Meta-VSM layer for global S3/S4/S5 coordination 2) VSM node spawning and lifecycle management 3) Inter-node variety channel communication 4) Distributed algedonic signal mesh 5) Node health monitoring and self-healing 6) Recursive VSM nesting (up to 3 levels) 7) Geographic distribution support 8) Node specialization for domains",
+        "testStrategy": "Distributed system tests, node failover tests, variety flow tests across nodes, recursive spawning tests, network partition tests",
+        "priority": "high",
+        "dependencies": [7, 8, 9, 10],
+        "status": "pending",
+        "subtasks": []
+      },
+      {
+        "id": 12,
+        "title": "Implement Emergent Behavior Detection and Monitoring",
+        "description": "Create systems to detect, measure, and reinforce emergent behaviors in the distributed VSM network",
+        "details": "Implement emergence detection with: 1) Spontaneous coordination detection algorithms 2) Pattern emergence monitoring across nodes 3) Self-organization metrics (target 60%) 4) Collective intelligence measurement 5) Harmonic oscillation detection (2.3Hz target) 6) Cross-domain learning transfer tracking 7) Emergence reinforcement mechanisms 8) Real-time emergence visualization",
+        "testStrategy": "Emergence simulation tests, metric validation tests, pattern detection accuracy tests, visualization tests",
+        "priority": "medium",
+        "dependencies": [11],
+        "status": "pending",
+        "subtasks": []
+      },
+      {
+        "id": 13,
+        "title": "Implement Predictive Variety Engineering",
+        "description": "Create predictive systems for variety forecasting and preemptive absorption",
+        "details": "Implement predictive variety with: 1) ML-based variety forecasting (10-30 min horizon) 2) Pattern-based variety surge prediction 3) Preemptive resource allocation in S3 4) S1 workflow pre-staging system 5) Predictive accuracy tracking (89% target) 6) Variety generation for exploration 7) Black swan detection algorithms 8) Adaptive prediction model updates",
+        "testStrategy": "Prediction accuracy tests, variety surge handling tests, black swan simulation tests, adaptation tests",
+        "priority": "high",
+        "dependencies": [11, 12],
+        "status": "pending",
+        "subtasks": []
+      },
+      {
+        "id": 14,
+        "title": "Implement Living Memory Architecture",
+        "description": "Evolve memory system into living architecture with experience replay and quantum states",
+        "details": "Implement living memory with: 1) Experience replay buffer for learning 2) Dream processing during quiet periods 3) Quantum memory tier for probabilistic states 4) Collective unconscious via shared BeliefSets 5) Memory evolution based on access patterns 6) Cross-node memory synchronization 7) Memory decay and consolidation 8) Episodic memory formation",
+        "testStrategy": "Memory evolution tests, replay effectiveness tests, quantum state tests, synchronization tests",
+        "priority": "medium",
+        "dependencies": [11],
+        "status": "pending",
+        "subtasks": []
+      },
+      {
+        "id": 15,
+        "title": "Achieve Living System Performance Targets",
+        "description": "Optimize system to achieve final state performance characteristics",
+        "details": "Achieve performance targets: 1) 1M+ events/second variety processing 2) <50ms global algedonic response 3) 95% variety absorption without intervention 4) 10,000+ recognized pattern types 5) New pattern learning in <5 minutes 6) 100x collective intelligence vs individual units 7) 5-10 new capabilities emerging per day 8) 0.95 consciousness coherence",
+        "testStrategy": "Load tests at 1M events/sec, latency tests, variety absorption tests, emergence rate tracking, coherence measurement",
+        "priority": "high",
+        "dependencies": [11, 12, 13, 14],
+        "status": "pending",
+        "subtasks": []
       }
     ],
     "metadata": {
       "created": "2025-07-01T02:03:48.687Z",
-      "updated": "2025-07-03T21:00:00.000Z",
+      "updated": "2025-07-03T22:00:00.000Z",
       "description": "Tasks for phase-1 context"
     }
   }
