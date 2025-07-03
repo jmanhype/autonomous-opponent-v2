@@ -251,11 +251,66 @@
         "dependencies": [9],
         "status": "pending",
         "subtasks": []
+      },
+      {
+        "id": 17,
+        "title": "Pathway 001: Temporal Memory Embedding & Causal Time Structures",
+        "description": "Implement temporal awareness in VSM memory systems using RoPE and Time2Vec embeddings for causal time structures",
+        "details": "Implement temporal memory embedding with: 1) RoPE (Rotary Position Embeddings) for temporal context in S4 Intelligence 2) Time2Vec learnable periodic embeddings for recurring patterns 3) Multi-scale temporal attention with sliding windows (100ms to 24h) 4) Causal masking for time-aware reasoning 5) Temporal decay functions for memory prioritization 6) Chronesthetic depth model tracking temporal relations 7) Integration with existing Memory Tiering for temporal indexing 8) Time-aware similarity search in HNSW index",
+        "testStrategy": "Unit tests for embedding algorithms, integration tests with S4 Intelligence, temporal reasoning validation tests, performance tests for real-time processing, accuracy tests for causal inference",
+        "priority": "high",
+        "dependencies": [4, 5, 12],
+        "status": "pending",
+        "subtasks": []
+      },
+      {
+        "id": 18,
+        "title": "Pathway 002: Predictive Algedonics & Systemic Nervous Response",
+        "description": "Enhance algedonic system with predictive capabilities using VAR models for anticipatory pain/pleasure signals",
+        "details": "Implement predictive algedonics with: 1) VAR (Vector AutoRegression) model for algedonic signal prediction 2) Learnable pain/pleasure thresholds that adapt over time 3) Anticipatory algedonic generation before actual events 4) Kalman filter integration for signal smoothing and prediction 5) Real-time prediction accuracy tracking (target 91%) 6) Multi-horizon prediction (1s, 10s, 60s, 5min) 7) Emergency override for false positive suppression 8) Integration with existing sub-100ms algedonic guarantees",
+        "testStrategy": "Prediction accuracy tests, latency tests for real-time performance, false positive/negative rate analysis, stress tests under high signal volume, emergency override validation",
+        "priority": "high",
+        "dependencies": [4, 13],
+        "status": "pending",
+        "subtasks": []
+      },
+      {
+        "id": 19,
+        "title": "Pathway 003: Structural Trace Cognition & Causal Chains",
+        "description": "Implement structural traces for tracking causality chains across VSM subsystems and decisions",
+        "details": "Implement structural trace cognition with: 1) DAG (Directed Acyclic Graph) based causal trace storage 2) Merkle tree verification for trace integrity 3) Temporal compression for long causal chains 4) Cross-subsystem trace correlation (S1→S2→S3→S4→S5) 5) Causal inference engine for discovering hidden relationships 6) Trace replay for learning from past decisions 7) Counterfactual reasoning on trace histories 8) Real-time trace visualization and debugging",
+        "testStrategy": "Unit tests for DAG operations, integrity tests for Merkle trees, causal inference accuracy tests, performance tests for trace storage, visualization tests",
+        "priority": "medium",
+        "dependencies": [7, 8],
+        "status": "pending",
+        "subtasks": []
+      },
+      {
+        "id": 20,
+        "title": "Pathway 004: Algedonic Echo Memory",
+        "description": "Create echo memory system for algedonic signals enabling pattern learning from pain/pleasure histories",
+        "details": "Implement algedonic echo memory with: 1) Temporal echo buffer storing 30-day algedonic history 2) Pattern extraction from recurring pain/pleasure sequences 3) Echo decay functions mimicking biological memory 4) Associative memory linking echoes to triggering events 5) Predictive echo generation for known patterns 6) Cross-domain echo transfer for learning generalization 7) Echo-based habit formation algorithms 8) Integration with predictive algedonics for amplification",
+        "testStrategy": "Pattern extraction accuracy tests, echo decay validation, associative memory tests, habit formation tests, integration tests with predictive system",
+        "priority": "medium",
+        "dependencies": [4, 18],
+        "status": "pending",
+        "subtasks": []
+      },
+      {
+        "id": 21,
+        "title": "Pathway 005: Trans-Subsystem Temporal Reasoning (S1-S5)",
+        "description": "Implement Multi-Model Ensemble Kalman Filter for coordinated temporal reasoning across all VSM subsystems",
+        "details": "Implement trans-subsystem temporal reasoning with: 1) Multi-Model Ensemble Kalman Filter (EnKF) for S1-S5 coordination 2) Temporal coupling matrices between subsystem states 3) Cross-subsystem state prediction and synchronization 4) Adaptive model weighting based on prediction accuracy 5) Temporal anomaly detection across subsystems 6) Phase-locked loop synchronization for harmonic timing 7) Distributed clock synchronization protocol 8) Temporal coherence metrics (target 0.92)",
+        "testStrategy": "EnKF convergence tests, synchronization accuracy tests, anomaly detection tests, distributed timing tests, coherence measurement validation",
+        "priority": "high",
+        "dependencies": [7, 11, 17],
+        "status": "pending",
+        "subtasks": []
       }
     ],
     "metadata": {
       "created": "2025-06-30T22:07:41.276Z",
-      "updated": "2025-07-03T23:00:00.000Z",
+      "updated": "2025-07-03T23:10:00.000Z",
       "description": "Tasks for master context"
     }
   },
@@ -1114,7 +1169,7 @@
     ],
     "metadata": {
       "created": "2025-07-01T02:03:48.687Z",
-      "updated": "2025-07-03T23:00:00.000Z",
+      "updated": "2025-07-03T23:10:00.000Z",
       "description": "Tasks for phase-1 context"
     }
   }
