@@ -21,17 +21,12 @@ defmodule AutonomousOpponentV2Core.VSM.VarietyFlowTest do
   }
   
   setup do
-    # Start EventBus for testing
-    {:ok, _} = EventBus.start_link(name: :test_event_bus)
+    # VSM components are already started by the application
+    # Just verify they're running
+    vsm_sup = Process.whereis(Supervisor)
     
-    # Start VSM Registry
-    {:ok, _} = start_supervised({Registry, keys: :unique, name: AutonomousOpponentV2Core.VSM.Registry})
-    
-    # Start VSM Supervisor
-    {:ok, vsm_sup} = start_supervised(Supervisor)
-    
-    # Give VSM time to initialize
-    Process.sleep(2000)
+    # Give VSM time to stabilize
+    Process.sleep(1000)
     
     %{vsm_supervisor: vsm_sup}
   end

@@ -169,23 +169,29 @@ defmodule AutonomousOpponentV2Core.VSM.S4.HNSWIntegrationTest do
       pattern_count = 0
       
       # Generate patterns for 5 seconds
-      while System.monotonic_time(:millisecond) - start_time < 5000 do
-        # Generate 10 patterns per second (realistic for S4)
-        for _ <- 1..10 do
-          pattern_type = Enum.random([:stable, :increasing, :decreasing, :cyclic])
-          vector = create_pattern_vector(pattern_type)
-          metadata = %{
-            type: pattern_type,
-            timestamp: System.monotonic_time(:millisecond),
-            confidence: 0.7 + :rand.uniform() * 0.3
-          }
+      final_count = Stream.iterate(0, &(&1 + 1))
+      |> Enum.reduce_while(pattern_count, fn _, count ->
+        if System.monotonic_time(:millisecond) - start_time < 5000 do
+          # Generate 10 patterns per second (realistic for S4)
+          new_count = Enum.reduce(1..10, count, fn _, acc ->
+            pattern_type = Enum.random([:stable, :increasing, :decreasing, :cyclic])
+            vector = create_pattern_vector(pattern_type)
+            metadata = %{
+              type: pattern_type,
+              timestamp: System.monotonic_time(:millisecond),
+              confidence: 0.7 + :rand.uniform() * 0.3
+            }
+            
+            HNSWIndex.insert(hnsw, vector, metadata)
+            acc + 1
+          end)
           
-          HNSWIndex.insert(hnsw, vector, metadata)
-          pattern_count = pattern_count + 1
+          Process.sleep(100)  # 100ms between batches
+          {:cont, new_count}
+        else
+          {:halt, count}
         end
-        
-        Process.sleep(100)  # 100ms between batches
-      end
+      end)
       
       # Verify all patterns were indexed
       stats = HNSWIndex.stats(hnsw)

@@ -85,6 +85,20 @@ defmodule AutonomousOpponentV2Core.Core.CircuitBreaker do
   def reset(name) do
     GenServer.call(name, :reset)
   end
+  
+  @doc """
+  Force the circuit breaker open (for testing/emergency)
+  """
+  def force_open(name) do
+    GenServer.call(name, :force_open)
+  end
+  
+  @doc """
+  Force the circuit breaker closed (for testing/recovery)
+  """
+  def force_close(name) do
+    GenServer.call(name, :force_close)
+  end
 
   # Server callbacks
 
@@ -285,6 +299,40 @@ defmodule AutonomousOpponentV2Core.Core.CircuitBreaker do
       previous_state: state.state
     })
 
+    {:reply, :ok, new_state}
+  end
+  
+  def handle_call(:force_open, _from, state) do
+    new_state = %{
+      state
+      | state: :open,
+        last_failure_time: System.monotonic_time(:millisecond),
+        half_open_test_in_progress: false
+    }
+    
+    EventBus.publish(:circuit_breaker_opened, %{
+      name: state.name,
+      forced: true
+    })
+    
+    {:reply, :ok, new_state}
+  end
+  
+  def handle_call(:force_close, _from, state) do
+    new_state = %{
+      state
+      | state: :closed,
+        failure_count: 0,
+        success_count: 0,
+        last_failure_time: nil,
+        half_open_test_in_progress: false
+    }
+    
+    EventBus.publish(:circuit_breaker_closed, %{
+      name: state.name,
+      forced: true
+    })
+    
     {:reply, :ok, new_state}
   end
 

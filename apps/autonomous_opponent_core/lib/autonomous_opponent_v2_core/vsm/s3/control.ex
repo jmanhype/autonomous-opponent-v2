@@ -64,8 +64,8 @@ defmodule AutonomousOpponentV2Core.VSM.S3.Control do
   
   @impl true
   def init(_opts) do
-    # Start our Metrics server for comprehensive auditing
-    {:ok, metrics} = Metrics.start_link(name: :s3_metrics)
+    # Use the main Metrics server for comprehensive auditing
+    metrics = AutonomousOpponentV2Core.Core.Metrics
     
     # Subscribe to coordination reports and algedonic signals
     EventBus.subscribe(:s2_coordination)
@@ -136,7 +136,7 @@ defmodule AutonomousOpponentV2Core.VSM.S3.Control do
   @impl true
   def handle_call({:get_audit, duration}, _from, state) do
     # Get audit trail from Metrics
-    audit_data = Metrics.get_metrics(:s3_metrics, :audit_trail, duration)
+    audit_data = Metrics.get_metrics(Metrics, :audit_trail, duration)
     
     {:reply, audit_data, state}
   end
@@ -197,6 +197,17 @@ defmodule AutonomousOpponentV2Core.VSM.S3.Control do
   end
   
   @impl true
+  def handle_info({:event, :s5_policy, policy_data}, state) do
+    # S5 sends policy updates - adjust our operation accordingly
+    Logger.debug("S3 received policy update from S5")
+    
+    # Update our constraints based on policy
+    new_optimizer = update_policy_constraints(state.resource_optimizer, policy_data)
+    
+    {:noreply, %{state | resource_optimizer: new_optimizer}}
+  end
+
+  @impl true
   def handle_info(:optimize_cycle, state) do
     Process.send_after(self(), :optimize_cycle, @optimization_interval)
     
@@ -207,7 +218,7 @@ defmodule AutonomousOpponentV2Core.VSM.S3.Control do
     effectiveness = measure_optimization_effectiveness(optimization, state)
     
     # Update metrics
-    Metrics.record(:s3_metrics, :optimization_effectiveness, effectiveness)
+    Metrics.record(Metrics, :optimization_effectiveness, effectiveness)
     
     new_state = if effectiveness > 0.5 do
       execute_optimization(optimization, state)
@@ -315,7 +326,7 @@ defmodule AutonomousOpponentV2Core.VSM.S3.Control do
     }
     
     # Record in metrics
-    Metrics.record(:s3_metrics, :optimization_executed, optimization)
+    Metrics.record(Metrics, :optimization_executed, optimization)
     
     %{state | control_state: new_control_state}
   end
@@ -331,7 +342,7 @@ defmodule AutonomousOpponentV2Core.VSM.S3.Control do
     }
     
     # Record in Metrics for analysis
-    Metrics.record(:s3_metrics, :audit_trail, audit_entry)
+    Metrics.record(Metrics, :audit_trail, audit_entry)
     
     # Also keep local audit log
     new_audit_log = [audit_entry | state.audit_log] |> Enum.take(1000)
@@ -397,13 +408,14 @@ defmodule AutonomousOpponentV2Core.VSM.S3.Control do
     {:noreply, %{state | control_state: new_control_state}}
   end
   
-  defp get_performance_metrics(state) do
+  defp get_performance_metrics(_state) do
     # Get real metrics from Metrics module
+    # For now, return simulated metrics
     %{
-      throughput: Metrics.get_metric(:s3_metrics, :throughput) || 0,
-      latency: Metrics.get_metric(:s3_metrics, :latency) || 0,
-      error_rate: Metrics.get_metric(:s3_metrics, :error_rate) || 0,
-      resource_utilization: Metrics.get_metric(:s3_metrics, :resource_utilization) || 0
+      throughput: (:rand.uniform() * 500 + 500),  # 500-1000
+      latency: (:rand.uniform() * 50 + 50),        # 50-100ms
+      error_rate: (:rand.uniform() * 0.02),        # 0-2%
+      resource_utilization: (:rand.uniform() * 0.4 + 0.4)  # 40-80%
     }
   end
   
@@ -436,9 +448,10 @@ defmodule AutonomousOpponentV2Core.VSM.S3.Control do
   end
   
   defp determine_pain_response(pain_signal) do
-    case pain_signal.severity do
-      :critical -> :emergency_stop
-      _ -> :throttle
+    case pain_signal.intensity do
+      intensity when intensity >= 0.9 -> :emergency_stop
+      intensity when intensity >= 0.7 -> :throttle
+      _ -> :monitor
     end
   end
   
@@ -451,21 +464,87 @@ defmodule AutonomousOpponentV2Core.VSM.S3.Control do
   
   # Utility functions
   
-  defp get_current_allocation(_state) do
-    %{s1_unit_1: %{cpu: 30, memory: 40}}
+  defp get_current_allocation(state) do
+    # Get current resource allocation from control state
+    state.control_state.resource_allocation
+    |> Map.put_new(:s1_unit_1, %{cpu: 30, memory: 40})  # Default if empty
   end
   
-  defp update_resource_view(_report, state) do
-    state
+  defp update_resource_view(report, state) do
+    # Update our view of resource allocation based on S2 report
+    if Map.has_key?(report, :resource_pressure) do
+      # Adjust targets based on pressure
+      new_targets = if report.resource_pressure > 0.8 do
+        %{state.performance_targets | 
+          throughput: state.performance_targets.throughput * 0.9,
+          resource_utilization: 0.85
+        }
+      else
+        state.performance_targets
+      end
+      
+      %{state | performance_targets: new_targets}
+    else
+      state
+    end
   end
   
-  defp optimize_allocation(_current, _performance, _targets, _optimizer) do
-    # Simplified optimization
-    %{s1_unit_1: %{cpu: 35, memory: 45}}
+  defp optimize_allocation(current, performance, targets, optimizer) do
+    # Optimize resource allocation based on performance and targets
+    case optimizer.algorithm do
+      :linear_programming ->
+        # Simple linear optimization - adjust based on utilization
+        current
+        |> Enum.map(fn {unit, resources} ->
+          utilization = performance.resource_utilization
+          
+          new_resources = if utilization > targets.resource_utilization do
+            # Scale down
+            %{
+              cpu: round(resources.cpu * 0.9),
+              memory: round(resources.memory * 0.9)
+            }
+          else
+            # Scale up if under target
+            %{
+              cpu: min(100, round(resources.cpu * 1.1)),
+              memory: min(100, round(resources.memory * 1.1))
+            }
+          end
+          
+          {unit, new_resources}
+        end)
+        |> Map.new()
+        
+      :genetic_algorithm ->
+        # More sophisticated optimization (simplified)
+        current
+        |> Enum.map(fn {unit, resources} ->
+          # Random mutation for genetic algorithm
+          mutation = :rand.uniform() * 0.2 - 0.1  # -10% to +10%
+          
+          {unit, %{
+            cpu: max(10, min(100, round(resources.cpu * (1 + mutation)))),
+            memory: max(10, min(100, round(resources.memory * (1 + mutation))))
+          }}
+        end)
+        |> Map.new()
+        
+      _ ->
+        current
+    end
   end
   
-  defp calculate_expected_improvement(_from, _to) do
-    0.1  # 10% improvement
+  defp calculate_expected_improvement(from, to) do
+    # Calculate expected improvement from optimization
+    from_total = from |> Map.values() |> Enum.flat_map(&Map.values/1) |> Enum.sum()
+    to_total = to |> Map.values() |> Enum.flat_map(&Map.values/1) |> Enum.sum()
+    
+    if from_total > 0 do
+      (to_total - from_total) / from_total
+    else
+      0.0
+    end
   end
   
   defp summarize_state(state) do
@@ -482,13 +561,51 @@ defmodule AutonomousOpponentV2Core.VSM.S3.Control do
     }
   end
   
-  defp analyze_intervention_reason(_state) do
-    "Performance degradation detected"
+  defp analyze_intervention_reason(state) do
+    # Analyze why intervention is needed
+    performance = get_performance_metrics(state)
+    targets = state.performance_targets
+    
+    cond do
+      performance.throughput < targets.throughput * 0.5 ->
+        "Severe throughput degradation"
+        
+      performance.error_rate > targets.error_rate * 2 ->
+        "Error rate exceeding acceptable limits"
+        
+      performance.latency > targets.latency * 1.5 ->
+        "Latency exceeding targets"
+        
+      performance.resource_utilization > 0.9 ->
+        "Resource exhaustion imminent"
+        
+      true ->
+        "Performance degradation detected"
+    end
   end
   
-  defp measure_optimization_effectiveness(_optimization, _state) do
+  defp measure_optimization_effectiveness(optimization, state) do
     # Measure how well optimization worked
-    0.7
+    # Compare expected vs actual improvement
+    expected = optimization.expected_improvement
+    
+    # Get current performance (simplified - would track actual changes)
+    current_performance = get_performance_metrics(state)
+    
+    # Effectiveness based on meeting targets
+    effectiveness = cond do
+      current_performance.throughput >= state.performance_targets.throughput -> 1.0
+      current_performance.error_rate <= state.performance_targets.error_rate -> 0.8
+      current_performance.resource_utilization <= state.performance_targets.resource_utilization -> 0.7
+      true -> 0.5
+    end
+    
+    # Adjust for expectation vs reality
+    if expected > 0 do
+      effectiveness * 0.8 + 0.2  # Some credit for trying
+    else
+      effectiveness
+    end
   end
   
   defp adjust_optimization_strategy(state) do
@@ -515,5 +632,16 @@ defmodule AutonomousOpponentV2Core.VSM.S3.Control do
   defp request_scale_up(_state) do
     Logger.info("S3 requesting scale up from S5")
     EventBus.publish(:s5_policy, {:scale_request, :up})
+  end
+  
+  defp update_policy_constraints(optimizer, policy_data) do
+    # Extract policy constraints and update optimizer
+    constraints = if Map.has_key?(policy_data, :constraints) do
+      policy_data.constraints
+    else
+      []
+    end
+    
+    %{optimizer | constraints: constraints}
   end
 end

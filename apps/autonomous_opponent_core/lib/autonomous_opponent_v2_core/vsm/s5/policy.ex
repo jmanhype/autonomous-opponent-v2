@@ -85,8 +85,8 @@ defmodule AutonomousOpponentV2Core.VSM.S5.Policy do
       }
     }
     
-    # Broadcast initial constraints to all subsystems
-    broadcast_policy_constraints(state)
+    # Broadcast initial constraints to all subsystems after a delay
+    Process.send_after(self(), :broadcast_initial_constraints, 1000)
     
     Logger.info("S5 Policy online - I think, therefore we are")
     
@@ -272,6 +272,12 @@ defmodule AutonomousOpponentV2Core.VSM.S5.Policy do
         :ok
     end
     
+    {:noreply, state}
+  end
+  
+  @impl true
+  def handle_info(:broadcast_initial_constraints, state) do
+    broadcast_policy_constraints(state)
     {:noreply, state}
   end
   
@@ -465,7 +471,11 @@ defmodule AutonomousOpponentV2Core.VSM.S5.Policy do
   end
   
   defp broadcast_constraint_update(name, value) do
-    EventBus.publish(:s5_policy, {:constraint_update, name, value})
+    EventBus.publish(:s5_policy, %{
+      type: :constraint_update,
+      constraint_name: name,
+      constraint_value: value
+    })
   end
   
   defp broadcast_identity_shift(state) do
@@ -484,18 +494,133 @@ defmodule AutonomousOpponentV2Core.VSM.S5.Policy do
     |> Enum.into(%{})
   end
   
-  defp violates_value?(_decision, _value) do
-    # Check if decision violates a value
-    false  # Simplified
+  defp violates_value?(decision, value) do
+    # Check if decision violates a value based on decision type and value priority
+    case {decision[:type], value.priority} do
+      {:emergency_override, 1} ->
+        # Emergency overrides can violate lower priority values but not viability
+        decision[:bypass_viability] == true
+        
+      {:resource_allocation, _} ->
+        # Check resource allocation against value constraints
+        allocated = Map.get(decision, :resources, %{})
+        total = Enum.sum(Map.values(allocated))
+        
+        # Check against specific value types
+        cond do
+          String.contains?(value.description || "", "viable") ->
+            # Viability check - don't allocate too much
+            total > 90  # Over 90% allocation threatens viability
+            
+          String.contains?(value.description || "", "autonomous") ->
+            # Autonomy check - decision wasn't made by system
+            Map.get(decision, :source, :system) != :system
+            
+          true ->
+            false
+        end
+        
+      {:adaptation, priority} when priority <= 2 ->
+        # Adaptations threaten high priority values if too extreme
+        Map.get(decision, :change_magnitude, 0) > 0.5
+        
+      {:constraint_change, _} ->
+        # Changing constraints can violate values
+        constraint = Map.get(decision, :constraint_name, :unknown)
+        new_value = Map.get(decision, :new_value, 0)
+        
+        case constraint do
+          :max_resource_usage when new_value > 0.95 ->
+            # Too high resource usage violates viability
+            true
+            
+          :adaptation_rate when new_value > 0.3 ->
+            # Too fast adaptation violates identity
+            true
+            
+          _ ->
+            false
+        end
+        
+      _ ->
+        # Default: check if decision has explicit violation flag
+        Map.get(decision, :violates_values, false)
+    end
   end
   
-  defp calculate_alignment(_decision, _state) do
-    0.8  # Simplified
+  defp calculate_alignment(decision, state) do
+    # Calculate how well decision aligns with identity and values
+    base_alignment = 1.0
+    
+    # Check alignment with each value
+    value_alignment = state.values
+    |> Enum.map(fn {_name, value} ->
+      if violates_value?(decision, value) do
+        -value.priority * 0.1  # Violations reduce alignment
+      else
+        case decision[:supports] do
+          values when is_list(values) ->
+            if Atom.to_string(elem({_name, value}, 0)) in values do
+              0.1  # Supporting a value increases alignment
+            else
+              0
+            end
+          _ ->
+            0
+        end
+      end
+    end)
+    |> Enum.sum()
+    
+    # Check identity alignment
+    identity_alignment = case decision[:type] do
+      :transformation ->
+        -0.3  # Transformations reduce identity alignment
+        
+      :reinforcement ->
+        0.2  # Reinforcing identity increases alignment
+        
+      :adaptation ->
+        change = Map.get(decision, :change_magnitude, 0.1)
+        -change * 0.2  # Small adaptations OK, large ones reduce alignment
+        
+      _ ->
+        0
+    end
+    
+    # Check constraint alignment
+    constraint_alignment = if decision[:respects_constraints] == false do
+      -0.2
+    else
+      0.1
+    end
+    
+    # Combine all factors
+    alignment = base_alignment + value_alignment + identity_alignment + constraint_alignment
+    
+    # Clamp to 0-1 range
+    max(0.0, min(1.0, alignment))
   end
   
   defp update_environmental_model(current_model, intelligence_report) do
     # Update our understanding of the environment
-    Map.merge(current_model, intelligence_report.environmental_model)
+    # Handle different intelligence report structures
+    environmental_data = cond do
+      Map.has_key?(intelligence_report, :environmental_model) ->
+        intelligence_report.environmental_model
+      Map.has_key?(intelligence_report, :environmental_state) ->
+        intelligence_report.environmental_state
+      true ->
+        # Extract what we can from the report
+        %{
+          timestamp: intelligence_report[:timestamp] || DateTime.utc_now(),
+          decisions_made: intelligence_report[:decisions_made] || %{},
+          change_rate: 0.1,
+          complexity: 0.5
+        }
+    end
+    
+    Map.merge(current_model, environmental_data)
   end
   
   defp environment_diverging?(model, state) do
@@ -555,19 +680,257 @@ defmodule AutonomousOpponentV2Core.VSM.S5.Policy do
     EventBus.publish(:all_subsystems, {:enforce_core_values, state.values})
   end
   
-  defp consider_identity_evolution(_state) do
+  defp consider_identity_evolution(state) do
     Logger.info("S5 considering identity evolution")
-    # Complex logic for evolving identity while maintaining continuity
+    
+    # Analyze pressure points requiring evolution
+    evolution_factors = analyze_evolution_pressure(state)
+    
+    if evolution_factors.pressure > 0.7 do
+      # High pressure - need to evolve
+      evolution_plan = %{
+        type: determine_evolution_type(evolution_factors),
+        timeline: :gradual,  # Maintain continuity
+        preserve: identify_core_essence(state),
+        change: identify_evolution_targets(evolution_factors, state)
+      }
+      
+      # Begin evolution process
+      initiate_evolution(evolution_plan, state)
+    else
+      # Pressure not high enough - reinforce current identity
+      enforce_core_constraints(state)
+    end
   end
   
-  defp assess_threat_severity(_threat) do
-    # Assess how severe the threat is
-    0.5  # Simplified
+  defp analyze_evolution_pressure(state) do
+    # Calculate various pressure factors
+    metrics = state.health_metrics
+    
+    value_pressure = min(1.0, metrics.value_violations / 10)
+    identity_pressure = 1.0 - metrics.identity_coherence
+    threat_pressure = min(1.0, metrics.existential_threats_handled / 5)
+    
+    # Environmental pressure from model
+    env_pressure = Map.get(state.environmental_model, :adaptation_pressure, 0.5)
+    
+    %{
+      pressure: (value_pressure + identity_pressure + threat_pressure + env_pressure) / 4,
+      dominant_factor: determine_dominant_factor([
+        {:values, value_pressure},
+        {:identity, identity_pressure},
+        {:threats, threat_pressure},
+        {:environment, env_pressure}
+      ]),
+      factors: %{
+        values: value_pressure,
+        identity: identity_pressure,
+        threats: threat_pressure,
+        environment: env_pressure
+      }
+    }
   end
   
-  defp adapt_identity(_threat, state) do
-    # Adapt identity to survive threat
-    state
+  defp determine_dominant_factor(factors) do
+    factors
+    |> Enum.max_by(fn {_name, pressure} -> pressure end)
+    |> elem(0)
+  end
+  
+  defp determine_evolution_type(factors) do
+    case factors.dominant_factor do
+      :values -> :value_realignment
+      :identity -> :identity_expansion
+      :threats -> :defensive_evolution
+      :environment -> :adaptive_evolution
+    end
+  end
+  
+  defp identify_core_essence(state) do
+    # What must be preserved during evolution
+    %{
+      name: state.identity.name,
+      core_purpose: state.identity.purpose,
+      non_negotiable_values: Enum.filter(state.values, fn {_name, v} -> 
+        v.non_negotiable 
+      end)
+    }
+  end
+  
+  defp identify_evolution_targets(factors, state) do
+    # What can change during evolution
+    case factors.dominant_factor do
+      :values ->
+        # Evolve lower priority values
+        %{
+          target: :flexible_values,
+          scope: Enum.filter(state.values, fn {_name, v} -> !v.non_negotiable end)
+        }
+        
+      :identity ->
+        # Expand identity to encompass new capabilities
+        %{
+          target: :emergence_level,
+          scope: [:nascent, :emerging, :evolved, :transcendent]
+        }
+        
+      :environment ->
+        # Evolve constraints to match environment
+        %{
+          target: :operational_constraints,
+          scope: state.constraints
+        }
+        
+      _ ->
+        %{target: :general, scope: :all_flexible_aspects}
+    end
+  end
+  
+  defp initiate_evolution(plan, state) do
+    Logger.warning("S5 initiating identity evolution: #{plan.type}")
+    
+    # Broadcast evolution beginning
+    EventBus.publish(:all_subsystems, {:identity_evolution_initiated, plan})
+    
+    # Set evolution in motion
+    Process.send_after(self(), {:execute_evolution_step, plan, 1}, 1000)
+    
+    # Update state to reflect evolution in progress
+    new_identity = %{state.identity | emergence_level: :evolving}
+    %{state | identity: new_identity}
+  end
+  
+  defp assess_threat_severity(threat) do
+    # Assess threat severity based on multiple factors
+    base_severity = Map.get(threat, :severity, 0.5)
+    
+    # Type-based severity
+    type_severity = case threat[:type] do
+      :system_failure -> 0.9
+      :resource_exhaustion -> 0.8
+      :identity_crisis -> 0.85
+      :environmental_hostility -> 0.7
+      :performance_degradation -> 0.6
+      :coordination_failure -> 0.7
+      _ -> 0.5
+    end
+    
+    # Scope-based modifier
+    scope_modifier = case threat[:scope] do
+      :systemic -> 0.3      # Affects entire system
+      :subsystem -> 0.2     # Affects one or more subsystems
+      :localized -> 0.1     # Affects specific component
+      _ -> 0.15
+    end
+    
+    # Immediacy modifier
+    immediacy_modifier = case threat[:time_horizon] do
+      :immediate -> 0.3
+      :imminent -> 0.2
+      :near_term -> 0.1
+      :long_term -> 0.0
+      _ -> 0.1
+    end
+    
+    # Persistence modifier
+    persistence_modifier = if threat[:persistent] == true do
+      0.2  # Persistent threats are more severe
+    else
+      0.0
+    end
+    
+    # Calculate combined severity
+    combined = (base_severity * 0.3 + 
+                type_severity * 0.3 + 
+                scope_modifier + 
+                immediacy_modifier + 
+                persistence_modifier)
+                
+    # Cap at 1.0
+    min(1.0, combined)
+  end
+  
+  defp adapt_identity(threat, state) do
+    # Adapt identity to survive threat while maintaining continuity
+    Logger.warning("S5 adapting identity in response to threat: #{inspect(threat)}")
+    
+    # Determine adaptation strategy based on threat
+    adaptation = case threat[:type] do
+      :environmental_hostility ->
+        # Environment changed - adjust operational parameters
+        %{
+          target: :constraints,
+          changes: %{
+            max_resource_usage: min(0.9, state.constraints.max_resource_usage + 0.1),
+            error_tolerance: min(0.05, state.constraints.error_tolerance * 2),
+            adaptation_rate: min(0.2, state.constraints.adaptation_rate + 0.05)
+          }
+        }
+        
+      :resource_exhaustion ->
+        # Resources depleted - become more efficient
+        %{
+          target: :constraints,
+          changes: %{
+            max_resource_usage: max(0.6, state.constraints.max_resource_usage - 0.1),
+            variety_limit: max(5000, state.constraints.variety_limit - 1000)
+          }
+        }
+        
+      :identity_crisis ->
+        # Identity under threat - reinforce core values
+        %{
+          target: :values,
+          changes: :reinforce_core
+        }
+        
+      _ ->
+        # Generic adaptation
+        %{
+          target: :strategy,
+          changes: :flexible
+        }
+    end
+    
+    # Apply adaptation
+    new_state = case adaptation.target do
+      :constraints ->
+        new_constraints = Map.merge(state.constraints, adaptation.changes)
+        
+        # Broadcast constraint changes
+        Enum.each(adaptation.changes, fn {name, value} ->
+          broadcast_constraint_update(name, value)
+        end)
+        
+        %{state | constraints: new_constraints}
+        
+      :values ->
+        # Reinforce core values by increasing their priority
+        new_values = Enum.map(state.values, fn {name, value} ->
+          if value.non_negotiable do
+            {name, %{value | priority: max(1, value.priority - 1)}}  # Lower number = higher priority
+          else
+            {name, value}
+          end
+        end)
+        |> Map.new()
+        
+        %{state | values: new_values}
+        
+      :strategy ->
+        %{state | adaptation_strategy: :flexible}
+    end
+    
+    # Update emergence level to reflect adaptation
+    new_identity = %{state.identity | emergence_level: :adapting}
+    
+    # Track adaptation in metrics
+    new_metrics = Map.update!(state.health_metrics, :policy_updates, &(&1 + 1))
+    
+    %{new_state | 
+      identity: new_identity,
+      health_metrics: new_metrics
+    }
   end
   
   defp transform_identity(_threat, state) do
@@ -579,9 +942,24 @@ defmodule AutonomousOpponentV2Core.VSM.S5.Policy do
     }
   end
   
-  defp emergency_caused_identity_damage?(_state) do
-    # Check if emergency actions violated core values
-    false  # Simplified
+  defp emergency_caused_identity_damage?(state) do
+    # Check if recent emergency actions violated core values
+    
+    # Look for recent value violations
+    recent_violations = state.health_metrics.value_violations
+    
+    # Check if violations increased significantly after emergency
+    violation_spike = recent_violations > 5
+    
+    # Check identity coherence drop
+    coherence_damaged = state.health_metrics.identity_coherence < 0.7
+    
+    # Check for emergency override flags in recent history
+    # In real implementation, would check audit log
+    emergency_overrides = Map.get(state, :emergency_override_count, 0) > 0
+    
+    # Identity is damaged if violations spiked AND coherence dropped after emergency
+    violation_spike && coherence_damaged && emergency_overrides
   end
   
   defp reconcile_emergency_actions(state) do

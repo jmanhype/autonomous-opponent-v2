@@ -95,6 +95,20 @@ defmodule AutonomousOpponentV2Core.Core.RateLimiter do
   def get_state(name) do
     GenServer.call(name, :get_state)
   end
+  
+  @doc """
+  Check if a request would be rate limited without consuming tokens
+  """
+  def check_rate(name, tokens \\ 1) do
+    GenServer.call(name, {:check, tokens})
+  end
+  
+  @doc """
+  Update the refill rate dynamically
+  """
+  def update_rate(name, new_rate) when is_number(new_rate) and new_rate > 0 do
+    GenServer.call(name, {:update_rate, new_rate})
+  end
 
   @doc """
   Get variety flow metrics for VSM subsystems
@@ -274,6 +288,31 @@ defmodule AutonomousOpponentV2Core.Core.RateLimiter do
   def handle_call(:get_variety_metrics, _from, state) do
     variety_flow = :ets.lookup_element(state.metrics_table, :variety_flow, 2)
     {:reply, variety_flow, state}
+  end
+
+  def handle_call({:check, tokens}, _from, state) do
+    # Check if tokens are available without consuming
+    current_tokens = get_token_count(state.token_table, :global)
+    
+    if current_tokens >= tokens do
+      {:reply, {:ok, current_tokens}, state}
+    else
+      {:reply, {:error, :rate_limited}, state}
+    end
+  end
+  
+  def handle_call({:update_rate, new_rate}, _from, state) do
+    # Update refill rate
+    new_state = %{state | refill_rate: new_rate}
+    
+    # Publish rate update event
+    EventBus.publish(:rate_limiter_updated, %{
+      name: state.name,
+      old_rate: state.refill_rate,
+      new_rate: new_rate
+    })
+    
+    {:reply, :ok, new_state}
   end
 
   def handle_call(:reset, _from, state) do

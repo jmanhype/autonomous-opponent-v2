@@ -99,6 +99,17 @@ defmodule AutonomousOpponentV2Core.VSM.S4.VectorStore.HNSWIndex do
   end
   
   @doc """
+  Creates a new HNSW index without starting a GenServer process.
+  Returns {:ok, index_state} for direct use.
+  """
+  def new(opts \\ []) do
+    case init(opts) do
+      {:ok, state} -> {:ok, state}
+      error -> error
+    end
+  end
+  
+  @doc """
   Inserts a vector into the index with associated metadata.
   """
   def insert(server \\ __MODULE__, vector, metadata \\ %{}) when is_list(vector) do
@@ -466,6 +477,12 @@ defmodule AutonomousOpponentV2Core.VSM.S4.VectorStore.HNSWIndex do
     timer_ref = Process.send_after(self(), :prune_tick, state.prune_interval)
     
     {:noreply, %{pruned_state | prune_timer: timer_ref}}
+  end
+  
+  @impl true
+  def handle_info({:telemetry_event, _event_name, _measurements, _metadata}, state) do
+    # Handle telemetry events silently - they're for monitoring
+    {:noreply, state}
   end
   
   # Private Functions

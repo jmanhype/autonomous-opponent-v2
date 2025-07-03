@@ -33,18 +33,23 @@ defmodule AutonomousOpponentV2Core.VSM.Algedonic.Channel do
     GenServer.start_link(__MODULE__, opts, name: __MODULE__)
   end
   
-  def report_pain(source, metric, value) when value > @pain_threshold do
-    GenServer.cast(__MODULE__, {:pain, source, metric, value})
+  def report_pain(source, metric, intensity) when intensity > @pain_threshold do
+    GenServer.cast(__MODULE__, {:pain, source, metric, intensity})
   end
   
-  def report_pleasure(source, metric, value) when value > @pleasure_threshold do
-    GenServer.cast(__MODULE__, {:pleasure, source, metric, value})
+  def report_pleasure(source, metric, intensity) when intensity > @pleasure_threshold do
+    GenServer.cast(__MODULE__, {:pleasure, source, metric, intensity})
   end
   
   def emergency_scream(source, reason) do
     # IMMEDIATE - No GenServer, direct EventBus
     Logger.error("🚨 ALGEDONIC SCREAM from #{source}: #{reason}")
+    
+    signal_id = :crypto.hash(:sha256, "emergency:#{source}:#{reason}:#{System.unique_integer()}") 
+                |> Base.encode16(case: :lower)
+    
     EventBus.publish(:emergency_algedonic, %{
+      id: signal_id,
       source: source,
       reason: reason,
       timestamp: DateTime.utc_now(),
@@ -86,13 +91,13 @@ defmodule AutonomousOpponentV2Core.VSM.Algedonic.Channel do
   end
   
   @impl true
-  def handle_cast({:pain, source, metric, value}, state) do
+  def handle_cast({:pain, source, metric, intensity}, state) do
     cond do
-      value > @agony_threshold ->
-        handle_agony(source, metric, value, state)
+      intensity > @agony_threshold ->
+        handle_agony(source, metric, intensity, state)
         
-      value > @pain_threshold ->
-        handle_pain(source, metric, value, state)
+      intensity > @pain_threshold ->
+        handle_pain(source, metric, intensity, state)
         
       true ->
         {:noreply, state}
@@ -100,27 +105,34 @@ defmodule AutonomousOpponentV2Core.VSM.Algedonic.Channel do
   end
   
   @impl true
-  def handle_cast({:pleasure, source, metric, value}, state) do
-    handle_pleasure(source, metric, value, state)
+  def handle_cast({:pleasure, source, metric, intensity}, state) do
+    handle_pleasure(source, metric, intensity, state)
   end
   
   @impl true
-  def handle_info({:event, source, %{health: health}}, state) do
-    # Update subsystem health
-    subsystem = source |> Atom.to_string() |> String.replace("_health", "") |> String.to_atom()
-    
-    new_monitors = put_in(state.monitors[subsystem], %{
-      health: health,
-      last_update: DateTime.utc_now()
-    })
-    
-    # Check if this triggers pain
-    state = %{state | monitors: new_monitors}
-    
-    if health < (1.0 - @pain_threshold) do
-      handle_cast({:pain, subsystem, :health, 1.0 - health}, state)
-    else
-      {:noreply, state}
+  def handle_info({:event, source, data}, state) when is_map(data) do
+    # Handle various event types
+    cond do
+      # Health events
+      Map.has_key?(data, :health) ->
+        subsystem = source |> Atom.to_string() |> String.replace("_health", "") |> String.to_atom()
+        
+        new_monitors = Map.put(state.monitors, subsystem, %{
+          health: data.health,
+          last_update: DateTime.utc_now()
+        })
+        
+        new_state = %{state | monitors: new_monitors}
+        
+        if data.health < (1.0 - @pain_threshold) do
+          handle_cast({:pain, subsystem, :health, 1.0 - data.health}, new_state)
+        else
+          {:noreply, new_state}
+        end
+        
+      # Other events - ignore
+      true ->
+        {:noreply, state}
     end
   end
   
@@ -148,13 +160,17 @@ defmodule AutonomousOpponentV2Core.VSM.Algedonic.Channel do
   
   # Private Functions
   
-  defp handle_pain(source, metric, value, state) do
-    Logger.warning("😣 PAIN SIGNAL from #{source}.#{metric}: #{value}")
+  defp handle_pain(source, metric, intensity, state) do
+    Logger.warning("😣 PAIN SIGNAL from #{source}.#{metric}: #{intensity}")
+    
+    signal_id = :crypto.hash(:sha256, "pain:#{source}:#{metric}:#{System.unique_integer()}") 
+                |> Base.encode16(case: :lower)
     
     pain_signal = %{
+      id: signal_id,
       source: source,
       metric: metric,
-      value: value,
+      intensity: intensity,
       timestamp: DateTime.utc_now()
     }
     
@@ -171,13 +187,17 @@ defmodule AutonomousOpponentV2Core.VSM.Algedonic.Channel do
     {:noreply, new_state}
   end
   
-  defp handle_agony(source, metric, value, state) do
-    Logger.error("😱 AGONY SIGNAL from #{source}.#{metric}: #{value}")
+  defp handle_agony(source, metric, intensity, state) do
+    Logger.error("😱 AGONY SIGNAL from #{source}.#{metric}: #{intensity}")
+    
+    signal_id = :crypto.hash(:sha256, "agony:#{source}:#{metric}:#{System.unique_integer()}") 
+                |> Base.encode16(case: :lower)
     
     agony_signal = %{
+      id: signal_id,
       source: source,
       metric: metric,
-      value: value,
+      intensity: intensity,
       severity: :critical,
       timestamp: DateTime.utc_now()
     }
@@ -208,13 +228,17 @@ defmodule AutonomousOpponentV2Core.VSM.Algedonic.Channel do
     {:noreply, new_state}
   end
   
-  defp handle_pleasure(source, metric, value, state) do
-    Logger.info("😊 PLEASURE SIGNAL from #{source}.#{metric}: #{value}")
+  defp handle_pleasure(source, metric, intensity, state) do
+    Logger.info("😊 PLEASURE SIGNAL from #{source}.#{metric}: #{intensity}")
+    
+    signal_id = :crypto.hash(:sha256, "pleasure:#{source}:#{metric}:#{System.unique_integer()}") 
+                |> Base.encode16(case: :lower)
     
     pleasure_signal = %{
+      id: signal_id,
       source: source,
       metric: metric,
-      value: value,
+      intensity: intensity,
       timestamp: DateTime.utc_now()
     }
     
@@ -234,6 +258,7 @@ defmodule AutonomousOpponentV2Core.VSM.Algedonic.Channel do
     
     {:noreply, new_state}
   end
+  
   
   defp get_recent_screams(state) do
     cutoff = DateTime.add(DateTime.utc_now(), -60, :second)

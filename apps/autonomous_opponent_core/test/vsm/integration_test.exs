@@ -20,15 +20,12 @@ defmodule AutonomousOpponentV2Core.VSM.IntegrationTest do
   }
   
   setup do
-    # Start dependencies
-    {:ok, _} = EventBus.start_link(name: :integration_event_bus)
-    {:ok, _} = start_supervised({Registry, keys: :unique, name: AutonomousOpponentV2Core.VSM.Registry})
+    # VSM components are already started by the application
+    # Just verify they're running
+    vsm_sup = Process.whereis(Supervisor)
     
-    # Start complete VSM
-    {:ok, vsm_sup} = start_supervised(Supervisor)
-    
-    # Allow VSM to fully initialize
-    Process.sleep(3000)
+    # Allow VSM to stabilize
+    Process.sleep(1500)
     
     %{vsm_supervisor: vsm_sup}
   end

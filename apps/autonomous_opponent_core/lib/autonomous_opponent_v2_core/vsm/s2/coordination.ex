@@ -179,6 +179,18 @@ defmodule AutonomousOpponentV2Core.VSM.S2.Coordination do
   end
   
   @impl true
+  def handle_info({:event, :s5_policy, _policy_update}, state) do
+    # Handle policy updates from S5
+    {:noreply, state}
+  end
+  
+  @impl true
+  def handle_info({:event, :all_subsystems, _broadcast}, state) do
+    # Handle system-wide broadcasts
+    {:noreply, state}
+  end
+  
+  @impl true
   def handle_info(:detect_oscillations, state) do
     Process.send_after(self(), :detect_oscillations, 1000)
     
@@ -345,10 +357,11 @@ defmodule AutonomousOpponentV2Core.VSM.S2.Coordination do
     end)
   end
   
-  defp dampen_oscillation(pattern, state) do
+  defp dampen_oscillation(pattern, _state) do
     # Send dampening commands to affected units
     Enum.each(pattern.units, fn unit ->
-      EventBus.publish(:"s1_#{unit}", {:apply_dampening, @damping_factor})
+      # Publish to specific S1 unit event channel
+      EventBus.publish(String.to_atom("s1_#{unit}"), {:apply_dampening, @damping_factor})
     end)
     
     # Report pattern to S4 for learning
@@ -379,11 +392,14 @@ defmodule AutonomousOpponentV2Core.VSM.S2.Coordination do
     active_units > 5  # Too many active units risks chaos
   end
   
-  defp apply_preventive_dampening(state) do
+  defp apply_preventive_dampening(_state) do
     Logger.info("S2 applying preventive dampening")
     
     # Reduce all S1 activity by damping factor
     EventBus.publish(:all_s1_units, {:preventive_damping, @damping_factor})
+    
+    # Also notify S3 for control adjustment
+    EventBus.publish(:s3_control, {:dampening_applied, @damping_factor})
   end
   
   defp report_to_s3(s1_unit, allocation) do
@@ -398,20 +414,58 @@ defmodule AutonomousOpponentV2Core.VSM.S2.Coordination do
   
   defp extract_resource_requirements(request) do
     # Extract what resources this request needs
-    %{cpu: 10, memory: 20, io: 5}
+    %{
+      cpu: Map.get(request, :cpu_required, 10),
+      memory: Map.get(request, :memory_required, 20),
+      io: Map.get(request, :io_required, 5),
+      network: Map.get(request, :network_required, 2),
+      exclusive: Map.get(request, :exclusive_lock, false)
+    }
   end
   
   defp resources_conflict?(req1, req2) do
-    # Simple conflict detection
-    false
+    # Check if resources would conflict
+    cond do
+      # Exclusive locks always conflict
+      req1[:exclusive] || req2[:exclusive] -> true
+      
+      # Check if combined usage exceeds limits
+      (req1[:cpu] || 0) + (req2[:cpu] || 0) > 80 -> true
+      (req1[:memory] || 0) + (req2[:memory] || 0) > 80 -> true
+      (req1[:io] || 0) + (req2[:io] || 0) > 50 -> true
+      
+      true -> false
+    end
   end
   
-  defp find_conflicting_resource(_req1, _req2) do
-    :cpu
+  defp find_conflicting_resource(req1, req2) do
+    cond do
+      req1[:exclusive] || req2[:exclusive] -> :exclusive_lock
+      (req1[:cpu] || 0) + (req2[:cpu] || 0) > 80 -> :cpu
+      (req1[:memory] || 0) + (req2[:memory] || 0) > 80 -> :memory
+      (req1[:io] || 0) + (req2[:io] || 0) > 50 -> :io
+      true -> :unknown
+    end
   end
   
-  defp allocate_resources(_resource, _state) do
-    %{cpu: 10, memory: 20}
+  defp allocate_resources(resource, state) do
+    pools = state.resource_pools
+    
+    # Calculate available resources
+    available = %{
+      cpu: pools.cpu.total - pools.cpu.allocated,
+      memory: pools.memory.total - pools.memory.allocated,
+      io: pools.io.total - pools.io.allocated,
+      network: pools.network.total - pools.network.allocated
+    }
+    
+    # Allocate what's requested or what's available
+    %{
+      cpu: min(Map.get(resource, :cpu, 10), available.cpu),
+      memory: min(Map.get(resource, :memory, 20), available.memory),
+      io: min(Map.get(resource, :io, 5), available.io),
+      network: min(Map.get(resource, :network, 2), available.network)
+    }
   end
   
   defp update_s1_allocation(state, unit, allocation) do
@@ -420,7 +474,17 @@ defmodule AutonomousOpponentV2Core.VSM.S2.Coordination do
   
   defp calculate_resource_utilization(state) do
     # Calculate overall resource usage
-    0.65
+    pools = state.resource_pools
+    
+    utilizations = [
+      pools.cpu.allocated / pools.cpu.total,
+      pools.memory.allocated / pools.memory.total,
+      pools.io.allocated / pools.io.total,
+      pools.network.allocated / pools.network.total
+    ]
+    
+    # Return average utilization
+    Enum.sum(utilizations) / length(utilizations)
   end
   
   defp calculate_oscillation_risk(state) do
@@ -436,8 +500,17 @@ defmodule AutonomousOpponentV2Core.VSM.S2.Coordination do
   end
   
   defp calculate_resource_pressure(state) do
-    # How close to resource limits
-    0.7
+    # How close to resource limits - max of all resources
+    pools = state.resource_pools
+    
+    pressures = [
+      pools.cpu.allocated / pools.cpu.total,
+      pools.memory.allocated / pools.memory.total,
+      pools.io.allocated / pools.io.total,
+      pools.network.allocated / pools.network.total
+    ]
+    
+    Enum.max(pressures)
   end
   
   defp needs_intervention?(state) do
@@ -448,20 +521,58 @@ defmodule AutonomousOpponentV2Core.VSM.S2.Coordination do
     Map.update(metrics, key, increment, &(&1 + increment))
   end
   
-  defp has_priority?(_unit1, _unit2, _state) do
-    # Priority logic
-    true
+  defp has_priority?(unit1, unit2, _state) do
+    # Priority based on unit ID for now (could be more sophisticated)
+    # Use atom ordering if no numbers present
+    unit1_str = Atom.to_string(unit1)
+    unit2_str = Atom.to_string(unit2)
+    
+    # Try to extract numbers
+    unit1_nums = Regex.scan(~r/\d+/, unit1_str)
+    unit2_nums = Regex.scan(~r/\d+/, unit2_str)
+    
+    case {unit1_nums, unit2_nums} do
+      {[[n1] | _], [[n2] | _]} ->
+        String.to_integer(n1) <= String.to_integer(n2)
+      _ ->
+        # Fallback to alphabetical ordering
+        unit1_str <= unit2_str
+    end
   end
   
-  defp calculate_wait_time(_state) do
-    100
+  defp calculate_wait_time(state) do
+    # Wait time based on resource pressure
+    base_wait = 100
+    pressure = calculate_resource_pressure(state)
+    
+    # Higher pressure = longer wait
+    round(base_wait * (1 + pressure * 2))
   end
   
-  defp divide_resource(resource, divisor) do
+  defp divide_resource(resource, divisor) when is_map(resource) do
+    # Divide all resource values
+    resource
+    |> Enum.map(fn {key, value} when is_number(value) -> 
+      {key, value / divisor}
+      {key, value} -> 
+      {key, value}
+    end)
+    |> Map.new()
+  end
+  
+  defp divide_resource(resource, _divisor) do
     resource
   end
   
-  defp is_units_turn?(_unit, _state) do
-    true
+  defp is_units_turn?(unit, state) do
+    # Simple round-robin based on unit activity
+    last_active = Map.get(state.s1_units, unit, %{})[:last_active]
+    
+    if last_active do
+      # Check if enough time has passed
+      DateTime.diff(DateTime.utc_now(), last_active, :millisecond) > 50
+    else
+      true
+    end
   end
 end

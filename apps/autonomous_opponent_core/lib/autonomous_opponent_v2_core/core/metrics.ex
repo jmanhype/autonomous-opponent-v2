@@ -141,6 +141,27 @@ defmodule AutonomousOpponentV2Core.Core.Metrics do
   end
   
   @doc """
+  Get a specific metric value
+  """
+  def get_metric(name, metric_name) do
+    GenServer.call(name, {:get_metric, metric_name})
+  end
+  
+  @doc """
+  Get metrics for a specific time range
+  """
+  def get_metrics(name, metric_name, duration_ms) do
+    GenServer.call(name, {:get_metrics, metric_name, duration_ms})
+  end
+  
+  @doc """
+  Record a generic metric
+  """
+  def record(name, metric_name, value) do
+    GenServer.cast(name, {:record, :gauge, metric_name, value, %{}})
+  end
+  
+  @doc """
   Manually persist metrics to disk
   """
   def persist(name) do
@@ -315,6 +336,22 @@ defmodule AutonomousOpponentV2Core.Core.Metrics do
     {:reply, triggered_alerts, state}
   end
   
+  def handle_call({:get_metric, metric_name}, _from, state) do
+    # Get a specific metric value
+    case :ets.lookup(state.metrics_table, metric_name) do
+      [{^metric_name, value}] -> {:reply, value, state}
+      [] -> {:reply, nil, state}
+    end
+  end
+  
+  def handle_call({:get_metrics, metric_name, _duration_ms}, _from, state) do
+    # For now, return all matching metrics (in real implementation would filter by time)
+    metrics = :ets.match(state.metrics_table, {metric_name, :'$1'})
+    |> Enum.map(fn [value] -> value end)
+    
+    {:reply, metrics, state}
+  end
+  
   def handle_call(:persist, _from, state) do
     persist_metrics(state)
     {:reply, :ok, state}
@@ -342,7 +379,9 @@ defmodule AutonomousOpponentV2Core.Core.Metrics do
         algedonic_signal(state.name, :pain, intensity, data.source)
         
       :algedonic_pleasure ->
-        algedonic_signal(state.name, :pleasure, data.intensity, data.source)
+        # Handle both old and new format
+        intensity = Map.get(data, :intensity, Map.get(data, :value, 0.5))
+        algedonic_signal(state.name, :pleasure, intensity, data.source)
         
       :circuit_breaker_opened ->
         counter(state.name, "circuit_breaker.opened", 1, %{name: data.name})
@@ -516,7 +555,15 @@ defmodule AutonomousOpponentV2Core.Core.Metrics do
       :pleasure -> intensity
     end
     
-    :ets.update_counter(table, key, {2, change}, {key, 0})
+    # Get current value
+    current = case :ets.lookup(table, key) do
+      [] -> 0
+      [{^key, value}] -> value
+    end
+    
+    # Update with new value
+    new_value = current + change
+    :ets.insert(table, {key, new_value})
   end
   
   defp get_algedonic_balance(table) do

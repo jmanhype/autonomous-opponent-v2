@@ -72,11 +72,31 @@ defmodule AutonomousOpponentV2Core.VSM.Channels.VarietyChannel do
   end
   
   def transmit(channel_type, variety_data) do
-    GenServer.call(channel_name(channel_type), {:transmit, variety_data})
+    channel = channel_name(channel_type)
+    
+    case Process.whereis(channel) do
+      nil ->
+        # Channel not ready yet, log and continue
+        Logger.debug("Variety channel #{channel_type} not ready, skipping transmission")
+        :ok
+        
+      pid when is_pid(pid) ->
+        try do
+          GenServer.call(channel, {:transmit, variety_data})
+        catch
+          :exit, _ ->
+            Logger.warning("Variety channel #{channel_type} unavailable")
+            :ok
+        end
+    end
   end
   
   def get_flow_metrics(channel_type) do
     GenServer.call(channel_name(channel_type), :get_metrics)
+  end
+  
+  def get_channel_stats(channel_type) do
+    GenServer.call(channel_name(channel_type), :get_stats)
   end
   
   # Server Callbacks
@@ -141,6 +161,18 @@ defmodule AutonomousOpponentV2Core.VSM.Channels.VarietyChannel do
   @impl true
   def handle_call(:get_metrics, _from, state) do
     {:reply, state.metrics, state}
+  end
+  
+  @impl true
+  def handle_call(:get_stats, _from, state) do
+    stats = %{
+      channel_type: state.channel_type,
+      capacity: state.capacity,
+      current_flow: state.current_flow,
+      metrics: state.metrics,
+      health: calculate_channel_health(state)
+    }
+    {:reply, stats, state}
   end
   
   @impl true
@@ -275,5 +307,22 @@ defmodule AutonomousOpponentV2Core.VSM.Channels.VarietyChannel do
   defp calculate_moving_average(current, new_value) do
     # Simple moving average
     (current * 0.9) + (new_value * 0.1)
+  end
+  
+  defp calculate_channel_health(state) do
+    # Calculate channel health based on metrics
+    drop_rate = if state.metrics.total_transmitted > 0 do
+      state.metrics.total_dropped / state.metrics.total_transmitted
+    else
+      0
+    end
+    
+    capacity_utilization = state.current_flow / state.capacity
+    
+    # Health decreases with drop rate and high utilization
+    base_health = 1.0 - drop_rate
+    utilization_penalty = if capacity_utilization > 0.8, do: 0.2, else: 0
+    
+    max(0.0, base_health - utilization_penalty)
   end
 end

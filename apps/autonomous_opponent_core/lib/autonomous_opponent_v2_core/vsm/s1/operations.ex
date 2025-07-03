@@ -49,6 +49,14 @@ defmodule AutonomousOpponentV2Core.VSM.S1.Operations do
     GenServer.call(__MODULE__, :get_state)
   end
   
+  def get_state do
+    GenServer.call(__MODULE__, :get_state)
+  end
+  
+  def calculate_health do
+    GenServer.call(__MODULE__, :calculate_health)
+  end
+  
   # Server Callbacks
   
   @impl true
@@ -147,6 +155,12 @@ defmodule AutonomousOpponentV2Core.VSM.S1.Operations do
   end
   
   @impl true
+  def handle_call(:calculate_health, _from, state) do
+    health_score = calculate_health_score(state)
+    {:reply, health_score, state}
+  end
+  
+  @impl true
   def handle_cast({:control_command, command}, state) do
     # S3 is telling us what to do - this CLOSES THE CONTROL LOOP
     Logger.info("S1 received control command: #{inspect(command.type)}")
@@ -200,6 +214,18 @@ defmodule AutonomousOpponentV2Core.VSM.S1.Operations do
     })
     
     {:noreply, new_state}
+  end
+  
+  @impl true
+  def handle_info({:event, :s5_policy, _policy_update}, state) do
+    # Handle policy updates from S5
+    {:noreply, state}
+  end
+  
+  @impl true
+  def handle_info({:event, :all_subsystems, _broadcast}, state) do
+    # Handle system-wide broadcasts
+    {:noreply, state}
   end
   
   @impl true
@@ -335,7 +361,24 @@ defmodule AutonomousOpponentV2Core.VSM.S1.Operations do
   
   defp aggregate_bulk_results(results, state) do
     # Aggregate state from bulk processing
-    state
+    successful = Enum.count(results, fn {_, res} -> 
+      match?({:ok, {:ok, _}}, res) 
+    end)
+    
+    failed = Enum.count(results, fn {_, res} ->
+      match?({:ok, {:error, _}}, res) or match?(nil, res)
+    end)
+    
+    metrics = state.health_metrics
+    new_metrics = %{metrics |
+      processed: metrics.processed + successful,
+      failed: metrics.failed + failed
+    }
+    
+    %{state | 
+      health_metrics: new_metrics,
+      current_load: calculate_load(new_metrics)
+    }
   end
   
   defp calculate_success_rate(results) do
