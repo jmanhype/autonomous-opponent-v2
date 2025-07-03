@@ -118,6 +118,17 @@
       },
       {
         "id": 6,
+        "title": "Stabilize AMQP Infrastructure and Integration",
+        "description": "Fix AMQP connection issues and establish reliable message transport foundation for MCP Gateway and event processing",
+        "details": "Stabilize AMQP infrastructure with: 1) Fix connection pool issues causing frequent disconnections 2) Implement connection retry logic with exponential backoff 3) Configure proper heartbeat and timeout settings 4) Set up AMQP topology (exchanges, queues, bindings) for VSM communication 5) Implement health monitoring for AMQP connections 6) Create abstraction layer for AMQP operations 7) Add comprehensive error handling and recovery 8) Document AMQP patterns for VSM usage",
+        "testStrategy": "Connection stability tests under load, failover testing with RabbitMQ restarts, message durability tests, performance benchmarks at various message rates, integration tests with EventBus",
+        "priority": "high",
+        "dependencies": [],
+        "status": "pending",
+        "subtasks": []
+      },
+      {
+        "id": 7,
         "title": "Security Hardening and Secrets Management",
         "description": "Rotate exposed API keys, implement secrets management, and enable comprehensive security measures",
         "details": "Rotate all OpenAI API keys in Intelligence layer. Implement HashiCorp Vault integration or Elixir's built-in secrets management. Enable TLS 1.3 for all transport layers with proper certificate management. Implement encrypted configuration using Cloak or similar. Add API key rotation mechanism and secure environment variable handling.",
@@ -128,7 +139,7 @@
         "subtasks": []
       },
       {
-        "id": 7,
+        "id": 8,
         "title": "Complete MCP Gateway Transport Implementation",
         "description": "Complete HTTP+SSE and WebSocket transport layers for MCP gateway with proper routing and connection pooling",
         "details": "Implement HTTP+SSE transport using Phoenix.Endpoint and Server-Sent Events. Complete WebSocket transport with Phoenix.Socket. Add gateway routing with load balancing using consistent hashing. Implement connection pooling with configurable pool sizes. Add proper error handling, reconnection logic, and backpressure management.",
@@ -136,19 +147,6 @@
         "priority": "high",
         "dependencies": [
           2,
-          3
-        ],
-        "status": "pending",
-        "subtasks": []
-      },
-      {
-        "id": 8,
-        "title": "Implement Audit Logging for Cybernetic Compliance",
-        "description": "Implement comprehensive audit logging system for VSM cybernetic compliance and operational transparency",
-        "details": "Create structured audit logging using Logger with custom formatters. Implement audit trails for all VSM subsystem interactions, security events, and cybernetic loop decisions. Add log aggregation with configurable retention policies. Include tamper-evident logging with cryptographic signatures. Integrate with metrics system for audit analytics.",
-        "testStrategy": "Unit tests for log formatting and integrity, integration tests with security systems, compliance validation against cybernetic standards, log retention testing",
-        "priority": "medium",
-        "dependencies": [
           3,
           6
         ],
@@ -157,6 +155,20 @@
       },
       {
         "id": 9,
+        "title": "Implement Audit Logging for Cybernetic Compliance",
+        "description": "Implement comprehensive audit logging system for VSM cybernetic compliance and operational transparency",
+        "details": "Create structured audit logging using Logger with custom formatters. Implement audit trails for all VSM subsystem interactions, security events, and cybernetic loop decisions. Add log aggregation with configurable retention policies. Include tamper-evident logging with cryptographic signatures. Integrate with metrics system for audit analytics.",
+        "testStrategy": "Unit tests for log formatting and integrity, integration tests with security systems, compliance validation against cybernetic standards, log retention testing",
+        "priority": "medium",
+        "dependencies": [
+          3,
+          7
+        ],
+        "status": "pending",
+        "subtasks": []
+      },
+      {
+        "id": 10,
         "title": "Create VSM Integration Testing Framework",
         "description": "Develop comprehensive testing framework for VSM readiness, component health monitoring, and variety flow validation",
         "details": "Create ExUnit-based testing framework with custom test helpers for VSM components. Implement health check endpoints for all subsystems with readiness scoring. Add variety flow testing with synthetic load generation. Create performance benchmarking suite targeting 100 req/sec sustained load. Include integration tests for V1-V2 component bridge.",
@@ -166,27 +178,27 @@
           1,
           2,
           3,
-          7
-        ],
-        "status": "pending",
-        "subtasks": []
-      },
-      {
-        "id": 10,
-        "title": "Performance Optimization and Load Testing",
-        "description": "Optimize system performance to handle 100 req/sec sustained load and implement comprehensive load testing",
-        "details": "Profile system performance using :observer and custom telemetry. Optimize database queries with proper indexing and connection pooling. Implement response caching where appropriate. Tune BEAM VM settings for high concurrency. Create load testing suite using :gun or similar tools to validate 100 req/sec for 1 hour continuous operation.",
-        "testStrategy": "Performance profiling before and after optimizations, sustained load tests at target throughput, memory leak detection, latency percentile analysis, system stability validation",
-        "priority": "medium",
-        "dependencies": [
-          7,
-          9
+          8
         ],
         "status": "pending",
         "subtasks": []
       },
       {
         "id": 11,
+        "title": "Performance Optimization and Load Testing",
+        "description": "Optimize system performance to handle 100 req/sec sustained load and implement comprehensive load testing",
+        "details": "Profile system performance using :observer and custom telemetry. Optimize database queries with proper indexing and connection pooling. Implement response caching where appropriate. Tune BEAM VM settings for high concurrency. Create load testing suite using :gun or similar tools to validate 100 req/sec for 1 hour continuous operation.",
+        "testStrategy": "Performance profiling before and after optimizations, sustained load tests at target throughput, memory leak detection, latency percentile analysis, system stability validation",
+        "priority": "medium",
+        "dependencies": [
+          8,
+          10
+        ],
+        "status": "pending",
+        "subtasks": []
+      },
+      {
+        "id": 12,
         "title": "Implement Intelligence.LLM Module for AI Amplification",
         "description": "Create comprehensive LLM integration module for 100x environmental scanning amplification in S4 Intelligence",
         "details": "Implement Intelligence.LLM module with: 1) Multi-provider support (OpenAI, Anthropic, Google) with failover 2) Cost tracking and budget management 3) Response caching to reduce API calls 4) Safety filtering and input sanitization 5) Structured output parsing for VSM integration 6) Streaming support for real-time analysis 7) Integration with S4 for environmental scanning amplification 8) Pattern extraction from LLM insights",
@@ -197,24 +209,24 @@
         "subtasks": []
       },
       {
-        "id": 12,
+        "id": 13,
         "title": "Integrate Workflow Engine with S3 Control",
         "description": "Implement workflow engine integration for S3 Control procedures using Handoff or alternative",
         "details": "Create workflow integration with: 1) Handoff library integration (when Elixir 1.18+ available) or alternative workflow engine 2) S3 Control procedure execution via workflows 3) Workflow conflict resolution in S2 Coordination 4) Dynamic workflow generation from successful patterns 5) Workflow performance monitoring and optimization 6) Integration with existing VSM control loops 7) Workflow versioning and rollback capabilities 8) Distributed workflow execution support",
         "testStrategy": "Unit tests for workflow execution, integration tests with S3 Control, conflict resolution scenarios, performance tests for workflow throughput, distributed execution tests",
         "priority": "medium",
-        "dependencies": [7],
+        "dependencies": [8],
         "status": "pending",
         "subtasks": []
       },
       {
-        "id": 13,
+        "id": 14,
         "title": "Activate Gold Rush for Complex Event Processing",
-        "description": "Replace simple EventBus with Gold Rush's advanced event processing capabilities for pattern detection",
-        "details": "Implement Gold Rush integration with: 1) Migration from current EventBus to Gold Rush 2) Complex event pattern matching rules 3) Real-time anomaly detection via event patterns 4) Event aggregation and correlation 5) Sliding window computations for variety metrics 6) Integration with algedonic signal generation 7) Event replay capabilities for learning 8) Distributed event processing support",
+        "description": "Integrate Gold Rush with AMQP for complex event processing and pattern detection on message streams",
+        "details": "Implement Gold Rush integration with: 1) Connect Gold Rush to AMQP message streams as event source 2) Complex event pattern matching rules for AMQP messages 3) Real-time anomaly detection via event patterns 4) Event aggregation and correlation across queues 5) Sliding window computations for variety metrics 6) Route processed events to EventBus for VSM distribution 7) Event replay capabilities from AMQP for learning 8) Maintain EventBus for internal communication while Gold Rush handles AMQP stream processing",
         "testStrategy": "Unit tests for event patterns, integration tests with VSM subsystems, performance tests for event throughput, pattern matching accuracy tests",
         "priority": "medium",
-        "dependencies": [3, 9],
+        "dependencies": [3, 6, 10],
         "status": "pending",
         "subtasks": []
       },
@@ -243,7 +255,7 @@
     ],
     "metadata": {
       "created": "2025-06-30T22:07:41.276Z",
-      "updated": "2025-07-03T22:00:00.000Z",
+      "updated": "2025-07-03T23:00:00.000Z",
       "description": "Tasks for master context"
     }
   },
@@ -1102,7 +1114,7 @@
     ],
     "metadata": {
       "created": "2025-07-01T02:03:48.687Z",
-      "updated": "2025-07-03T22:00:00.000Z",
+      "updated": "2025-07-03T23:00:00.000Z",
       "description": "Tasks for phase-1 context"
     }
   }
