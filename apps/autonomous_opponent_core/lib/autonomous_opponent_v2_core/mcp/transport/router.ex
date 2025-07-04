@@ -14,6 +14,7 @@ defmodule AutonomousOpponentV2Core.MCP.Transport.Router do
   alias AutonomousOpponentV2Core.MCP.Transport.{HTTPSSE, WebSocket}
   alias AutonomousOpponentV2Core.MCP.LoadBalancer.ConsistentHash
   alias AutonomousOpponentV2Core.Core.CircuitBreaker
+  alias AutonomousOpponentV2Core.MCP.Tracing
   
   require Logger
   
@@ -94,6 +95,11 @@ defmodule AutonomousOpponentV2Core.MCP.Transport.Router do
         messages_routed: 0,
         failovers: 0,
         routing_errors: 0
+      },
+      message_history: [],  # List of {timestamp, message_id} tuples
+      transport_stats: %{
+        websocket: %{successes: 0, failures: 0},
+        http_sse: %{successes: 0, failures: 0}
       }
     }
     
@@ -102,39 +108,69 @@ defmodule AutonomousOpponentV2Core.MCP.Transport.Router do
   
   @impl true
   def handle_call({:route, client_id, message, opts}, _from, state) do
-    # Get or create route for client
-    route = get_or_create_route(client_id, state)
+    # Trace the routing operation
+    result = Tracing.trace_routing(client_id, message, :auto, fn ->
+      # Get or create route for client
+      route = get_or_create_route(client_id, state)
+      
+      # Determine transport based on route and message characteristics
+      transport = select_transport(route, message, opts, state)
+      
+      # Add tracing attribute for selected transport
+      if transport, do: Tracing.add_attributes(%{selected_transport: transport})
+      
+      # Route the message
+      case transport do
+        :http_sse ->
+          route_to_sse(client_id, message, opts)
+          
+        :websocket ->
+          route_to_websocket(client_id, message, opts)
+          
+        :both ->
+          # For broadcast scenarios
+          route_to_sse(client_id, message, opts)
+          route_to_websocket(client_id, message, opts)
+          
+        nil ->
+          {:error, :no_available_transport}
+      end
+    end)
     
-    # Determine transport based on route and message characteristics
-    transport = select_transport(route, message, opts, state)
+    # Track message in history
+    now = System.monotonic_time(:second)
+    message_id = :erlang.unique_integer([:positive])
+    new_history = [{now, message_id} | state.message_history]
+                  |> Enum.take(1000)  # Keep last 1000 messages
     
-    # Route the message
-    result = case transport do
-      :http_sse ->
-        route_to_sse(client_id, message, opts)
+    # Update transport stats and general stats
+    {new_stats, new_transport_stats} = case {result, transport} do
+      {{:error, _}, nil} ->
+        {Map.update(state.stats, :routing_errors, 1, &(&1 + 1)), state.transport_stats}
         
-      :websocket ->
-        route_to_websocket(client_id, message, opts)
+      {{:error, _}, transport} when transport in [:http_sse, :websocket] ->
+        ts = update_in(state.transport_stats[transport].failures, &(&1 + 1))
+        {Map.update(state.stats, :routing_errors, 1, &(&1 + 1)), ts}
         
-      :both ->
-        # For broadcast scenarios
-        route_to_sse(client_id, message, opts)
-        route_to_websocket(client_id, message, opts)
+      {_, transport} when transport in [:http_sse, :websocket] ->
+        ts = update_in(state.transport_stats[transport].successes, &(&1 + 1))
+        {Map.update(state.stats, :messages_routed, 1, &(&1 + 1)), ts}
         
-      nil ->
-        {:error, :no_available_transport}
-    end
-    
-    # Update stats
-    stats = case result do
-      {:error, _} ->
-        Map.update(state.stats, :routing_errors, 1, &(&1 + 1))
+      {_, :both} ->
+        ts = state.transport_stats
+             |> update_in([:http_sse, :successes], &(&1 + 1))
+             |> update_in([:websocket, :successes], &(&1 + 1))
+        {Map.update(state.stats, :messages_routed, 2, &(&1 + 2)), ts}
         
       _ ->
-        Map.update(state.stats, :messages_routed, 1, &(&1 + 1))
+        {Map.update(state.stats, :messages_routed, 1, &(&1 + 1)), state.transport_stats}
     end
     
-    new_state = %{state | stats: stats}
+    new_state = %{state | 
+      stats: new_stats,
+      message_history: new_history,
+      transport_stats: new_transport_stats
+    }
     report_routing_metrics(new_state)
     
     {:reply, result, new_state}
@@ -358,5 +394,53 @@ defmodule AutonomousOpponentV2Core.MCP.Transport.Router do
     }
     
     Gateway.report_metrics(metrics)
+  end
+  
+  @doc """
+  Gets the current message throughput (messages per second).
+  """
+  def get_throughput do
+    GenServer.call(__MODULE__, :get_throughput)
+  end
+  
+  @doc """
+  Gets the error rate for a specific transport.
+  """
+  def get_error_rate(transport) do
+    GenServer.call(__MODULE__, {:get_error_rate, transport})
+  end
+  
+  @impl true
+  def handle_call(:get_throughput, _from, state) do
+    # Calculate messages per second based on recent activity
+    now = System.monotonic_time(:second)
+    window_start = now - 60  # 60 second window
+    
+    # Count messages in the last 60 seconds
+    recent_messages = 
+      state.message_history
+      |> Enum.filter(fn {timestamp, _} -> timestamp > window_start end)
+      |> length()
+    
+    throughput = recent_messages / 60.0
+    {:reply, throughput, state}
+  end
+  
+  @impl true
+  def handle_call({:get_error_rate, transport}, _from, state) do
+    # Calculate error rate for the transport
+    transport_stats = Map.get(state.transport_stats, transport, %{
+      successes: 0,
+      failures: 0
+    })
+    
+    total = transport_stats.successes + transport_stats.failures
+    error_rate = if total > 0 do
+      (transport_stats.failures / total) * 100
+    else
+      0.0
+    end
+    
+    {:reply, {:ok, error_rate}, state}
   end
 end

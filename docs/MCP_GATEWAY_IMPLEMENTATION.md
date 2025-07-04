@@ -23,43 +23,6 @@ sse.onmessage = (e) => console.log(e.data)
 
 See [Usage Examples](#usage-examples) for detailed client implementations.
 
-## Development Setup
-
-### Prerequisites
-- Elixir 1.16+
-- PostgreSQL 16+
-- RabbitMQ (optional for MCP, required for AMQP)
-- Node.js 18+ (for client examples)
-
-### Local Development
-```bash
-# 1. Install dependencies
-mix deps.get
-cd apps/autonomous_opponent_web/assets && npm install
-
-# 2. Setup database
-mix ecto.setup
-
-# 3. Start with gateway debugging enabled
-GATEWAY_DEBUG=true iex -S mix phx.server
-
-# 4. Access gateway endpoints
-# SSE: http://localhost:4001/mcp/sse?client_id=dev_user
-# WS: ws://localhost:4002/mcp/ws
-```
-
-### Testing the Gateway
-```bash
-# Run gateway tests only
-mix test test/autonomous_opponent_v2_core/mcp/
-
-# Run with coverage
-mix test --cover test/autonomous_opponent_v2_core/mcp/
-
-# Load test
-mix run scripts/load_test_gateway.exs
-```
-
 ## Architecture
 
 ```
@@ -209,51 +172,6 @@ config :autonomous_opponent_core, :mcp_gateway,
 ```
 
 ## VSM Integration Details
-
-### VSM Variety Flow Through Gateway
-
-```mermaid
-graph LR
-    subgraph "External Environment"
-        C1[Client 1]
-        C2[Client 2]
-        CN[Client N]
-    end
-    
-    subgraph "MCP Gateway (Variety Attenuator)"
-        GW[Gateway Router]
-        CB[Circuit Breakers]
-        RL[Rate Limiters]
-        CP[Connection Pool]
-    end
-    
-    subgraph "VSM Subsystems"
-        S1[S1: Operations<br/>Variety Absorber]
-        S2[S2: Coordination<br/>Anti-oscillation]
-        S3[S3: Control<br/>Resource Mgmt]
-        S4[S4: Intelligence<br/>Environmental Scanning]
-        S5[S5: Policy<br/>Identity & Purpose]
-    end
-    
-    C1 -->|High Variety| GW
-    C2 -->|High Variety| GW
-    CN -->|High Variety| GW
-    
-    GW -->|Filtered| CB
-    CB -->|Protected| RL
-    RL -->|Regulated| CP
-    
-    CP -->|Managed Variety| S1
-    S1 <-->|Coordination| S2
-    S1 -->|Metrics| S4
-    S3 -->|Resources| CP
-    S5 -->|Constraints| GW
-    
-    style GW fill:#f9f,stroke:#333,stroke-width:4px
-    style S1 fill:#9f9,stroke:#333,stroke-width:2px
-```
-
-This diagram shows how the gateway acts as a variety attenuator, reducing external complexity before it reaches the VSM subsystems.
 
 ### S1 (Operations) Integration
 ```elixir
@@ -755,53 +673,6 @@ client.on(:message) { |msg| puts "Received: #{msg}" }
 client.connect
 ```
 
-## API Reference
-
-### Transport Endpoints
-| Endpoint | Method | Description | Parameters |
-|----------|--------|-------------|------------|
-| `/mcp/sse` | GET | Server-Sent Events stream | `client_id` (required), `last_event_id` (optional) |
-| `/mcp/ws` | WebSocket | WebSocket connection | `client_id` (required), `compression` (optional) |
-| `/mcp/health/:client_id` | GET | Client health check | Path: `client_id` |
-| `/mcp/stats` | GET | Gateway statistics | None |
-
-### Message Format
-```json
-{
-  "type": "message|heartbeat|vsm_update|error",
-  "sequence": 12345,
-  "timestamp": "2024-01-15T10:23:45Z",
-  "data": {
-    // Message-specific payload
-  }
-}
-```
-
-### Event Types
-| Event Type | Transport | Description |
-|------------|-----------|-------------|
-| `message` | Both | Application message |
-| `heartbeat` | SSE | Keep-alive signal |
-| `vsm_update` | Both | VSM state change |
-| `error` | Both | Error notification |
-| `phx_join` | WebSocket | Phoenix join event |
-| `phx_reply` | WebSocket | Phoenix reply |
-| `phx_error` | WebSocket | Phoenix error |
-
-### Connection Parameters
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `client_id` | string | required | Unique client identifier |
-| `compression` | boolean | true | Enable message compression (WebSocket) |
-| `last_event_id` | string | null | Resume from event ID (SSE) |
-| `token` | string | optional | Authentication token |
-
-### Rate Limiting
-- Default: 100 requests per second per client_id
-- Configurable per client tier
-- 429 Too Many Requests response when exceeded
-- X-RateLimit-* headers included in responses
-
 ## Testing
 
 Comprehensive test coverage includes:
@@ -823,36 +694,6 @@ mix test test/autonomous_opponent_v2_core/mcp/
 - **Message Rate**: 100 msg/sec per connection (rate limited)
 - **Failover Time**: < 1 second
 - **Memory Usage**: ~1KB per idle connection
-
-## Real-World Performance Benchmarks
-
-Based on production deployments:
-
-### Single Instance Performance
-| Metric | Value | Hardware |
-|--------|-------|----------|
-| Max Connections | 25,000 | 8 cores, 16GB RAM |
-| Messages/sec | 150,000 | With batching enabled |
-| p50 Latency | 2ms | Local network |
-| p99 Latency | 23ms | Including VSM processing |
-| Memory/Connection | 184KB | Average with message buffers |
-
-### Cluster Performance (5 nodes)
-| Metric | Value | Configuration |
-|--------|-------|---------------|
-| Total Connections | 100,000+ | With session affinity |
-| Aggregate Throughput | 500,000 msg/s | Using consistent hashing |
-| Failover Time | < 500ms | With health checks at 100ms |
-| Variety Reduction | 65% | External to S1 operations |
-
-### Performance by Transport Type
-| Transport | Connections | CPU Usage | Memory | Best For |
-|-----------|-------------|-----------|---------|----------|
-| SSE | 15,000 | 35% | 150KB/conn | Read-heavy workloads |
-| WebSocket | 25,000 | 45% | 200KB/conn | Interactive applications |
-| Mixed | 30,000 | 50% | 175KB/conn | General purpose |
-
-*Note: Results vary based on message size and processing complexity*
 
 ## Performance Tuning Guide
 
@@ -2492,3 +2333,22 @@ end
 3. Archive old message formats
 4. Clean up feature flags
 5. Optimize gateway configuration based on usage patterns
+
+## Production Features
+
+The MCP Gateway includes several production-ready features for observability, reliability, and security:
+
+1. **LiveView Monitoring Dashboard**: Real-time metrics visualization at `/mcp/dashboard`
+2. **Connection Draining**: Graceful shutdown for zero-downtime deployments
+3. **OpenTelemetry Tracing**: Distributed tracing with W3C Trace Context
+4. **JWT Authentication**: Secure authentication with role-based rate limiting
+
+See [MCP_GATEWAY_PRODUCTION_FEATURES.md](MCP_GATEWAY_PRODUCTION_FEATURES.md) for detailed documentation.
+
+## Future Enhancements
+
+1. **Message Queue Integration**: Bridge to RabbitMQ/Kafka
+2. **GraphQL Subscriptions**: Alternative real-time transport
+3. **Horizontal Scaling**: Distributed gateway with consensus
+4. **Advanced Load Balancing**: Geography and latency-based routing
+5. **WebRTC Support**: Peer-to-peer communication

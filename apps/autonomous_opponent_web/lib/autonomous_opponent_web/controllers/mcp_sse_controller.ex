@@ -8,6 +8,7 @@ defmodule AutonomousOpponentV2Web.MCPSSEController do
   use AutonomousOpponentV2Web, :controller
   
   alias AutonomousOpponentV2Core.MCP.Transport.HTTPSSE
+  alias AutonomousOpponentV2Core.MCP.Gateway
   alias AutonomousOpponentV2Core.EventBus
   
   require Logger
@@ -18,8 +19,19 @@ defmodule AutonomousOpponentV2Web.MCPSSEController do
   Establishes SSE connection and streams events to the client.
   """
   def stream(conn, params) do
-    # Extract client ID from params or generate one
-    client_id = params["client_id"] || UUID.uuid4()
+    # Check if gateway is accepting new connections
+    if not Gateway.accepting_connections?() do
+      conn
+      |> put_status(:service_unavailable)
+      |> json(%{error: "Service temporarily unavailable"})
+      |> halt()
+    else
+    
+    # Extract client ID from params or authenticated user
+    client_id = case conn.assigns do
+      %{current_user: %{user_id: user_id}} -> user_id
+      _ -> params["client_id"] || UUID.uuid4()
+    end
     
     # Set up SSE headers
     conn = conn
@@ -31,17 +43,37 @@ defmodule AutonomousOpponentV2Web.MCPSSEController do
     # Send initial connection event
     conn = send_chunked(conn, 200)
     
-    # Send welcome message
-    welcome_event = format_sse_event("connected", %{
+    # Build welcome data with auth info
+    welcome_data = %{
       client_id: client_id,
       timestamp: DateTime.utc_now(),
-      transport: "http_sse"
-    })
+      transport: "http_sse",
+      authenticated: Map.get(conn.assigns, :authenticated, false)
+    }
+    
+    # Add user info if authenticated
+    welcome_data = case conn.assigns do
+      %{current_user: user_info} ->
+        Map.merge(welcome_data, %{
+          user_id: user_info.user_id,
+          role: user_info.role
+        })
+      _ ->
+        welcome_data
+    end
+    
+    # Send welcome message
+    welcome_event = format_sse_event("connected", welcome_data)
     
     case chunk(conn, welcome_event) do
       {:ok, conn} ->
         # Register connection with HTTPSSE transport
-        {:ok, connection_id} = HTTPSSE.register_connection(self(), client_id, params)
+        connection_params = Map.merge(params, %{
+          "authenticated" => Map.get(conn.assigns, :authenticated, false),
+          "user_info" => Map.get(conn.assigns, :current_user)
+        })
+        
+        {:ok, connection_id} = HTTPSSE.register_connection(self(), client_id, connection_params)
         
         # Start streaming
         stream_loop(conn, client_id, connection_id)
@@ -49,6 +81,7 @@ defmodule AutonomousOpponentV2Web.MCPSSEController do
       {:error, _reason} ->
         conn
     end
+    end  # End of accepting_connections check
   end
   
   # Private functions

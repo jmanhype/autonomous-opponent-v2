@@ -9,6 +9,8 @@ defmodule AutonomousOpponentV2Web.MCPChannel do
   use Phoenix.Channel
   
   alias AutonomousOpponentV2Core.MCP.Transport.WebSocket
+  alias AutonomousOpponentV2Core.MCP.Auth.JWTAuthenticator
+  alias AutonomousOpponentV2Core.MCP.Gateway
   alias AutonomousOpponentV2Core.EventBus
   
   require Logger
@@ -17,14 +19,55 @@ defmodule AutonomousOpponentV2Web.MCPChannel do
   Handles client joining the MCP channel.
   """
   def join("mcp:gateway", params, socket) do
-    client_id = params["client_id"] || UUID.uuid4()
+    # Check if gateway is accepting connections
+    if not Gateway.accepting_connections?() do
+      {:error, %{reason: "service_unavailable"}}
+    else
+      # Handle authentication if token provided
+      auth_result = case params["token"] do
+        nil ->
+          # No token, proceed as unauthenticated
+          {:ok, assign(socket, :authenticated, false)}
+          
+        token ->
+          # Validate token
+          JWTAuthenticator.validate_channel_token(token, socket)
+      end
+      
+      case auth_result do
+        {:ok, socket} ->
+          join_authenticated(params, socket)
+          
+        {:error, error} ->
+          {:error, error}
+      end
+    end
+  end
+  
+  defp join_authenticated(params, socket) do
+    
+    # Extract client ID (prefer authenticated user ID)
+    client_id = case socket.assigns do
+      %{user_id: user_id} -> user_id
+      _ -> params["client_id"] || UUID.uuid4()
+    end
+    
+    # Determine rate limit based on authentication
+    rate_limit = case socket.assigns do
+      %{role: role} -> JWTAuthenticator.get_user_rate_limit(role)
+      _ -> Map.get(params, "rate_limit", 100)
+    end
     
     # Register WebSocket connection
     opts = [
-      metadata: params,
+      metadata: Map.merge(params, %{
+        "authenticated" => Map.get(socket.assigns, :authenticated, false),
+        "user_id" => Map.get(socket.assigns, :user_id),
+        "role" => Map.get(socket.assigns, :role)
+      }),
       compression: Map.get(params, "compression", true),
       binary: Map.get(params, "binary", false),
-      rate_limit: Map.get(params, "rate_limit", 100)
+      rate_limit: rate_limit
     ]
     
     case WebSocket.register_connection(self(), client_id, opts) do
@@ -37,12 +80,24 @@ defmodule AutonomousOpponentV2Web.MCPChannel do
         # Subscribe to client-specific events
         EventBus.subscribe({:mcp_client_events, client_id})
         
-        # Send welcome message
-        push(socket, "connected", %{
+        # Build welcome message with auth info
+        welcome_data = %{
           client_id: client_id,
           connection_id: connection_id,
-          transport: "websocket"
-        })
+          transport: "websocket",
+          authenticated: Map.get(socket.assigns, :authenticated, false)
+        }
+        
+        # Add user info if authenticated
+        welcome_data = case socket.assigns do
+          %{user_id: user_id, role: role} ->
+            Map.merge(welcome_data, %{user_id: user_id, role: role})
+          _ ->
+            welcome_data
+        end
+        
+        # Send welcome message
+        push(socket, "connected", welcome_data)
         
         {:ok, socket}
         

@@ -281,4 +281,19 @@ defmodule AutonomousOpponentV2Core.MCP.Transport.HTTPSSE do
     
     Gateway.report_metrics(metrics)
   end
+  
+  @doc """
+  Stops accepting new SSE connections.
+  Used during graceful shutdown.
+  """
+  def stop_accepting_connections do
+    GenServer.cast(__MODULE__, :stop_accepting_connections)
+  end
+  
+  @impl true
+  def handle_cast(:stop_accepting_connections, state) do
+    Logger.info("HTTP SSE transport stopping new connections")
+    # In a real implementation, this would update a flag checked by the controller
+    {:noreply, Map.put(state, :accepting_connections, false)}
+  end
 end

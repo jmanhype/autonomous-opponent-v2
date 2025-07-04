@@ -64,6 +64,22 @@ config :autonomous_opponent_core, :mcp_gateway,
     refill_rate: 100
   ]
 
+# OpenTelemetry Configuration for distributed tracing
+config :opentelemetry,
+  resource: [
+    service: [
+      name: "mcp-gateway",
+      namespace: "autonomous-opponent"
+    ]
+  ],
+  span_processor: :batch,
+  traces_exporter: :otlp
+
+config :opentelemetry_exporter,
+  otlp_protocol: :http_protobuf,
+  otlp_endpoint: System.get_env("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4318"),
+  otlp_headers: [{"x-api-key", System.get_env("OTEL_API_KEY", "")}]
+
 # Import environment specific config. This must remain at the bottom
 # of this file so it overrides the configuration defined above.
 import_config "#{config_env()}.exs"

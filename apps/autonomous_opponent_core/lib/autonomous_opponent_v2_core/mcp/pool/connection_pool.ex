@@ -266,4 +266,34 @@ defmodule AutonomousOpponentV2Core.MCP.Pool.ConnectionPool do
       Process.send_after(self(), :cleanup, @cleanup_interval)
     end
   end
+  
+  @doc """
+  Gets the current status of the connection pool.
+  
+  Returns a map with:
+  - available: number of available connections
+  - in_use: number of connections currently in use
+  - overflow: number of overflow connections
+  """
+  def get_status do
+    try do
+      status = :poolboy.status(@pool_name)
+      
+      # poolboy status returns {state_name, available, overflow, monitors}
+      case status do
+        {_state, available, overflow, monitors} ->
+          in_use = length(monitors)
+          %{
+            available: available,
+            in_use: in_use,
+            overflow: overflow
+          }
+        _ ->
+          %{available: 0, in_use: 0, overflow: 0}
+      end
+    rescue
+      _ ->
+        %{available: 0, in_use: 0, overflow: 0}
+    end
+  end
 end
