@@ -12,13 +12,8 @@ defmodule AutonomousOpponentV2Core.Application do
       {AutonomousOpponentV2Core.EventBus, name: AutonomousOpponentV2Core.EventBus},
       # Start the Telemetry supervisor
       # AutonomousOpponentV2Core.Telemetry,
-      # Start the VSM Supervisor only in non-test environments
-    ] ++ vsm_children()
-
-    # AMQP temporarily disabled - uncomment when library supports OTP 27+
-    # AutonomousOpponentV2Core.AMCP.ConnectionManager,
-    # AutonomousOpponentV2Core.AMCP.Router
-    # Add your core application children here
+      # Start the VSM Supervisor
+    ] ++ vsm_children() ++ amqp_children()
 
     opts = [strategy: :one_for_one, name: AutonomousOpponentV2Core.Supervisor]
     Supervisor.start_link(children, opts)
@@ -27,5 +22,14 @@ defmodule AutonomousOpponentV2Core.Application do
   # Start VSM in all environments including test
   defp vsm_children do
     [AutonomousOpponentV2Core.VSM.Supervisor]
+  end
+
+  # Start AMQP supervisor if enabled
+  defp amqp_children do
+    if Application.get_env(:autonomous_opponent_core, :amqp_enabled, false) do
+      [AutonomousOpponentV2Core.AMCP.Supervisor]
+    else
+      []
+    end
   end
 end
