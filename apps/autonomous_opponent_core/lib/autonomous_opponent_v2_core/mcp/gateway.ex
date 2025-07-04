@@ -76,8 +76,19 @@ defmodule AutonomousOpponentV2Core.MCP.Gateway do
       sse_count = Registry.count(AutonomousOpponentV2Core.MCP.TransportRegistry, {:transport, :http_sse})
       
       # Get circuit breaker states
-      websocket_cb = CircuitBreaker.state(:websocket_transport)
-      sse_cb = CircuitBreaker.state(:http_sse_transport)
+      websocket_cb = try do
+        cb_info = CircuitBreaker.get_state(:websocket_transport)
+        cb_info[:state] || :closed
+      catch
+        :exit, _ -> :closed
+      end
+      
+      sse_cb = try do
+        cb_info = CircuitBreaker.get_state(:http_sse_transport)
+        cb_info[:state] || :closed
+      catch
+        :exit, _ -> :closed
+      end
       
       # Get pool status
       pool_status = AutonomousOpponentV2Core.MCP.Pool.ConnectionPool.get_status()

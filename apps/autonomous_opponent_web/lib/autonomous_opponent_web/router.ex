@@ -26,10 +26,21 @@ defmodule AutonomousOpponentV2Web.Router do
     plug AutonomousOpponentV2Web.Plugs.JWTAuthPlug, required: false
   end
 
+  # Define authenticated browser pipeline
+  pipeline :authenticated_browser do
+    plug :browser
+    plug AutonomousOpponentV2Web.Plugs.JWTAuthPlug, required: true
+  end
+  
   scope "/", AutonomousOpponentV2Web do
     pipe_through :browser
 
     get "/", PageController, :home
+  end
+  
+  # Protected dashboards
+  scope "/", AutonomousOpponentV2Web do
+    pipe_through :authenticated_browser
     
     # VSM Metrics Dashboard
     live "/metrics/dashboard", MetricsDashboardLive, :index
