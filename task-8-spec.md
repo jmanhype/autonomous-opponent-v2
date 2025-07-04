@@ -158,6 +158,30 @@ Task dependencies: 2, 3, 6
 - **Authentication Bypass**: Client_id validation required for all connections
 - **Message Injection**: Input validation and size limits enforced
 
+## Production Deployment Checklist
+
+### Pre-Deployment
+- [ ] Load tests completed with 10K+ connections
+- [ ] Security scan passed (OWASP ZAP or similar)
+- [ ] Documentation reviewed by team
+- [ ] Rollback plan documented and tested
+- [ ] Monitoring alerts configured in Grafana/Prometheus
+
+### Deployment Steps
+- [ ] Database migrations applied
+- [ ] Environment variables verified (especially JWT_SECRET)
+- [ ] Health checks passing on staging
+- [ ] Canary deployment to 10% of traffic
+- [ ] Monitor for 30 minutes
+- [ ] Full deployment if metrics stable
+
+### Post-Deployment Verification
+- [ ] All transports accepting connections
+- [ ] VSM integration verified (check S4 metrics)
+- [ ] Circuit breakers in closed state
+- [ ] No critical alerts for 60 minutes
+- [ ] Client libraries connecting successfully
+
 ## Implementation Status
 This file tracks the implementation of Task 8.
 

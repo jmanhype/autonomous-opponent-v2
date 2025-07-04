@@ -640,6 +640,262 @@ defmodule MCP.LoadTest do
 end
 ```
 
+### VSM Variety Management Integration Tests
+
+```elixir
+describe "VSM variety management" do
+  test "gateway attenuates variety before S1" do
+    # Setup high variety scenario
+    clients = for i <- 1..100, do: "high_variety_#{i}"
+    
+    # Generate diverse message types
+    messages = for client <- clients, type <- [:chat, :command, :query] do
+      %{client_id: client, type: type, data: %{value: :rand.uniform(100)}}
+    end
+    
+    # Measure S1 input before gateway
+    EventBus.subscribe(:s1_operations)
+    start_time = System.monotonic_time(:millisecond)
+    
+    # Send all messages through gateway
+    Enum.each(messages, fn msg ->
+      Router.route_message(msg.client_id, msg)
+    end)
+    
+    # Wait for processing
+    Process.sleep(1000)
+    
+    # Collect S1 metrics
+    s1_messages = collect_messages(:s1_operations, start_time)
+    
+    # Verify variety reduction
+    assert length(s1_messages) < length(messages) * 0.5
+    assert Gateway.get_variety_metrics().reduction_ratio > 0.5
+  end
+  
+  test "algedonic bypass works under extreme load" do
+    EventBus.subscribe(:algedonic_channel)
+    
+    # Generate overwhelming load
+    tasks = for i <- 1..1000 do
+      Task.async(fn ->
+        Router.route_message("stress_#{i}", %{data: "flood"})
+      end)
+    end
+    
+    # Should receive pain signal
+    assert_receive {:event_bus, :algedonic_channel, %{
+      signal_type: :pain,
+      severity: severity,
+      source: :mcp_gateway
+    }}, 5000
+    
+    assert severity in [:high, :critical]
+    
+    # Cleanup
+    Enum.each(tasks, &Task.shutdown(&1, :brutal_kill))
+  end
+  
+  test "S2 prevents transport oscillation" do
+    client_id = "oscillation_test_#{:rand.uniform(1000)}"
+    
+    # Subscribe to coordination events
+    EventBus.subscribe(:s2_coordination)
+    
+    # Connect and force rapid transport switches
+    Gateway.connect(client_id, transport: :websocket)
+    
+    # Attempt to trigger oscillation
+    for _ <- 1..10 do
+      Gateway.simulate_transport_failure(client_id, :websocket)
+      Process.sleep(100)
+      Gateway.simulate_transport_failure(client_id, :http_sse)
+      Process.sleep(100)
+    end
+    
+    # S2 should prevent oscillation
+    assert_receive {:event_bus, :s2_coordination, %{
+      action: :prevent_oscillation,
+      client_id: ^client_id
+    }}, 2000
+    
+    # Verify client stabilized on one transport
+    Process.sleep(1000)
+    info = Gateway.get_client_info(client_id)
+    assert info.transport_switches < 5
+  end
+  
+  test "S4 receives gateway intelligence metrics" do
+    EventBus.subscribe(:s4_intelligence)
+    
+    # Generate pattern-rich traffic
+    users = for i <- 1..20, do: "pattern_user_#{i}"
+    
+    # Create recognizable pattern (burst traffic)
+    for cycle <- 1..3 do
+      # Burst phase
+      Enum.each(users, fn user ->
+        for _ <- 1..10 do
+          Router.route_message(user, %{type: "burst", cycle: cycle})
+        end
+      end)
+      
+      # Quiet phase
+      Process.sleep(2000)
+    end
+    
+    # S4 should detect the pattern
+    assert_receive {:event_bus, :s4_intelligence, %{
+      event: :pattern_detected,
+      pattern: :burst_traffic,
+      confidence: confidence
+    }}, 10_000
+    
+    assert confidence > 0.8
+  end
+  
+  test "complete VSM message flow" do
+    client_id = "vsm_flow_test_#{:rand.uniform(1000)}"
+    
+    # Subscribe to all VSM subsystems
+    EventBus.subscribe(:s1_operations)
+    EventBus.subscribe(:s2_coordination)
+    EventBus.subscribe(:s3_control)
+    EventBus.subscribe(:s4_intelligence)
+    EventBus.subscribe(:s5_policy)
+    EventBus.subscribe(:algedonic_channel)
+    
+    # Connect client
+    Gateway.connect(client_id, transport: :websocket)
+    
+    # Send message that requires full VSM processing
+    message = %{
+      type: "complex_operation",
+      data: %{
+        requires_resources: true,
+        policy_check: true,
+        coordination_needed: true
+      }
+    }
+    
+    Router.route_message(client_id, message)
+    
+    # Verify message flows through all subsystems
+    assert_receive {:event_bus, :s5_policy, %{
+      check: :message_allowed,
+      client_id: ^client_id
+    }}, 1000
+    
+    assert_receive {:event_bus, :s1_operations, %{
+      source: :mcp_gateway,
+      variety_type: :external_input
+    }}, 1000
+    
+    assert_receive {:event_bus, :s2_coordination, %{
+      action: :coordinate_operation,
+      operation_id: _
+    }}, 2000
+    
+    assert_receive {:event_bus, :s3_control, %{
+      request: :allocate,
+      operation_id: _
+    }}, 2000
+    
+    assert_receive {:event_bus, :s4_intelligence, %{
+      metric_type: :gateway_performance
+    }}, 5000
+  end
+end
+
+# Helper function for collecting messages
+defp collect_messages(topic, start_time) do
+  messages = []
+  receive do
+    {:event_bus, ^topic, msg} when msg.timestamp > start_time ->
+      collect_messages(topic, start_time) ++ [msg]
+  after
+    100 -> messages
+  end
+end
+```
+
+### Performance Regression Tests
+
+```elixir
+@tag :performance
+describe "performance regression tests" do
+  test "message latency stays within bounds" do
+    results = LoadTest.run_latency_test(
+      duration: 60_000,
+      connections: 100,
+      message_rate: 10
+    )
+    
+    assert results.p50 < 5   # 5ms
+    assert results.p95 < 50  # 50ms
+    assert results.p99 < 100 # 100ms
+  end
+  
+  test "connection pool efficiency" do
+    # Measure pool utilization under load
+    start_metrics = ConnectionPool.get_metrics()
+    
+    # Create load
+    clients = for i <- 1..100 do
+      {:ok, _} = Gateway.connect("perf_#{i}", transport: :websocket)
+      "perf_#{i}"
+    end
+    
+    # Send messages
+    for _ <- 1..1000 do
+      client = Enum.random(clients)
+      Router.route_message(client, %{type: "test"})
+    end
+    
+    end_metrics = ConnectionPool.get_metrics()
+    
+    # Verify pool efficiency
+    assert end_metrics.checkout_success_rate > 0.95
+    assert end_metrics.avg_wait_time < 5  # ms
+    assert end_metrics.overflow_used < 10
+  end
+  
+  test "VSM variety reduction effectiveness" do
+    # Measure variety reduction under different loads
+    test_scenarios = [
+      {10, 100},    # 10 clients, 100 msg each
+      {100, 10},    # 100 clients, 10 msg each  
+      {50, 50}      # 50 clients, 50 msg each
+    ]
+    
+    results = Enum.map(test_scenarios, fn {clients, messages} ->
+      EventBus.subscribe(:s1_operations)
+      
+      # Generate load
+      input_count = clients * messages
+      for i <- 1..clients, j <- 1..messages do
+        Router.route_message("test_#{i}", %{seq: j})
+      end
+      
+      # Wait and count S1 messages
+      Process.sleep(2000)
+      s1_count = count_s1_messages()
+      
+      %{
+        input: input_count,
+        output: s1_count,
+        reduction: (input_count - s1_count) / input_count
+      }
+    end)
+    
+    # All scenarios should achieve > 50% reduction
+    Enum.each(results, fn result ->
+      assert result.reduction > 0.5
+    end)
+  end
+end
+```
+
 ## End-to-End Testing
 
 ### Complete User Journey Test

@@ -455,6 +455,220 @@ docs: [
 ]
 ```
 
+## CI/CD Integration
+
+### GitHub Actions Workflow
+
+Create `.github/workflows/docs.yml` to automatically generate and deploy documentation:
+
+```yaml
+name: Generate and Deploy Docs
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'lib/**'
+      - 'docs/**'
+      - 'mix.exs'
+
+jobs:
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      
+      - uses: erlef/setup-beam@v1
+        with:
+          elixir-version: '1.16'
+          otp-version: '26'
+      
+      - name: Restore dependencies cache
+        uses: actions/cache@v3
+        with:
+          path: deps
+          key: ${{ runner.os }}-mix-${{ hashFiles('**/mix.lock') }}
+          restore-keys: ${{ runner.os }}-mix-
+      
+      - name: Install dependencies
+        run: |
+          mix deps.get
+          mix compile
+      
+      - name: Generate docs
+        run: mix docs
+      
+      - name: Check documentation coverage
+        run: |
+          # Custom script to check doc coverage
+          if [ $(mix docs.coverage | grep "Coverage:" | awk '{print $2}' | cut -d'%' -f1) -lt 80 ]; then
+            echo "Documentation coverage below 80%"
+            exit 1
+          fi
+      
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./doc
+          cname: docs.your-domain.com  # Optional custom domain
+```
+
+### GitLab CI Configuration
+
+For GitLab users, add to `.gitlab-ci.yml`:
+
+```yaml
+stages:
+  - test
+  - docs
+  - deploy
+
+generate-docs:
+  stage: docs
+  image: elixir:1.16-alpine
+  before_script:
+    - mix deps.get
+    - mix compile
+  script:
+    - mix docs
+  artifacts:
+    paths:
+      - doc/
+    expire_in: 1 week
+  only:
+    - main
+    - merge_requests
+
+pages:
+  stage: deploy
+  dependencies:
+    - generate-docs
+  script:
+    - mkdir -p public
+    - cp -r doc/* public/
+  artifacts:
+    paths:
+      - public
+  only:
+    - main
+```
+
+### Documentation Coverage Script
+
+Create `lib/mix/tasks/docs.coverage.ex`:
+
+```elixir
+defmodule Mix.Tasks.Docs.Coverage do
+  use Mix.Task
+  
+  @shortdoc "Check documentation coverage"
+  
+  def run(_) do
+    modules = get_all_modules()
+    
+    stats = Enum.reduce(modules, %{total: 0, documented: 0}, fn module, acc ->
+      acc
+      |> Map.update!(:total, &(&1 + 1))
+      |> maybe_increment_documented(module)
+    end)
+    
+    coverage = stats.documented / stats.total * 100
+    
+    IO.puts """
+    Documentation Coverage Report
+    ============================
+    Total Modules: #{stats.total}
+    Documented: #{stats.documented}
+    Coverage: #{Float.round(coverage, 2)}%
+    
+    Missing @moduledoc:
+    #{list_undocumented_modules(modules)}
+    """
+    
+    # Exit with error if coverage is too low
+    if coverage < 80.0 do
+      System.halt(1)
+    end
+  end
+  
+  defp get_all_modules do
+    {:ok, modules} = :application.get_key(:autonomous_opponent_core, :modules)
+    modules
+  end
+  
+  defp maybe_increment_documented(acc, module) do
+    if has_moduledoc?(module) do
+      Map.update!(acc, :documented, &(&1 + 1))
+    else
+      acc
+    end
+  end
+  
+  defp has_moduledoc?(module) do
+    case Code.fetch_docs(module) do
+      {:docs_v1, _, _, _, %{"en" => _}, _, _} -> true
+      _ -> false
+    end
+  end
+  
+  defp list_undocumented_modules(modules) do
+    modules
+    |> Enum.reject(&has_moduledoc?/1)
+    |> Enum.map(&"  - #{inspect(&1)}")
+    |> Enum.join("\n")
+  end
+end
+```
+
+### Pre-commit Hook
+
+Add to `.git/hooks/pre-commit`:
+
+```bash
+#!/bin/sh
+# Generate docs and check coverage before commit
+
+echo "Checking documentation..."
+mix docs.coverage
+
+if [ $? -ne 0 ]; then
+  echo "Documentation coverage check failed!"
+  echo "Please add missing @moduledoc and @doc annotations."
+  exit 1
+fi
+
+echo "Documentation check passed!"
+```
+
+### Integration with Release Process
+
+Add documentation generation to your release script:
+
+```elixir
+# rel/config.exs
+environment :prod do
+  set include_erts: true
+  set include_src: false
+  set cookie: :"secret_cookie"
+  
+  set pre_start_hooks: "rel/hooks/pre_start"
+  set post_start_hooks: "rel/hooks/post_start"
+  
+  # Generate docs as part of release
+  set commands: [
+    generate_docs: "rel/commands/generate_docs.sh"
+  ]
+end
+```
+
+```bash
+# rel/commands/generate_docs.sh
+#!/bin/sh
+cd $RELEASE_ROOT_DIR
+./bin/autonomous_opponent eval "Mix.Task.run(:docs)"
+```
+
 ---
 
 Following these steps will generate comprehensive, well-organized API documentation for the MCP Gateway that integrates seamlessly with the implementation, troubleshooting, and testing guides.

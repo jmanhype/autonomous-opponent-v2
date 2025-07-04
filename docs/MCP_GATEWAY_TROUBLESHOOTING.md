@@ -459,6 +459,180 @@ class FlowControlledClient {
 }
 ```
 
+## VSM Integration Issues
+
+### S1 Operations Overwhelmed
+
+**Symptoms:**
+- Growing S1 operation queue
+- Increasing message processing latency
+- Memory growth in S1 processes
+- Gateway metrics show high input but low absorption
+
+**Root Cause Analysis:**
+```elixir
+# Check S1 variety metrics
+iex> EventBus.call(:s1_operations, %{query: :variety_metrics})
+%{
+  input_variety: 1000,  # High!
+  absorbed_variety: 200, # Only 20% absorption
+  queue_depth: 5421,
+  processing_rate: 45  # msg/s
+}
+
+# Check gateway filtering effectiveness
+iex> Gateway.get_variety_reduction_stats()
+%{
+  pre_filter: 1000,
+  post_filter: 800,  # Only 20% reduction!
+  filter_efficiency: 0.2
+}
+```
+
+**Solutions:**
+1. **Increase gateway filtering:**
+```elixir
+Application.put_env(:autonomous_opponent_core, :mcp_gateway,
+  variety_filter: [
+    duplicate_window: 5000,      # 5s deduplication
+    message_aggregation: true,   # Bundle similar messages
+    type_limit: 10,             # Max message types
+    sampling_rate: 0.1          # Sample 10% for non-critical
+  ]
+)
+```
+
+2. **Enable adaptive variety management:**
+```elixir
+Gateway.enable_adaptive_variety_management(
+  target_absorption_rate: 0.8,
+  adjustment_interval: 10_000
+)
+```
+
+3. **Implement message batching:**
+```elixir
+Gateway.enable_batching(
+  interval: 100,      # Batch window in ms
+  max_batch: 50,      # Max messages per batch
+  by_type: true       # Group by message type
+)
+```
+
+### S2 Coordination Conflicts
+
+**Symptoms:**
+- Transport oscillation despite anti-oscillation
+- Conflicting control signals
+- Resource allocation thrashing
+- Clients switching transports repeatedly
+
+**Root Cause Analysis:**
+```elixir
+# Trace S2 coordination messages
+EventBus.trace(:s2_coordination, duration: 60_000)
+
+# Analyze coordination patterns
+S2.analyze_coordination_conflicts()
+%{
+  oscillation_detected: true,
+  conflict_sources: [:rate_limiter, :circuit_breaker],
+  affected_clients: ["client_123", "client_456"]
+}
+```
+
+**Solutions:**
+1. **Increase anti-oscillation window:**
+```elixir
+EventBus.publish(:s2_coordination, %{
+  update: :anti_oscillation,
+  window: 300_000,  # 5 minutes
+  max_switches: 2   # Max 2 switches per window
+})
+```
+
+2. **Coordinate control signals:**
+```elixir
+defmodule Gateway.CoordinationHelper do
+  def coordinate_controls do
+    # Ensure rate limiter and circuit breaker align
+    {:ok, rl_state} = RateLimiter.get_state()
+    {:ok, cb_state} = CircuitBreaker.get_state()
+    
+    if conflicting?(rl_state, cb_state) do
+      resolve_conflict(rl_state, cb_state)
+    end
+  end
+end
+```
+
+### S4 Intelligence Pattern Detection Issues
+
+**Symptoms:**
+- Missing anomaly detection
+- Delayed pattern recognition
+- Metrics not reaching S4
+
+**Diagnostics:**
+```elixir
+# Check S4 subscription
+EventBus.subscribers(:s4_intelligence)
+
+# Verify gateway metrics publishing
+Gateway.debug_metrics_publishing()
+```
+
+**Solutions:**
+```elixir
+# Ensure gateway publishes to S4
+Gateway.configure_s4_reporting(
+  interval: 5_000,
+  include_patterns: true,
+  anomaly_threshold: 0.05
+)
+```
+
+### Algedonic Signal Delays
+
+**Symptoms:**
+- Critical issues not triggering pain signals
+- Delayed system response to overload
+- S5 not receiving policy violations
+
+**Quick Fix:**
+```elixir
+# Lower algedonic thresholds temporarily
+Gateway.configure_algedonic(
+  pain_threshold: %{
+    pool_usage: 0.8,      # Down from 0.95
+    error_rate: 0.03,     # Down from 0.05
+    latency_p99: 200      # Down from 500ms
+  }
+)
+
+# Test algedonic bypass
+Gateway.test_algedonic_signal(:pain, :test_trigger)
+```
+
+### VSM Communication Failures
+
+**Symptoms:**
+- EventBus timeouts when calling VSM subsystems
+- Gateway can't reach S1-S5
+- Metrics show zero VSM integration
+
+**Emergency Recovery:**
+```elixir
+# Check EventBus health
+EventBus.health_check()
+
+# Restart VSM supervision tree
+Supervisor.restart_child(AutonomousOpponent.Supervisor, VSM.Supervisor)
+
+# Re-establish gateway VSM connections
+Gateway.reconnect_vsm()
+```
+
 ## Debugging Tools
 
 ### Enable Debug Logging
