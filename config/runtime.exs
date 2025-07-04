@@ -7,6 +7,24 @@ import Config
 # any compile-time configuration in here, as it won't be applied.
 # The block below contains prod specific runtime configuration.
 
+# Task 7: Security Hardening - Configure secure environment handling
+config :autonomous_opponent_core, :security,
+  vault_enabled: System.get_env("VAULT_ENABLED") == "true",
+  vault_address: System.get_env("VAULT_ADDR"),
+  vault_token: System.get_env("VAULT_TOKEN"),
+  encryption_key: System.get_env("ENCRYPTION_KEY"),
+  allowed_env_keys: [
+    "OPENAI_API_KEY",
+    "DATABASE_URL", 
+    "SECRET_KEY_BASE",
+    "GUARDIAN_SECRET",
+    "AMQP_URL"
+  ]
+
+# Configure sensitive data exposure
+config :logger,
+  filter_parameters: ["password", "secret", "token", "key", "api_key"]
+
 # ## Using releases
 #
 # If you use `mix release`, you need to explicitly enable the server
@@ -31,9 +49,9 @@ if database_url = System.get_env("AUTONOMOUS_OPPONENT_CORE_DATABASE_URL") do
            [
              url: database_url,
              pool_size: String.to_integer(System.get_env("POOL_SIZE") || "10"),
-             # Ensure we're not using compile-time values
+             # Task 7: Security Hardening - Disable sensitive data exposure
              stacktrace: true,
-             show_sensitive_data_on_connection_error: true
+             show_sensitive_data_on_connection_error: false
            ],
            pool_opts
          )
@@ -48,9 +66,9 @@ if database_url = System.get_env("AUTONOMOUS_OPPONENT_V2_DATABASE_URL") do
            [
              url: database_url,
              pool_size: String.to_integer(System.get_env("POOL_SIZE") || "10"),
-             # Ensure we're not using compile-time values
+             # Task 7: Security Hardening - Disable sensitive data exposure
              stacktrace: true,
-             show_sensitive_data_on_connection_error: true
+             show_sensitive_data_on_connection_error: false
            ],
            pool_opts
          )
@@ -103,37 +121,37 @@ if config_env() == :prod do
     ],
     secret_key_base: secret_key_base
 
-  # ## SSL Support
-  #
-  # To get SSL working, you will need to add the `https` key
-  # to your endpoint configuration:
-  #
-  #     config :autonomous_opponent_web, AutonomousOpponentV2Web.Endpoint,
-  #       https: [
-  #         ...,
-  #         port: 443,
-  #         cipher_suite: :strong,
-  #         keyfile: System.get_env("SOME_APP_SSL_KEY_PATH"),
-  #         certfile: System.get_env("SOME_APP_SSL_CERT_PATH")
-  #       ]
-  #
-  # The `cipher_suite` is set to `:strong` to support only the
-  # latest and more secure SSL ciphers. This means old browsers
-  # and clients may not be supported. You can set it to
-  # `:compatible` for wider support.
-  #
-  # `:keyfile` and `:certfile` expect an absolute path to the key
-  # and cert in disk or a relative path inside priv, for example
-  # "priv/ssl/server.key". For all supported SSL configuration
-  # options, see https://hexdocs.pm/plug/Plug.SSL.html#configure/1
-  #
-  # We also recommend setting `force_ssl` in your endpoint, ensuring
-  # no data is ever sent via http, always redirecting to https:
-  #
-  #     config :autonomous_opponent_web, AutonomousOpponentV2Web.Endpoint,
-  #       force_ssl: [hsts: true]
-  #
-  # Check `Plug.SSL` for all available options in `force_ssl`.
+  # ## SSL Support with TLS 1.3 (Task 7: Security Hardening)
+  
+  # Enable TLS 1.3 for enhanced security
+  if System.get_env("TLS_ENABLED") == "true" do
+    config :autonomous_opponent_web, AutonomousOpponentV2Web.Endpoint,
+      https: [
+        port: String.to_integer(System.get_env("TLS_PORT") || "443"),
+        cipher_suite: :strong,
+        keyfile: System.get_env("TLS_KEY_PATH"),
+        certfile: System.get_env("TLS_CERT_PATH"),
+        # TLS 1.3 configuration
+        versions: [:"tlsv1.3", :"tlsv1.2"],
+        # Modern cipher suites only
+        ciphers: [
+          "TLS_AES_256_GCM_SHA384",
+          "TLS_AES_128_GCM_SHA256",
+          "TLS_CHACHA20_POLY1305_SHA256",
+          "TLS_AES_128_CCM_SHA256",
+          "TLS_AES_128_CCM_8_SHA256"
+        ],
+        secure_renegotiate: true,
+        reuse_sessions: true,
+        honor_cipher_order: true
+      ],
+      force_ssl: [
+        hsts: true,
+        rewrite_on: [:x_forwarded_proto],
+        subdomains: true,
+        preload: true
+      ]
+  end
 
   # ## Configuring the mailer
   #

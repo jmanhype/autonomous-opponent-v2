@@ -19,6 +19,8 @@ defmodule AutonomousOpponentV2Core.Application do
       {AutonomousOpponentV2Core.Core.RateLimiter, name: AutonomousOpponentV2Core.Core.RateLimiter},
       # Start the Telemetry supervisor
       # AutonomousOpponentV2Core.Telemetry,
+      # Start Security services (Task 7)
+      AutonomousOpponentV2Core.Security.Supervisor,
     ] ++ amqp_children() ++ vsm_children()
 
     opts = [strategy: :one_for_one, name: AutonomousOpponentV2Core.Supervisor]

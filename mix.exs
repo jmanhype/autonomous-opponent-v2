@@ -52,7 +52,12 @@ defmodule AutonomousOpponentV2.MixProject do
       {:floki, ">= 0.30.0", only: :test},
       {:phoenix_live_dashboard, "~> 0.8.0"},
       {:heroicons, "~> 0.5"},
-      {:swoosh, "~> 1.5"}
+      {:swoosh, "~> 1.5"},
+      # Security dependencies for Task 7
+      {:cloak, "~> 1.1"},
+      {:cloak_ecto, "~> 1.2"},
+      {:vaultex, "~> 1.0"},
+      {:pbkdf2_elixir, "~> 2.0"}
     ]
   end
 
