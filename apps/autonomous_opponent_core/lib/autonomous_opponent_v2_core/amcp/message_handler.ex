@@ -14,7 +14,8 @@ if Code.ensure_loaded?(AMQP) do
     
     alias AMQP.Basic
     alias AutonomousOpponentV2Core.AMCP.{ConnectionPool, VSMTopology}
-    alias AutonomousOpponentV2Core.{CircuitBreaker, RateLimiter, EventBus}
+    alias AutonomousOpponentV2Core.EventBus
+    alias AutonomousOpponentV2Core.Core.{CircuitBreaker, RateLimiter}
     
     @max_retries 3
     @retry_backoff_base 1_000
@@ -48,7 +49,9 @@ if Code.ensure_loaded?(AMQP) do
     @impl true
     def handle_call({:publish, exchange, routing_key, payload, opts}, from, state) do
       # Check rate limit
-      case RateLimiter.check_rate(:amqp_publish, 1) do
+      # For now, skip rate limiting until we set up specific AMQP rate limiters
+      # TODO: Add AMQP-specific rate limiters in application supervision tree
+      case :ok do
         :ok ->
           Task.start(fn ->
             result = do_publish(exchange, routing_key, payload, opts)
@@ -125,9 +128,9 @@ if Code.ensure_loaded?(AMQP) do
     # Private functions
     
     defp do_publish(exchange, routing_key, payload, opts, retry_count \\ 0) do
-      case CircuitBreaker.call(:amqp_publish, fn ->
-        with {:ok, channel} <- ConnectionPool.get_channel(),
-             {:ok, encoded} <- encode_payload(payload),
+      # TODO: Add circuit breaker with proper name registration
+      result = ConnectionPool.with_connection(fn channel ->
+        with {:ok, encoded} <- encode_payload(payload),
              :ok <- Basic.publish(
                channel,
                exchange,
@@ -138,7 +141,9 @@ if Code.ensure_loaded?(AMQP) do
           send(self(), {:publish_result, :success})
           :ok
         end
-      end) do
+      end)
+      
+      case result do
         :ok ->
           :ok
           
@@ -180,8 +185,7 @@ if Code.ensure_loaded?(AMQP) do
     end
     
     defp setup_consumer(queue, handler_fun, opts) do
-      case ConnectionPool.get_channel() do
-        {:ok, channel} ->
+      ConnectionPool.with_connection(fn channel ->
           # Wrap handler with error handling and acknowledgment
           wrapped_handler = create_wrapped_handler(channel, handler_fun, opts)
           
@@ -201,10 +205,7 @@ if Code.ensure_loaded?(AMQP) do
               error
           end
           
-        {:error, reason} = error ->
-          Logger.error("Failed to get channel for consumer: #{inspect(reason)}")
-          error
-      end
+      end)
     end
     
     defp create_wrapped_handler(channel, handler_fun, opts) do
@@ -216,10 +217,9 @@ if Code.ensure_loaded?(AMQP) do
             {:error, _} -> payload
           end
           
-          # Call handler with circuit breaker
-          case CircuitBreaker.call(:amqp_consume, fn ->
-            handler_fun.(decoded, metadata)
-          end) do
+          # Call handler directly for now
+          # TODO: Add circuit breaker with proper name registration  
+          case handler_fun.(decoded, metadata) do
             :ok ->
               # Acknowledge message
               Basic.ack(channel, metadata.delivery_tag)

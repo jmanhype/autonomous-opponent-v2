@@ -23,6 +23,7 @@ defmodule AutonomousOpponentV2Core.AMCP.Topology do
   @vsm_exchange "vsm.topic"              # Main topic exchange for VSM routing
   @event_exchange "vsm.events"           # Fanout for system-wide events
   @algedonic_exchange "vsm.algedonic"    # Direct exchange for pain/pleasure signals
+  @command_exchange "vsm.commands"       # Topic exchange for control commands
   @dlx_exchange "vsm.dlx"                # Dead Letter Exchange
 
   # Queue prefixes
@@ -57,7 +58,10 @@ defmodule AutonomousOpponentV2Core.AMCP.Topology do
   defp declare_exchanges(channel) do
     if amqp_available?() do
       # Main VSM topic exchange for flexible routing
-      AMQP.Exchange.declare(channel, @vsm_exchange, :topic, durable: true)
+      AMQP.Exchange.declare(channel, @vsm_exchange, :topic, 
+        durable: true,
+        arguments: [{"alternate-exchange", :longstr, @dlx_exchange}]
+      )
       Logger.info("Declared VSM topic exchange: #{@vsm_exchange}")
       
       # Event fanout exchange
@@ -65,8 +69,15 @@ defmodule AutonomousOpponentV2Core.AMCP.Topology do
       Logger.info("Declared event fanout exchange: #{@event_exchange}")
       
       # Algedonic direct exchange for urgent signals
-      AMQP.Exchange.declare(channel, @algedonic_exchange, :direct, durable: true)
+      AMQP.Exchange.declare(channel, @algedonic_exchange, :direct, 
+        durable: true,
+        arguments: [{"x-message-ttl", :signedint, 300_000}]  # 5 min TTL
+      )
       Logger.info("Declared algedonic exchange: #{@algedonic_exchange}")
+      
+      # Command exchange for control directives
+      AMQP.Exchange.declare(channel, @command_exchange, :topic, durable: true)
+      Logger.info("Declared command exchange: #{@command_exchange}")
       
       # Dead Letter Exchange
       AMQP.Exchange.declare(channel, @dlx_exchange, :fanout, durable: true)
@@ -317,6 +328,21 @@ defmodule AutonomousOpponentV2Core.AMCP.Topology do
   end
 
   defp amqp_available? do
-    Code.ensure_loaded?(AMQP) and function_exported?(AMQP.Exchange, :declare, 4)
+    # Check if AMQP is enabled in config or environment
+    amqp_enabled = case Application.get_env(:autonomous_opponent_core, :amqp_enabled) do
+      nil -> System.get_env("AMQP_ENABLED", "true") == "true"
+      false -> false
+      true -> true
+      value when is_binary(value) -> value == "true"
+      _ -> true
+    end
+    
+    # Also check if the AMQP module is available
+    amqp_loaded = Code.ensure_loaded?(AMQP) and 
+      (function_exported?(AMQP.Connection, :open, 0) or 
+       function_exported?(AMQP.Connection, :open, 1) or 
+       function_exported?(AMQP.Connection, :open, 2))
+    
+    amqp_enabled and amqp_loaded
   end
 end

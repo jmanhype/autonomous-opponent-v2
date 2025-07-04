@@ -253,9 +253,12 @@ defmodule AutonomousOpponentV2Core.VSM.Channels.VarietyChannel do
     # S5 → All: Policy constraints that shape all subsystems
     %{
       variety_type: :policy,
-      constraints: data.constraints,
-      values: data.values,
-      enforcement: :mandatory,
+      constraints: Map.get(data, :constraints, %{}),
+      values: Map.get(data, :values, %{}),
+      enforcement: Map.get(data, :enforcement, :mandatory),
+      environmental_model: Map.get(data, :environmental_model),
+      policy_violations: Map.get(data, :policy_violations, []),
+      recommended_adjustments: Map.get(data, :recommended_adjustments, []),
       timestamp: DateTime.utc_now()
     }
   end

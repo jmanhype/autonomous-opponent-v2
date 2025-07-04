@@ -35,7 +35,12 @@ defmodule AutonomousOpponentV2Core.AMCP.ConnectionWorker do
     
     case establish_connection() do
       {:ok, connection, channel} ->
-        monitor_ref = Process.monitor(connection.pid)
+        # Handle both real connections and stub mode
+        monitor_ref = if connection == :stub_connection do
+          nil  # No process to monitor in stub mode
+        else
+          Process.monitor(connection.pid)
+        end
         
         new_state = %State{
           connection: connection,
@@ -151,9 +156,12 @@ defmodule AutonomousOpponentV2Core.AMCP.ConnectionWorker do
   defp channel_alive?(channel) do
     case channel do
       :stub_channel -> true
+      nil -> false
       _ -> 
         # Check if channel process is alive
-        is_pid(channel.pid) and Process.alive?(channel.pid)
+        # AMQP.Channel struct has a pid field
+        pid = Map.get(channel, :pid)
+        is_pid(pid) and Process.alive?(pid)
     end
   rescue
     _ -> false
@@ -172,7 +180,26 @@ defmodule AutonomousOpponentV2Core.AMCP.ConnectionWorker do
   end
 
   defp amqp_available? do
-    Code.ensure_loaded?(AMQP) and function_exported?(AMQP.Connection, :open, 1)
+    # Check if AMQP is enabled in config or environment
+    amqp_enabled = case Application.get_env(:autonomous_opponent_core, :amqp_enabled) do
+      nil -> System.get_env("AMQP_ENABLED", "true") == "true"
+      false -> false
+      true -> true
+      value when is_binary(value) -> value == "true"
+      _ -> true
+    end
+    
+    # Also check if the AMQP module is available
+    # The AMQP.Connection.open/1 is the standard function
+    amqp_loaded = Code.ensure_loaded?(AMQP) and 
+      Code.ensure_loaded?(AMQP.Connection) and
+      function_exported?(AMQP.Connection, :open, 1)
+    
+    if amqp_enabled and not amqp_loaded do
+      Logger.warning("AMQP is enabled but library not loaded properly")
+    end
+    
+    amqp_enabled and amqp_loaded
   end
 
   # Safe wrappers for AMQP operations that handle both real and stub modes

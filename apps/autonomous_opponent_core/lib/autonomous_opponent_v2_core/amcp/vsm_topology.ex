@@ -92,8 +92,7 @@ if Code.ensure_loaded?(AMQP) do
     # Private functions
     
     defp declare_vsm_topology do
-      case ConnectionPool.get_channel() do
-        {:ok, channel} ->
+      ConnectionPool.with_connection(fn channel ->
           try do
             # Declare main VSM topic exchange
             :ok = Exchange.declare(channel, @vsm_exchange, :topic, durable: true)
@@ -130,9 +129,7 @@ if Code.ensure_loaded?(AMQP) do
               {:error, error}
           end
           
-        {:error, reason} ->
-          {:error, reason}
-      end
+      end)
     end
     
     defp create_subsystem_queues(channel, subsystem) do
@@ -207,8 +204,7 @@ if Code.ensure_loaded?(AMQP) do
     end
     
     defp publish_vsm_event(subsystem, event_type, payload) do
-      case ConnectionPool.get_channel() do
-        {:ok, channel} ->
+      ConnectionPool.with_connection(fn channel ->
           routing_key = "#{subsystem}.#{event_type}"
           message = Jason.encode!(%{
             subsystem: subsystem,
@@ -225,14 +221,11 @@ if Code.ensure_loaded?(AMQP) do
           Logger.debug("Published VSM event to #{routing_key}")
           :ok
           
-        {:error, reason} ->
-          {:error, reason}
-      end
+      end)
     end
     
     defp publish_algedonic_signal(severity, payload) do
-      case ConnectionPool.get_channel() do
-        {:ok, channel} ->
+      ConnectionPool.with_connection(fn channel ->
           priority = case severity do
             :critical -> 10
             :high -> 8
@@ -256,9 +249,7 @@ if Code.ensure_loaded?(AMQP) do
           Logger.info("Published algedonic signal with severity: #{severity}")
           :ok
           
-        {:error, reason} ->
-          {:error, reason}
-      end
+      end)
     end
     
     # Public API

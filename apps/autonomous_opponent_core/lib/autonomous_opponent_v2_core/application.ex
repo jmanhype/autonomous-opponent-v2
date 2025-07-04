@@ -2,14 +2,21 @@ defmodule AutonomousOpponentV2Core.Application do
   @moduledoc false
 
   use Application
+  require Logger
 
   @impl true
   def start(_type, _args) do
+    # Ensure AMQP application is started before we check for it
+    ensure_amqp_started()
+    
     children = [
       # Start the Ecto repository
       AutonomousOpponentV2Core.Repo,
       # Start the EventBus
       {AutonomousOpponentV2Core.EventBus, name: AutonomousOpponentV2Core.EventBus},
+      # Start core infrastructure services
+      {AutonomousOpponentV2Core.Core.CircuitBreaker, name: AutonomousOpponentV2Core.Core.CircuitBreaker},
+      {AutonomousOpponentV2Core.Core.RateLimiter, name: AutonomousOpponentV2Core.Core.RateLimiter},
       # Start the Telemetry supervisor
       # AutonomousOpponentV2Core.Telemetry,
     ] ++ amqp_children() ++ vsm_children()
@@ -25,19 +32,34 @@ defmodule AutonomousOpponentV2Core.Application do
 
   # Start AMQP services if enabled
   defp amqp_children do
-    if Application.get_env(:autonomous_opponent_core, :amqp_enabled, true) do
+    if amqp_enabled?() do
       [
-        # Connection pool must start first
-        AutonomousOpponentV2Core.AMCP.ConnectionPool,
-        # Then the connection manager for backward compatibility
-        AutonomousOpponentV2Core.AMCP.ConnectionManager,
-        # Health monitoring
-        AutonomousOpponentV2Core.AMCP.HealthMonitor,
-        # Router if it exists
-        # AutonomousOpponentV2Core.AMCP.Router
+        # AMQP Supervisor manages all AMQP components
+        AutonomousOpponentV2Core.AMCP.Supervisor
       ]
     else
       []
+    end
+  end
+  
+  defp ensure_amqp_started do
+    if amqp_enabled?() do
+      case Application.ensure_all_started(:amqp) do
+        {:ok, _apps} ->
+          :ok
+        {:error, reason} ->
+          Logger.warning("Failed to start AMQP application: #{inspect(reason)}")
+      end
+    end
+  end
+  
+  defp amqp_enabled? do
+    case Application.get_env(:autonomous_opponent_core, :amqp_enabled) do
+      nil -> System.get_env("AMQP_ENABLED", "true") == "true"
+      false -> false
+      true -> true
+      value when is_binary(value) -> value == "true"
+      _ -> true
     end
   end
 end

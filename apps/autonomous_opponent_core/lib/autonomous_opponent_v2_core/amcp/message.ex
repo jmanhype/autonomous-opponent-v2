@@ -6,6 +6,9 @@ defmodule AutonomousOpponentV2Core.AMCP.Message do
   **Wisdom Preservation:** A well-defined message schema is crucial for interoperability,
   traceability, and ensuring that all components understand the 'meaning' of data.
   It prevents implicit contracts and facilitates future evolution.
+  
+  **Design Principle #7:** Message IDs are content-based hashes to prevent race conditions
+  and ensure deterministic identification across the distributed system.
   """
   use Ecto.Schema
   import Ecto.Changeset
@@ -18,8 +21,50 @@ defmodule AutonomousOpponentV2Core.AMCP.Message do
     field :recipient, :string
     field :payload, :map
     field :context, :map
-    field :timestamp, :utc_datetime, autogenerate: {&DateTime.utc_now/0, [], UtcDateTime}
+    field :timestamp, :utc_datetime
     field :signature, :string
+  end
+
+  @doc """
+  Creates a new message with content-based ID
+  """
+  def new(attrs) do
+    # Add timestamp if not provided
+    attrs = case Map.get(attrs, :timestamp) do
+      nil -> Map.put(attrs, :timestamp, DateTime.utc_now())
+      _ -> attrs
+    end
+    
+    # Generate content-based hash ID
+    id = generate_content_hash(attrs)
+    
+    %__MODULE__{}
+    |> changeset(Map.put(attrs, :id, id))
+    |> apply_changes()
+  end
+
+  @doc """
+  Generates a deterministic content-based hash for message ID
+  """
+  def generate_content_hash(attrs) do
+    # Exclude id and signature from hash calculation
+    content = Map.drop(attrs, [:id, :signature])
+    
+    # Create deterministic string representation
+    canonical = :erlang.term_to_binary(content, [:deterministic])
+    
+    # Generate SHA256 hash and convert to UUID format
+    :crypto.hash(:sha256, canonical)
+    |> Base.encode16(case: :lower)
+    |> String.slice(0..31)
+    |> format_as_uuid()
+  end
+
+  defp format_as_uuid(hex) do
+    # Format as UUID v4-like string
+    <<a::binary-size(8), b::binary-size(4), c::binary-size(4), 
+      d::binary-size(4), e::binary-size(12)>> = hex
+    "#{a}-#{b}-#{c}-#{d}-#{e}"
   end
 
   @doc false

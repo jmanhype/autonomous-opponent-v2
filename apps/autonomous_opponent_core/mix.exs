@@ -47,9 +47,9 @@ defmodule AutonomousOpponentV2Core.MixProject do
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:dialyxir, "~> 1.4", only: [:dev], runtime: false},
       {:mix_audit, "~> 2.1", only: [:dev, :test], runtime: false},
-      # AMQP library - latest version should support OTP 27
+      # AMQP library - version 4.x supports OTP 27
       # If still incompatible, the code gracefully degrades to stub mode
-      {:amqp, "~> 3.3"}
+      {:amqp, "~> 4.0"}
     ]
   end
 

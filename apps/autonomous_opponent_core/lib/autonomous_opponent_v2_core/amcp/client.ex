@@ -253,6 +253,12 @@ defmodule AutonomousOpponentV2Core.AMCP.Client do
   end
   
   defp amqp_available? do
-    Code.ensure_loaded?(AMQP)
+    # Check if AMQP is enabled in config
+    amqp_enabled = Application.get_env(:autonomous_opponent_core, :amqp_enabled, false)
+    
+    # Also check if the AMQP module is available
+    amqp_loaded = Code.ensure_loaded?(AMQP) and function_exported?(AMQP.Connection, :open, 1)
+    
+    amqp_enabled and amqp_loaded
   end
 end
