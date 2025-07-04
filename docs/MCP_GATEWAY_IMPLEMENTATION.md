@@ -4,6 +4,25 @@
 
 The MCP (Model Context Protocol) Gateway has been fully implemented as part of Task 8, providing HTTP+SSE and WebSocket transport layers with intelligent routing, connection pooling, and complete VSM integration.
 
+## Quick Start
+
+For developers who want to get running quickly:
+
+```elixir
+# 1. Start the gateway (already in supervision tree)
+# 2. Connect via WebSocket
+const socket = new Socket("/mcp/ws", {params: {client_id: "test_user"}})
+socket.connect()
+const channel = socket.channel("mcp:gateway", {})
+channel.join()
+
+# 3. Or connect via SSE
+const sse = new EventSource('/mcp/sse?client_id=test_user')
+sse.onmessage = (e) => console.log(e.data)
+```
+
+See [Usage Examples](#usage-examples) for detailed client implementations.
+
 ## Architecture
 
 ```
@@ -62,6 +81,49 @@ Consistent hash implementation featuring:
 - Weighted node distribution
 - Minimal key redistribution on node changes
 - Replication support for high availability
+
+### Understanding Consistent Hashing
+
+Consistent hashing ensures minimal disruption when nodes are added/removed:
+
+```
+Without Consistent Hashing:
+- 3 nodes, 9 keys: [1,2,3] [4,5,6] [7,8,9]
+- Remove node 2: [1,2,3,5,7] [4,6,8,9] (66% keys moved!)
+
+With Consistent Hashing:
+- Virtual nodes create a ring
+- Keys map to nearest node clockwise
+- Remove node: Only keys from that node move (33% max)
+```
+
+Visual representation:
+```
+    Node A (150 vnodes)
+         |
+    K1---+---K2
+   /           \
+  K9           K3
+  |             |
+Node C       Node B
+(150 vn)    (150 vn)
+  |             |
+  K8           K4
+   \           /
+    K7--K6--K5
+    
+When Node B is removed:
+- Only K3, K4, K5 move to Node C
+- K1, K2 stay with Node A
+- K6, K7, K8, K9 stay with Node C
+- 33% redistribution vs 66% without consistent hashing
+```
+
+Implementation benefits:
+- **Predictable**: Same key always maps to same node (unless node fails)
+- **Scalable**: Add nodes with minimal disruption
+- **Fair**: Virtual nodes ensure even distribution
+- **Resilient**: Automatic rebalancing on node failure
 
 ### 5. VSM Integration
 
@@ -203,6 +265,120 @@ defmodule Gateway.ResourceControl do
       current_usage: get_current_usage(),
       priority: :normal
     })
+  end
+end
+```
+
+### Complete VSM Integration Example
+
+Here's how a message flows through the entire VSM:
+
+```elixir
+defmodule Gateway.MessageFlow do
+  @moduledoc """
+  Example of complete message flow through VSM subsystems
+  """
+  
+  def process_incoming_message(client_id, message) do
+    # 1. S1: Operations processes the message
+    {:ok, operation_id} = EventBus.call(:s1_operations, %{
+      action: :process,
+      variety_type: :external_message,
+      payload: message,
+      source: {:gateway, client_id},
+      timestamp: DateTime.utc_now()
+    })
+    
+    # 2. S2: Check for coordination needs
+    if requires_coordination?(message) do
+      EventBus.publish(:s2_coordination, %{
+        operation_id: operation_id,
+        coordinate: extract_coordination_params(message),
+        anti_oscillation_check: true
+      })
+    end
+    
+    # 3. S3: Request resources if needed
+    if requires_resources?(message) do
+      case EventBus.call(:s3_control, %{
+        request: :allocate,
+        operation_id: operation_id,
+        resources: estimate_resources(message),
+        priority: calculate_priority(client_id)
+      }) do
+        {:ok, allocation} -> 
+          proceed_with_allocation(allocation)
+        {:error, :insufficient_resources} ->
+          # Trigger pain signal for resource shortage
+          trigger_algedonic_pain(:resource_shortage, %{
+            operation_id: operation_id,
+            requested: estimate_resources(message),
+            available: get_available_resources()
+          })
+      end
+    end
+    
+    # 4. S4: Intelligence gathering
+    EventBus.publish(:s4_intelligence, %{
+      event: :message_received,
+      metadata: analyze_message(message),
+      patterns: detect_patterns(client_id, message),
+      environmental_scan: %{
+        client_behavior: get_client_profile(client_id),
+        system_load: get_system_metrics(),
+        trend_analysis: analyze_recent_patterns()
+      }
+    })
+    
+    # 5. S5: Policy check
+    case EventBus.call(:s5_policy, %{
+      check: :message_allowed,
+      client_id: client_id,
+      message_type: message.type,
+      context: %{
+        rate_limit_status: check_rate_limit(client_id),
+        authentication: get_auth_status(client_id),
+        compliance: check_compliance_rules(message)
+      }
+    }) do
+      :allowed -> 
+        Logger.info("Message approved by S5 policy")
+        :ok
+      {:denied, reason} -> 
+        Logger.warn("Message denied by S5: #{reason}")
+        {:error, {:policy_violation, reason}}
+    end
+  end
+  
+  defp trigger_algedonic_pain(type, context) do
+    EventBus.publish(:algedonic_channel, %{
+      signal_type: :pain,
+      severity: determine_severity(type),
+      source: :mcp_gateway,
+      pain_type: type,
+      context: context,
+      timestamp: DateTime.utc_now(),
+      suggested_actions: suggest_remediation(type, context)
+    })
+  end
+  
+  defp requires_coordination?(message) do
+    # Messages requiring multi-transport coordination
+    message.type in [:broadcast, :multicast, :transport_switch]
+  end
+  
+  defp requires_resources?(message) do
+    # Large messages or high-priority operations
+    message.size > 1_048_576 or message.priority == :high
+  end
+  
+  defp estimate_resources(message) do
+    %{
+      cpu: estimate_cpu_usage(message),
+      memory: message.size * 1.5,  # Include overhead
+      connections: if(message.type == :broadcast, do: 100, else: 1),
+      bandwidth: message.size * expected_recipients(message)
+    }
   end
 end
 ```
@@ -519,6 +695,92 @@ mix test test/autonomous_opponent_v2_core/mcp/
 - **Failover Time**: < 1 second
 - **Memory Usage**: ~1KB per idle connection
 
+## Performance Tuning Guide
+
+### BEAM VM Optimization
+```bash
+# For 10K+ connections, start with:
+ERL_FLAGS="+P 5000000 +Q 1000000 +K true +A 128" mix phx.server
+
+# Explanation:
+# +P 5000000    - Increase process limit
+# +Q 1000000    - Increase port limit  
+# +K true       - Enable kernel poll
+# +A 128        - Increase async threads
+```
+
+### Connection Pool Tuning
+```elixir
+# Based on expected load:
+# Light (< 1K connections): size: 50, overflow: 25
+# Medium (1K-5K): size: 200, overflow: 100
+# Heavy (5K-10K): size: 500, overflow: 250
+# Extreme (10K+): size: 1000, overflow: 500
+
+# config/prod.exs
+config :autonomous_opponent_core, :mcp_gateway,
+  pool: [
+    size: 500,      # Adjust based on load
+    overflow: 250,
+    max_overflow: 500,  # Hard limit
+    strategy: :fifo,
+    checkout_timeout: 5_000
+  ]
+```
+
+### Linux Kernel Tuning
+```bash
+# /etc/sysctl.conf for high connection count
+net.ipv4.tcp_keepalive_time = 120
+net.ipv4.tcp_keepalive_intvl = 30
+net.ipv4.tcp_keepalive_probes = 3
+net.core.somaxconn = 65535
+net.ipv4.tcp_max_syn_backlog = 65535
+net.core.netdev_max_backlog = 65535
+net.ipv4.ip_local_port_range = 1024 65535
+net.ipv4.tcp_tw_reuse = 1
+net.ipv4.tcp_fin_timeout = 15
+
+# Apply changes
+sudo sysctl -p
+
+# Increase file descriptor limits
+# /etc/security/limits.conf
+* soft nofile 1000000
+* hard nofile 1000000
+```
+
+### Memory Optimization
+```elixir
+# Tune garbage collection for long-lived connections
+config :autonomous_opponent_core, :mcp_gateway,
+  connection_gc_settings: [
+    fullsweep_after: 20,     # More aggressive GC
+    min_heap_size: 1024,     # Smaller initial heap
+    min_bin_vheap_size: 1024 # Binary heap tuning
+  ]
+```
+
+### Transport-Specific Tuning
+```elixir
+# WebSocket optimization
+config :autonomous_opponent_core, :mcp_gateway,
+  websocket: [
+    compress: true,              # Enable compression
+    max_frame_size: 65_536,     # Optimize for your message size
+    batch_size: 100,            # Batch small messages
+    tcp_nodelay: true           # Disable Nagle's algorithm
+  ]
+
+# SSE optimization  
+config :autonomous_opponent_core, :mcp_gateway,
+  http_sse: [
+    chunk_size: 16_384,         # Optimal chunk size
+    compression_level: 6,       # Balance CPU vs size
+    keep_alive_timeout: 120_000 # 2 minutes
+  ]
+```
+
 ## Monitoring
 
 The gateway reports comprehensive metrics:
@@ -744,6 +1006,72 @@ export OTEL_EXPORTER_OTLP_ENDPOINT="http://otel-collector:4317"
 - Implement Redis-based session storage
 - Consider geographic distribution
 
+### Capacity Planning Guide
+
+#### Connection Capacity Formula
+```
+Max Connections = (Available Memory - Base Memory) / Memory per Connection
+Example: (8GB - 2GB) / 200KB = ~30,000 connections per instance
+```
+
+#### Bandwidth Requirements
+```
+Bandwidth = Connections × Messages/sec × Avg Message Size
+Example: 10,000 × 10 × 1KB = 100 MB/s = 800 Mbps
+```
+
+#### CPU Requirements
+```
+CPUs needed = (Connections × Messages/sec) / 50,000
+Example: (10,000 × 10) / 50,000 = 2 CPUs
+```
+
+#### Detailed Capacity Planning
+
+##### Small Deployment (< 1K connections)
+```yaml
+resources:
+  cpu: 1 core
+  memory: 2GB
+  network: 100Mbps
+  pool_size: 50
+  overflow: 25
+```
+
+##### Medium Deployment (1K-10K connections)
+```yaml
+resources:
+  cpu: 2-4 cores
+  memory: 4-8GB
+  network: 1Gbps
+  pool_size: 200-500
+  overflow: 100-250
+  instances: 2-3 for HA
+```
+
+##### Large Deployment (10K-100K connections)
+```yaml
+resources:
+  cpu: 8-16 cores per instance
+  memory: 16-32GB per instance
+  network: 10Gbps
+  pool_size: 1000
+  overflow: 500
+  instances: 5-10
+  load_balancer: Required
+  session_storage: Redis cluster
+```
+
+##### Monitoring Thresholds
+```elixir
+# Set alerts when approaching capacity
+config :autonomous_opponent_core, :capacity_alerts,
+  cpu_threshold: 80,           # Alert at 80% CPU
+  memory_threshold: 85,        # Alert at 85% memory
+  connection_threshold: 90,    # Alert at 90% of max connections
+  bandwidth_threshold: 70      # Alert at 70% bandwidth
+```
+
 ### Security Hardening
 ```elixir
 # config/prod.exs
@@ -765,6 +1093,215 @@ config :cors_plug,
   headers: ["Authorization", "Content-Type", "X-Client-ID"]
 ```
 
+## Security Best Practices
+
+### Authentication & Authorization
+```elixir
+# Implement token validation in the channel
+defmodule AutonomousOpponentWeb.MCPChannel do
+  def join("mcp:gateway", %{"token" => token}, socket) do
+    case validate_token(token) do
+      {:ok, user_id} ->
+        socket = assign(socket, :user_id, user_id)
+        # Track authentication
+        Gateway.track_auth(user_id, :success)
+        {:ok, socket}
+      {:error, reason} ->
+        Gateway.track_auth(nil, :failure, reason)
+        {:error, %{reason: reason}}
+    end
+  end
+  
+  defp validate_token(token) do
+    # JWT validation example
+    case Guardian.decode_and_verify(token) do
+      {:ok, claims} -> 
+        # Additional checks
+        if token_not_revoked?(claims["jti"]) do
+          {:ok, claims["sub"]}
+        else
+          {:error, "token_revoked"}
+        end
+      {:error, _} -> 
+        {:error, "invalid_token"}
+    end
+  end
+end
+```
+
+### Rate Limiting Per User
+```elixir
+# Implement user-specific rate limits
+defmodule Gateway.RateLimiter do
+  def check_rate(user_id) do
+    limits = %{
+      "premium" => 1000,
+      "standard" => 100,
+      "trial" => 10
+    }
+    
+    user_tier = get_user_tier(user_id)
+    limit = Map.get(limits, user_tier, 10)
+    
+    case RateLimiter.check_rate(
+      "user:#{user_id}",
+      limit,
+      60_000  # per minute
+    ) do
+      {:allow, _count} -> :ok
+      {:deny, _limit} -> 
+        {:error, :rate_limit_exceeded, get_retry_after(user_id)}
+    end
+  end
+  
+  defp get_retry_after(user_id) do
+    # Calculate when user can retry
+    case RateLimiter.ms_to_reset("user:#{user_id}") do
+      nil -> 60_000  # Default 1 minute
+      ms -> ms
+    end
+  end
+end
+```
+
+### Message Validation
+```elixir
+# Always validate incoming messages
+defmodule Gateway.MessageValidator do
+  def validate(message) do
+    with :ok <- validate_size(message),
+         :ok <- validate_structure(message),
+         :ok <- validate_content(message),
+         :ok <- scan_for_threats(message) do
+      :ok
+    else
+      {:error, reason} -> {:error, {:invalid_message, reason}}
+    end
+  end
+  
+  defp validate_size(message) when byte_size(message) > 1_048_576 do
+    {:error, :message_too_large}
+  end
+  defp validate_size(_), do: :ok
+  
+  defp validate_structure(message) do
+    # Ensure required fields
+    required_fields = [:type, :data, :client_id]
+    missing = required_fields -- Map.keys(message)
+    
+    if Enum.empty?(missing) do
+      :ok
+    else
+      {:error, {:missing_fields, missing}}
+    end
+  end
+  
+  defp scan_for_threats(message) do
+    # Check for injection attempts
+    suspicious_patterns = [
+      ~r/<script/i,
+      ~r/javascript:/i,
+      ~r/on\w+=/i,
+      ~r/\${.*}/
+    ]
+    
+    message_string = inspect(message)
+    
+    if Enum.any?(suspicious_patterns, &Regex.match?(&1, message_string)) do
+      {:error, :potential_injection}
+    else
+      :ok
+    end
+  end
+end
+```
+
+### Connection Security
+```elixir
+# Implement connection-level security
+defmodule Gateway.ConnectionSecurity do
+  @max_connections_per_ip 100
+  @suspicious_behavior_threshold 10
+  
+  def authorize_connection(ip, client_id) do
+    with :ok <- check_ip_limit(ip),
+         :ok <- check_blacklist(ip, client_id),
+         :ok <- check_suspicious_behavior(client_id) do
+      :ok
+    end
+  end
+  
+  defp check_ip_limit(ip) do
+    count = ConnectionTracker.count_by_ip(ip)
+    if count < @max_connections_per_ip do
+      :ok
+    else
+      {:error, :too_many_connections_from_ip}
+    end
+  end
+  
+  defp check_blacklist(ip, client_id) do
+    if Blacklist.contains?(ip) or Blacklist.contains?(client_id) do
+      {:error, :blacklisted}
+    else
+      :ok
+    end
+  end
+  
+  defp check_suspicious_behavior(client_id) do
+    score = BehaviorAnalyzer.get_suspicion_score(client_id)
+    if score < @suspicious_behavior_threshold do
+      :ok
+    else
+      # Log for manual review
+      Logger.warn("Suspicious behavior detected for #{client_id}: score #{score}")
+      {:error, :suspicious_behavior}
+    end
+  end
+end
+```
+
+### Encryption and Data Protection
+```elixir
+# Encrypt sensitive data in transit
+defmodule Gateway.Encryption do
+  @aes_key Application.get_env(:autonomous_opponent_core, :gateway_encryption_key)
+  
+  def encrypt_message(message, client_id) do
+    # Generate unique IV for each message
+    iv = :crypto.strong_rand_bytes(16)
+    
+    # Encrypt using AES-GCM
+    {ciphertext, tag} = :crypto.crypto_one_time_aead(
+      :aes_256_gcm,
+      @aes_key,
+      iv,
+      Jason.encode!(message),
+      client_id,  # Additional authenticated data
+      true
+    )
+    
+    %{
+      encrypted: Base.encode64(ciphertext),
+      iv: Base.encode64(iv),
+      tag: Base.encode64(tag)
+    }
+  end
+  
+  def decrypt_message(encrypted_data, client_id) do
+    with {:ok, ciphertext} <- Base.decode64(encrypted_data.encrypted),
+         {:ok, iv} <- Base.decode64(encrypted_data.iv),
+         {:ok, tag} <- Base.decode64(encrypted_data.tag),
+         {:ok, plaintext} <- decrypt_aes_gcm(ciphertext, iv, tag, client_id),
+         {:ok, message} <- Jason.decode(plaintext) do
+      {:ok, message}
+    else
+      _ -> {:error, :decryption_failed}
+    end
+  end
+end
+```
+
 ## Error Handling
 
 Robust error handling includes:
@@ -773,6 +1310,79 @@ Robust error handling includes:
 - Rate limiting with token bucket
 - Graceful degradation
 - Algedonic signals for critical failures
+
+## Common Pitfalls and How to Avoid Them
+
+### 1. Message Ordering Assumptions
+**Pitfall**: Assuming messages always arrive in order during transport switches
+**Solution**: Always use the built-in sequencing or implement client-side buffering
+
+```javascript
+// Use the MessageSequencer from the examples
+const sequencer = new MessageSequencer()
+channel.on("message", (msg) => sequencer.handleMessage(msg))
+```
+
+### 2. Connection State Synchronization
+**Pitfall**: Client and server disagree on connection state
+**Solution**: Implement heartbeat acknowledgments, not just one-way pings
+
+```elixir
+# Server expects acknowledgment
+def handle_in("ping", _payload, socket) do
+  push(socket, "pong", %{timestamp: System.system_time(:millisecond)})
+  {:noreply, socket}
+end
+```
+
+### 3. Memory Leaks from Event Handlers
+**Pitfall**: Not cleaning up event listeners on disconnect
+**Solution**: 
+```javascript
+// Always clean up
+channel.leave().then(() => {
+  channel.off("message")  // Remove all handlers
+  eventSource.close()     // Close SSE connection
+})
+```
+
+### 4. Ignoring Backpressure Signals
+**Pitfall**: Client continues sending when server is overloaded
+**Solution**: Respect rate limit headers and implement client-side throttling
+
+```javascript
+// Check response headers
+if (response.headers.get('X-RateLimit-Remaining') === '0') {
+  const retryAfter = response.headers.get('X-RateLimit-Reset')
+  await waitUntil(retryAfter)
+}
+```
+
+### 5. Circuit Breaker Conflicts
+**Pitfall**: Application-level retries fighting with gateway circuit breakers
+**Solution**: Coordinate retry strategies - let the gateway handle transport-level retries
+
+```elixir
+# Configure compatible timeouts
+config :my_app, :retry_config,
+  max_attempts: 3,
+  backoff: :exponential,
+  max_backoff: 30_000  # Match circuit breaker timeout
+```
+
+### 6. Resource Exhaustion During Bursts
+**Pitfall**: Not planning for traffic spikes
+**Solution**: Implement proper queueing and overflow handling
+
+```elixir
+# Use overflow pool for bursts
+config :autonomous_opponent_core, :mcp_gateway,
+  pool: [
+    size: 100,
+    overflow: 200,  # Handle 3x normal traffic
+    queue: :infinity  # Queue instead of reject
+  ]
+```
 
 ## Future Enhancements
 
@@ -802,6 +1412,47 @@ Common issues and solutions:
 ### Rate Limiting
 - **Symptom**: `rate_limit_exceeded` errors
 - **Solution**: Adjust rate limits or implement client-side throttling
+
+### Troubleshooting Decision Tree
+
+```mermaid
+graph TD
+    A[Connection Issue] --> B{Transport Type?}
+    B -->|WebSocket| C{Error Code?}
+    B -->|SSE| D{Reconnecting?}
+    
+    C -->|1006| E[Check Proxy Timeout]
+    C -->|1000-1015| F[Check Close Reason]
+    C -->|Other| G[Check Server Logs]
+    
+    D -->|Yes| H[Check Network]
+    D -->|No| I[Check Client Implementation]
+    
+    E --> J[Increase Ping Interval]
+    F --> K[Handle Specific Error]
+    G --> L[Enable Debug Logging]
+    
+    H --> M[Verify Firewall Rules]
+    I --> N[Implement Reconnection Logic]
+    
+    J --> O[Update Client Config]
+    K --> P[Add Error Handler]
+    L --> Q[Analyze Debug Output]
+    
+    M --> R[Test Direct Connection]
+    N --> S[Add Exponential Backoff]
+    
+    style A fill:#f9f,stroke:#333,stroke-width:4px
+    style E fill:#ff9,stroke:#333,stroke-width:2px
+    style J fill:#9f9,stroke:#333,stroke-width:2px
+```
+
+#### Using the Decision Tree
+
+1. **Start with the Connection Issue**: Identify if it's WebSocket or SSE
+2. **Follow the appropriate branch**: Check error codes or reconnection status
+3. **Apply the suggested solution**: Each leaf node provides a specific action
+4. **Verify the fix**: Test the connection after applying changes
 
 ## Enhanced Error Handling
 

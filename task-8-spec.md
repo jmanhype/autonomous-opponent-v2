@@ -53,12 +53,67 @@ Implement HTTP+SSE transport using Phoenix.Endpoint and Server-Sent Events. Comp
 - Support for weighted distribution
 - Built-in replication for high availability
 
-### Integration with VSM
-- Gateway acts as variety amplifier for external inputs
-- All messages flow through S1 (Operations) for processing
-- Metrics feed S4 (Intelligence) for environmental awareness
-- Circuit breakers controlled by S3 (Control)
-- Critical failures trigger algedonic signals
+### Resource Requirements (per 10K connections)
+- CPU: ~2 cores at 70% utilization
+- Memory: ~2GB (200KB per connection including buffers)
+- Network: 100Mbps sustained, 1Gbps burst capability
+- Disk I/O: Minimal (logs only)
+
+## Monitoring & Observability Requirements
+
+### Core Metrics
+- Distributed tracing support (OpenTelemetry)
+- Prometheus metrics endpoint at `/metrics`
+- Structured logging with correlation IDs
+- Real-time dashboard with key metrics
+- Alert thresholds for SLO violations
+
+### Required Dashboards
+- Connection count by transport type
+- Message throughput and latency (p50, p90, p99)
+- Error rates and circuit breaker status
+- Pool utilization and queue depth
+- VSM variety flow metrics
+
+### Alert Thresholds
+- Connection pool exhaustion (> 90% utilized)
+- High error rate (> 5% over 1 minute)
+- Transport failover events (> 10 per minute)
+- Message latency degradation (p99 > 500ms)
+- Memory pressure (> 80% heap usage)
+
+## VSM Integration Dependencies
+
+### Integration with VSM (Specific Event Topics)
+- **S1 (Operations)**: Gateway publishes all incoming messages to `:s1_operations` topic
+  - Event format: `{:external_message, client_id, payload, metadata}`
+  - Frequency: Every incoming message
+  - Expected processing time: < 50ms
+  
+- **S2 (Coordination)**: Prevents transport oscillation via `:s2_coordination` checks
+  - Call before transport switch: `{:check_oscillation, client_id, from, to}`
+  - Anti-oscillation window: 60 seconds
+  - Max switches per window: 3
+  
+- **S3 (Control)**: Resource allocation requests via `:s3_control` calls
+  - Connection allocation: `{:allocate_connections, transport, count}`
+  - Rate limit adjustment: `{:adjust_rate_limit, client_id, new_limit}`
+  - Circuit breaker override: `{:force_circuit_state, transport, state}`
+  
+- **S4 (Intelligence)**: Metrics published every 10s to `:s4_intelligence` topic
+  - Aggregate metrics: `{:gateway_metrics, stats_map}`
+  - Pattern detection: `{:usage_pattern, client_id, pattern_type}`
+  - Anomaly reports: `{:anomaly_detected, details}`
+  
+- **S5 (Policy)**: Connection limits enforced via `:s5_policy` subscriptions
+  - Policy updates: `{:policy_update, :gateway, constraints}`
+  - Compliance checks: `{:check_compliance, action, context}`
+  - Identity alignment: `{:verify_identity, operation}`
+  
+- **Algedonic Channel**: Critical failures (pool exhaustion, circuit open) trigger pain signals
+  - Pain signal: `{:pain, :critical, source, message, context}`
+  - Pleasure signal: `{:pleasure, :moderate, source, recovery_metrics}`
+  - Bypass threshold: 3 consecutive failures or pool > 95% utilized
 
 ## Test Strategy
 Unit tests for transport protocols, load tests with concurrent connections, integration tests with rate limiter and metrics, connection pool behavior verification
