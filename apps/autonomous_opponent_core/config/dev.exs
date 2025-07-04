@@ -11,16 +11,24 @@ config :autonomous_opponent_core, AutonomousOpponentV2Core.Repo,
 # Do not print debug messages for Ecto if it is not needed.
 config :ecto, debug_queries: true
 
-# AMQP Configuration
-config :autonomous_opponent_core, :amqp_enabled, false  # Set to true when AMQP library supports OTP 27+
+# AMQP Configuration for development
+# Set to false if RabbitMQ is not available locally
+config :autonomous_opponent_core,
+  amqp_enabled: System.get_env("AMQP_ENABLED", "true") == "true"
 
-# AMQP Connection Configuration
-config :autonomous_opponent_core, :amqp_connection, [
-  hostname: "localhost",
-  username: "guest",
-  password: "guest",
-  port: 5672,
-  virtual_host: "/",
-  heartbeat: 30,
-  connection_timeout: 5_000
-]
+# Override connection settings from environment if available
+if System.get_env("AMQP_URL") do
+  config :autonomous_opponent_core,
+    amqp_connection: System.get_env("AMQP_URL")
+else
+  config :autonomous_opponent_core,
+    amqp_connection: [
+      host: System.get_env("AMQP_HOST", "localhost"),
+      port: String.to_integer(System.get_env("AMQP_PORT", "5672")),
+      username: System.get_env("AMQP_USERNAME", "guest"),
+      password: System.get_env("AMQP_PASSWORD", "guest"),
+      virtual_host: System.get_env("AMQP_VHOST", "/"),
+      heartbeat: 30,
+      connection_timeout: 10_000
+    ]
+end

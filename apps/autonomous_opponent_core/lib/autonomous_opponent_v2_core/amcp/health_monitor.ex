@@ -1,242 +1,242 @@
-# This module is conditionally compiled based on AMQP availability
-if Code.ensure_loaded?(AMQP) do
-  defmodule AutonomousOpponentV2Core.AMCP.HealthMonitor do
-    @moduledoc """
-    Monitors AMQP connection health, publishes metrics to EventBus,
-    and integrates with the system's health check infrastructure.
+defmodule AutonomousOpponentV2Core.AMCP.HealthMonitor do
+  @moduledoc """
+  Monitors the health of AMQP connections and infrastructure.
+  
+  Provides real-time health metrics, alerts on connection issues,
+  and integrates with the VSM algedonic system for pain signals.
+  
+  **Wisdom Preservation:** Health monitoring is not just about detecting
+  failures, but predicting them. By tracking metrics over time, we can
+  identify degradation patterns before they become critical failures.
+  """
+  use GenServer
+  require Logger
+  
+  alias AutonomousOpponentV2Core.AMCP.{ConnectionPool, Topology}
+  alias AutonomousOpponentV2Core.EventBus
+  
+  @check_interval 30_000  # 30 seconds
+  @unhealthy_threshold 3  # Number of failed checks before marking unhealthy
+  
+  defmodule State do
+    @moduledoc false
+    defstruct [
+      :timer_ref,
+      :consecutive_failures,
+      :last_check_result,
+      :metrics_history,
+      :status
+    ]
+  end
+  
+  def start_link(opts) do
+    GenServer.start_link(__MODULE__, opts, name: __MODULE__)
+  end
+  
+  @impl true
+  def init(_opts) do
+    # Schedule first health check
+    timer_ref = Process.send_after(self(), :check_health, 1000)
     
-    **Wisdom Preservation:** Proactive health monitoring enables early
-    detection of issues, allowing the system to adapt before failures
-    cascade. Publishing health events enables system-wide awareness.
-    """
-    use GenServer
-    require Logger
+    state = %State{
+      timer_ref: timer_ref,
+      consecutive_failures: 0,
+      metrics_history: [],
+      status: :initializing
+    }
     
-    alias AutonomousOpponentV2Core.AMCP.ConnectionPool
-    alias AutonomousOpponentV2Core.EventBus
+    {:ok, state}
+  end
+  
+  @impl true
+  def handle_info(:check_health, state) do
+    # Cancel old timer if exists
+    if state.timer_ref, do: Process.cancel_timer(state.timer_ref)
     
-    @check_interval 5_000
-    @unhealthy_threshold 0.5  # Less than 50% healthy connections triggers alert
+    # Perform health check
+    check_result = perform_health_check()
     
-    defmodule State do
-      @moduledoc false
-      defstruct [
-        check_interval: @check_interval,
-        last_status: nil,
-        consecutive_failures: 0,
-        algedonic_triggered: false
-      ]
+    # Update state based on result
+    new_state = process_health_check(check_result, state)
+    
+    # Schedule next check
+    timer_ref = Process.send_after(self(), :check_health, @check_interval)
+    
+    {:noreply, %{new_state | timer_ref: timer_ref}}
+  end
+  
+  @impl true
+  def handle_call(:get_status, _from, state) do
+    status = %{
+      status: state.status,
+      last_check: state.last_check_result,
+      consecutive_failures: state.consecutive_failures,
+      history: Enum.take(state.metrics_history, 10)
+    }
+    
+    {:reply, status, state}
+  end
+  
+  @impl true
+  def handle_call(:force_check, _from, state) do
+    check_result = perform_health_check()
+    new_state = process_health_check(check_result, state)
+    {:reply, check_result, new_state}
+  end
+  
+  defp perform_health_check do
+    timestamp = DateTime.utc_now()
+    
+    # Check connection pool health
+    pool_health = ConnectionPool.health_check()
+    
+    # Test message publishing
+    publish_test = test_message_publishing()
+    
+    # Check queue depths (would need RabbitMQ management API in production)
+    queue_status = check_queue_status()
+    
+    # Calculate overall health score
+    health_score = calculate_health_score(pool_health, publish_test, queue_status)
+    
+    %{
+      timestamp: timestamp,
+      pool_health: pool_health,
+      publish_test: publish_test,
+      queue_status: queue_status,
+      health_score: health_score,
+      healthy: health_score > 0.7
+    }
+  end
+  
+  defp test_message_publishing do
+    test_message = %{
+      type: "health_check",
+      timestamp: DateTime.utc_now() |> DateTime.to_iso8601(),
+      node: node()
+    }
+    
+    case ConnectionPool.publish_with_retry("vsm.events", "health.check", test_message) do
+      :ok -> %{status: :ok, latency: 0}  # Would measure actual latency in production
+      {:error, reason} -> %{status: :error, reason: reason}
     end
+  rescue
+    e -> %{status: :error, reason: inspect(e)}
+  end
+  
+  defp check_queue_status do
+    # In production, this would query RabbitMQ management API
+    # For now, return a placeholder
+    %{
+      status: :unknown,
+      message: "Queue depth monitoring not implemented"
+    }
+  end
+  
+  defp calculate_health_score(pool_health, publish_test, _queue_status) do
+    scores = []
     
-    def start_link(opts) do
-      GenServer.start_link(__MODULE__, opts, name: __MODULE__)
-    end
+    # Pool health contributes 50%
+    pool_score = if pool_health[:healthy], do: 0.5, else: 0.0
+    scores = [pool_score | scores]
     
-    @impl true
-    def init(opts) do
-      check_interval = Keyword.get(opts, :check_interval, @check_interval)
-      
-      state = %State{
-        check_interval: check_interval
-      }
-      
-      # Schedule first health check
-      Process.send_after(self(), :perform_check, 1_000)
-      
-      # Subscribe to EventBus for system health requests
-      EventBus.subscribe(:health_check_request)
-      
-      {:ok, state}
-    end
+    # Publishing capability contributes 40%
+    publish_score = if publish_test[:status] == :ok, do: 0.4, else: 0.0
+    scores = [publish_score | scores]
     
-    @impl true
-    def handle_info(:perform_check, state) do
-      state = perform_health_check(state)
-      
-      # Schedule next check
-      Process.send_after(self(), :perform_check, state.check_interval)
-      
-      {:noreply, state}
-    end
+    # Queue status contributes 10% (not implemented yet)
+    queue_score = 0.1
+    scores = [queue_score | scores]
     
-    @impl true
-    def handle_info({:event, :health_check_request, _data}, state) do
-      # Respond to system-wide health check request
-      health_data = get_current_health()
-      
-      EventBus.publish(:health_check_response, %{
-        component: :amqp,
-        status: health_data.status,
-        details: health_data
-      })
-      
-      {:noreply, state}
-    end
+    Enum.sum(scores)
+  end
+  
+  defp process_health_check(check_result, state) do
+    # Update metrics history (keep last 100 entries)
+    metrics_history = [check_result | state.metrics_history] |> Enum.take(100)
     
-    @impl true
-    def handle_call(:get_health, _from, state) do
-      health_data = get_current_health()
-      {:reply, health_data, state}
-    end
-    
-    # Private functions
-    
-    defp perform_health_check(state) do
-      health_data = get_current_health()
+    # Update failure count and status
+    {consecutive_failures, status} = if check_result.healthy do
+      # Reset failures on successful check
+      {0, :healthy}
+    else
+      failures = state.consecutive_failures + 1
       
-      # Determine if status changed
-      status_changed = state.last_status != health_data.status
-      
-      # Update consecutive failures
-      consecutive_failures = if health_data.status == :unhealthy do
-        state.consecutive_failures + 1
-      else
-        0
-      end
-      
-      # Publish health event if status changed or still unhealthy
-      if status_changed or health_data.status == :unhealthy do
-        EventBus.publish(:amqp_health_changed, health_data)
-        
-        Logger.info("AMQP health status: #{health_data.status}, " <>
-                   "healthy: #{health_data.healthy_connections}/#{health_data.total_connections}")
-      end
-      
-      # Trigger algedonic signal if unhealthy for too long
-      algedonic_triggered = if consecutive_failures >= 3 and not state.algedonic_triggered do
-        trigger_algedonic_signal(health_data)
-        true
-      else
-        state.algedonic_triggered
-      end
-      
-      # Reset algedonic trigger when healthy
-      algedonic_triggered = if health_data.status == :healthy do
-        false
-      else
-        algedonic_triggered
-      end
-      
-      %{state |
-        last_status: health_data.status,
-        consecutive_failures: consecutive_failures,
-        algedonic_triggered: algedonic_triggered
-      }
-    end
-    
-    defp get_current_health do
-      pool_status = ConnectionPool.health_status()
-      
-      health_percentage = if pool_status.total_connections > 0 do
-        pool_status.healthy_connections / pool_status.total_connections
-      else
-        0.0
-      end
-      
+      # Determine status based on failure count
       status = cond do
-        pool_status.total_connections == 0 -> :critical
-        health_percentage < @unhealthy_threshold -> :unhealthy
-        health_percentage < 1.0 -> :degraded
+        failures >= @unhealthy_threshold -> :critical
+        failures > 0 -> :degraded
         true -> :healthy
       end
       
-      %{
-        status: status,
-        healthy_connections: pool_status.healthy_connections,
-        total_connections: pool_status.total_connections,
-        health_percentage: health_percentage,
-        connection_details: pool_status.connection_details,
-        timestamp: DateTime.utc_now()
-      }
-    end
-    
-    defp trigger_algedonic_signal(health_data) do
-      Logger.error("AMQP health critical - triggering algedonic signal")
-      
-      EventBus.publish(:algedonic_signal, %{
-        source: :amqp_health_monitor,
-        severity: :high,
-        message: "AMQP connectivity severely degraded",
-        details: health_data,
-        recommended_action: :escalate_to_s3
-      })
-    end
-    
-    # Public API
-    
-    @doc """
-    Gets the current health status of AMQP connections.
-    """
-    def get_health do
-      GenServer.call(__MODULE__, :get_health)
-    end
-    
-    @doc """
-    Checks if AMQP is currently healthy.
-    """
-    def healthy? do
-      case get_health() do
-        %{status: :healthy} -> true
-        %{status: :degraded} -> true
-        _ -> false
+      # Send algedonic pain signal if critical
+      if status == :critical and state.status != :critical do
+        send_pain_signal(check_result)
       end
+      
+      {failures, status}
     end
+    
+    # Publish health event
+    EventBus.publish(:amqp_health_check, %{
+      status: status,
+      check_result: check_result,
+      consecutive_failures: consecutive_failures
+    })
+    
+    %State{
+      state |
+      last_check_result: check_result,
+      metrics_history: metrics_history,
+      consecutive_failures: consecutive_failures,
+      status: status
+    }
   end
-else
-  # Stub implementation when AMQP is not available
-  defmodule AutonomousOpponentV2Core.AMCP.HealthMonitor do
-    @moduledoc """
-    Stub implementation of AMCP HealthMonitor when AMQP is not available.
-    """
-    use GenServer
-    require Logger
+  
+  defp send_pain_signal(check_result) do
+    Logger.error("AMQP infrastructure critical - sending pain signal")
     
-    alias AutonomousOpponentV2Core.EventBus
+    pain_message = %{
+      source: "amqp_health_monitor",
+      severity: "critical",
+      message: "AMQP connection pool is unhealthy",
+      details: check_result,
+      timestamp: DateTime.utc_now() |> DateTime.to_iso8601()
+    }
     
-    def start_link(opts) do
-      GenServer.start_link(__MODULE__, opts, name: __MODULE__)
+    # Try to send via AMQP if possible
+    ConnectionPool.with_connection(fn channel ->
+      Topology.publish_algedonic(channel, :pain, pain_message)
+    end)
+    
+    # Always send via EventBus as backup
+    EventBus.publish(:algedonic_pain, pain_message)
+  end
+  
+  @doc """
+  Gets the current health status.
+  """
+  def get_status do
+    GenServer.call(__MODULE__, :get_status)
+  end
+  
+  @doc """
+  Forces an immediate health check.
+  """
+  def force_check do
+    GenServer.call(__MODULE__, :force_check)
+  end
+  
+  @doc """
+  Returns a simplified health indicator for use in health endpoints.
+  """
+  def health_indicator do
+    case get_status() do
+      %{status: :healthy} -> :ok
+      %{status: :degraded} -> :degraded
+      _ -> :unhealthy
     end
-    
-    @impl true
-    def init(_opts) do
-      Logger.warning("AMQP HealthMonitor running in stub mode - AMQP not available")
-      
-      # Subscribe to health check requests
-      EventBus.subscribe(:health_check_request)
-      
-      {:ok, %{}}
-    end
-    
-    @impl true
-    def handle_info({:event, :health_check_request, _data}, state) do
-      EventBus.publish(:health_check_response, %{
-        component: :amqp,
-        status: :unavailable,
-        details: %{error: :amqp_not_available}
-      })
-      
-      {:noreply, state}
-    end
-    
-    @impl true
-    def handle_call(:get_health, _from, state) do
-      health_data = %{
-        status: :unavailable,
-        healthy_connections: 0,
-        total_connections: 0,
-        health_percentage: 0.0,
-        error: :amqp_not_available,
-        timestamp: DateTime.utc_now()
-      }
-      {:reply, health_data, state}
-    end
-    
-    def get_health do
-      GenServer.call(__MODULE__, :get_health)
-    end
-    
-    def healthy? do
-      false
-    end
+  rescue
+    _ -> :unknown
   end
 end

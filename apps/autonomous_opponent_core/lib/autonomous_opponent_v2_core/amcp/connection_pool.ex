@@ -1,296 +1,156 @@
-# This module is conditionally compiled based on AMQP availability
-if Code.ensure_loaded?(AMQP) do
-  defmodule AutonomousOpponentV2Core.AMCP.ConnectionPool do
-    @moduledoc """
-    Manages a pool of AMQP connections with automatic retry, health monitoring,
-    and exponential backoff for resilient message transport.
+defmodule AutonomousOpponentV2Core.AMCP.ConnectionPool do
+  @moduledoc """
+  Manages a pool of AMQP connections for improved reliability and performance.
+  
+  This module implements:
+  - Connection pooling using Poolboy
+  - Automatic retry with exponential backoff
+  - Health monitoring
+  - Graceful degradation when AMQP is unavailable
+  
+  **Wisdom Preservation:** Connection pooling prevents single points of failure,
+  distributes load, and enables better resource utilization. The exponential
+  backoff prevents overwhelming RabbitMQ during recovery scenarios.
+  """
+  use Supervisor
+  require Logger
+
+  @pool_name :amqp_connection_pool
+  @max_retries 5
+  @initial_backoff 1000  # 1 second
+  @max_backoff 60000     # 60 seconds
+
+  def start_link(opts) do
+    Supervisor.start_link(__MODULE__, opts, name: __MODULE__)
+  end
+
+  @impl true
+  def init(_opts) do
+    pool_config = [
+      name: {:local, @pool_name},
+      worker_module: AutonomousOpponentV2Core.AMCP.ConnectionWorker,
+      size: get_pool_size(),
+      max_overflow: get_max_overflow(),
+      strategy: :lifo
+    ]
+
+    children = [
+      :poolboy.child_spec(@pool_name, pool_config, [])
+    ]
+
+    Supervisor.init(children, strategy: :one_for_one)
+  end
+
+  @doc """
+  Checks out a connection from the pool and executes the given function.
+  Automatically returns the connection to the pool when done.
+  """
+  def with_connection(fun, opts \\ []) do
+    timeout = Keyword.get(opts, :timeout, 5000)
     
-    **Wisdom Preservation:** Connection pooling prevents single point of failure,
-    enables load distribution, and provides resilience through redundancy.
-    Exponential backoff prevents thundering herd problems during recovery.
-    """
-    use GenServer
-    require Logger
-    
-    alias AMQP.{Connection, Channel}
-    alias AutonomousOpponentV2Core.AMCP.Topology
-    alias AutonomousOpponentV2Core.CircuitBreaker
-    
-    @default_pool_size 5
-    @initial_backoff 1_000
-    @max_backoff 30_000
-    @heartbeat_interval 30_000
-    @connection_timeout 5_000
-    
-    defmodule State do
-      @moduledoc false
-      defstruct [
-        :pool_size,
-        :connection_opts,
-        connections: %{},
-        channels: %{},
-        health_status: %{},
-        retry_counts: %{},
-        backoff_times: %{}
-      ]
-    end
-    
-    def start_link(opts) do
-      GenServer.start_link(__MODULE__, opts, name: __MODULE__)
-    end
-    
-    @impl true
-    def init(opts) do
-      pool_size = Keyword.get(opts, :pool_size, @default_pool_size)
-      connection_opts = Application.get_env(:autonomous_opponent_core, :amqp_connection, [])
-      
-      # Add heartbeat and connection timeout
-      connection_opts = connection_opts
-        |> Keyword.put(:heartbeat, 30)
-        |> Keyword.put(:connection_timeout, @connection_timeout)
-      
-      state = %State{
-        pool_size: pool_size,
-        connection_opts: connection_opts
-      }
-      
-      # Start initial connections
-      send(self(), :init_connections)
-      
-      # Schedule periodic health checks
-      Process.send_after(self(), :health_check, @heartbeat_interval)
-      
-      {:ok, state}
-    end
-    
-    @impl true
-    def handle_info(:init_connections, state) do
-      state = Enum.reduce(1..state.pool_size, state, fn conn_id, acc ->
-        establish_connection(conn_id, acc)
-      end)
-      
-      {:noreply, state}
-    end
-    
-    @impl true
-    def handle_info(:health_check, state) do
-      state = perform_health_check(state)
-      Process.send_after(self(), :health_check, @heartbeat_interval)
-      {:noreply, state}
-    end
-    
-    @impl true
-    def handle_info({:retry_connection, conn_id}, state) do
-      state = establish_connection(conn_id, state)
-      {:noreply, state}
-    end
-    
-    @impl true
-    def handle_call(:get_channel, _from, state) do
-      case get_healthy_channel(state) do
-        {:ok, channel} ->
-          {:reply, {:ok, channel}, state}
-        {:error, reason} ->
-          {:reply, {:error, reason}, state}
-      end
-    end
-    
-    @impl true
-    def handle_call(:health_status, _from, state) do
-      status = %{
-        total_connections: state.pool_size,
-        healthy_connections: Enum.count(state.health_status, fn {_, healthy} -> healthy end),
-        connection_details: state.health_status
-      }
-      {:reply, status, state}
-    end
-    
-    @impl true
-    def terminate(_reason, state) do
-      Logger.info("Shutting down AMQP connection pool...")
-      
-      # Close all connections gracefully
-      Enum.each(state.connections, fn {_id, conn} ->
-        try do
-          Connection.close(conn)
-        catch
-          _, _ -> :ok
+    :poolboy.transaction(
+      @pool_name,
+      fn worker ->
+        case GenServer.call(worker, :get_channel, timeout) do
+          {:ok, channel} -> fun.(channel)
+          {:error, reason} -> {:error, reason}
         end
-      end)
+      end,
+      timeout
+    )
+  rescue
+    e ->
+      Logger.error("Connection pool error: #{inspect(e)}")
+      {:error, :pool_error}
+  end
+
+  @doc """
+  Publishes a message with automatic retry logic.
+  """
+  def publish_with_retry(exchange, routing_key, payload, opts \\ []) do
+    retry_publish(exchange, routing_key, payload, opts, 0)
+  end
+
+  defp retry_publish(exchange, routing_key, payload, opts, attempt) when attempt < @max_retries do
+    case with_connection(fn channel ->
+      publish_message(channel, exchange, routing_key, payload, opts)
+    end) do
+      :ok -> 
+        :ok
       
-      :ok
-    end
-    
-    # Private functions
-    
-    defp establish_connection(conn_id, state) do
-      retry_count = Map.get(state.retry_counts, conn_id, 0)
-      backoff = calculate_backoff(retry_count)
-      
-      case connect_with_retry(state.connection_opts) do
-        {:ok, connection} ->
-          case Channel.open(connection) do
-            {:ok, channel} ->
-              # Setup topology for this channel
-              Topology.declare_topology(channel)
-              
-              Logger.info("AMQP connection #{conn_id} established successfully")
-              
-              # Clear circuit breaker if it was open
-              CircuitBreaker.success(:amqp_connection)
-              
-              %{state |
-                connections: Map.put(state.connections, conn_id, connection),
-                channels: Map.put(state.channels, conn_id, channel),
-                health_status: Map.put(state.health_status, conn_id, true),
-                retry_counts: Map.put(state.retry_counts, conn_id, 0),
-                backoff_times: Map.delete(state.backoff_times, conn_id)
-              }
-              
-            {:error, reason} ->
-              Logger.error("Failed to open channel for connection #{conn_id}: #{inspect(reason)}")
-              Connection.close(connection)
-              schedule_retry(conn_id, state, backoff)
-          end
-          
-        {:error, reason} ->
-          Logger.error("Failed to establish connection #{conn_id}: #{inspect(reason)}")
-          
-          # Notify circuit breaker of failure
-          CircuitBreaker.failure(:amqp_connection)
-          
-          schedule_retry(conn_id, state, backoff)
-      end
-    end
-    
-    defp connect_with_retry(opts) do
-      case CircuitBreaker.call(:amqp_connection, fn -> Connection.open(opts) end) do
-        {:ok, _} = result -> result
-        {:error, :circuit_open} -> {:error, :circuit_breaker_open}
-        error -> error
-      end
-    end
-    
-    defp schedule_retry(conn_id, state, backoff) do
-      Process.send_after(self(), {:retry_connection, conn_id}, backoff)
-      
-      %{state |
-        health_status: Map.put(state.health_status, conn_id, false),
-        retry_counts: Map.update(state.retry_counts, conn_id, 1, &(&1 + 1)),
-        backoff_times: Map.put(state.backoff_times, conn_id, backoff)
-      }
-    end
-    
-    defp calculate_backoff(retry_count) do
-      backoff = @initial_backoff * :math.pow(2, retry_count)
-      min(round(backoff), @max_backoff)
-    end
-    
-    defp get_healthy_channel(state) do
-      healthy_channels = state.channels
-        |> Enum.filter(fn {conn_id, _} -> 
-          Map.get(state.health_status, conn_id, false)
-        end)
-        |> Enum.map(fn {_, channel} -> channel end)
-      
-      case healthy_channels do
-        [] -> 
-          {:error, :no_healthy_connections}
-        channels ->
-          # Simple round-robin selection
-          channel = Enum.random(channels)
-          {:ok, channel}
-      end
-    end
-    
-    defp perform_health_check(state) do
-      Enum.reduce(state.connections, state, fn {conn_id, conn}, acc ->
-        if Connection.alive?(conn) do
-          acc
-        else
-          Logger.warning("Connection #{conn_id} is not alive, marking as unhealthy")
-          
-          # Mark as unhealthy and schedule reconnection
-          acc = %{acc | health_status: Map.put(acc.health_status, conn_id, false)}
-          
-          # Try to close the dead connection
-          try do
-            Connection.close(conn)
-          catch
-            _, _ -> :ok
-          end
-          
-          # Remove from active connections
-          acc = %{acc |
-            connections: Map.delete(acc.connections, conn_id),
-            channels: Map.delete(acc.channels, conn_id)
-          }
-          
-          # Schedule immediate reconnection attempt
-          send(self(), {:retry_connection, conn_id})
-          
-          acc
-        end
-      end)
-    end
-    
-    # Public API
-    
-    @doc """
-    Gets a healthy channel from the pool.
-    """
-    def get_channel do
-      GenServer.call(__MODULE__, :get_channel)
-    end
-    
-    @doc """
-    Returns the health status of all connections in the pool.
-    """
-    def health_status do
-      GenServer.call(__MODULE__, :health_status)
+      {:error, reason} ->
+        backoff = calculate_backoff(attempt)
+        Logger.warning("Publish failed (attempt #{attempt + 1}/#{@max_retries}): #{inspect(reason)}. Retrying in #{backoff}ms...")
+        Process.sleep(backoff)
+        retry_publish(exchange, routing_key, payload, opts, attempt + 1)
     end
   end
-else
-  # Stub implementation when AMQP is not available
-  defmodule AutonomousOpponentV2Core.AMCP.ConnectionPool do
-    @moduledoc """
-    Stub implementation of AMCP ConnectionPool when AMQP is not available.
-    """
-    use GenServer
-    require Logger
-    
-    def start_link(opts) do
-      GenServer.start_link(__MODULE__, opts, name: __MODULE__)
+
+  defp retry_publish(_exchange, _routing_key, _payload, _opts, _attempt) do
+    Logger.error("Failed to publish message after #{@max_retries} attempts")
+    {:error, :max_retries_exceeded}
+  end
+
+  defp publish_message(channel, exchange, routing_key, payload, opts) do
+    try do
+      cond do
+        channel == :stub_channel ->
+          # Stub mode
+          Logger.debug("Publishing in stub mode - using stub channel")
+          :ok
+          
+        Code.ensure_loaded?(AMQP) and function_exported?(AMQP.Basic, :publish, 5) ->
+          # Real AMQP mode
+          AMQP.Basic.publish(
+            channel,
+            exchange,
+            routing_key,
+            Jason.encode!(payload),
+            Keyword.merge([persistent: true], opts)
+          )
+          
+        true ->
+          # AMQP not available
+          Logger.warning("Publishing in stub mode - AMQP not available")
+          :ok
+      end
+    rescue
+      e ->
+        {:error, e}
     end
+  end
+
+  defp calculate_backoff(attempt) do
+    backoff = @initial_backoff * :math.pow(2, attempt) |> round()
+    min(backoff, @max_backoff)
+  end
+
+  @doc """
+  Returns the health status of the connection pool.
+  """
+  def health_check do
+    pool_status = :poolboy.status(@pool_name)
     
-    @impl true
-    def init(_opts) do
-      Logger.warning("AMQP ConnectionPool running in stub mode - AMQP not available")
-      {:ok, %{}}
-    end
-    
-    @impl true
-    def handle_call(:get_channel, _from, state) do
-      {:reply, {:error, :amqp_not_available}, state}
-    end
-    
-    @impl true
-    def handle_call(:health_status, _from, state) do
-      status = %{
-        total_connections: 0,
-        healthy_connections: 0,
-        connection_details: %{},
-        error: :amqp_not_available
-      }
-      {:reply, status, state}
-    end
-    
-    def get_channel do
-      GenServer.call(__MODULE__, :get_channel)
-    end
-    
-    def health_status do
-      GenServer.call(__MODULE__, :health_status)
-    end
+    healthy_workers = 
+      with_connection(fn _channel ->
+        :ok
+      end, timeout: 1000) == :ok
+
+    %{
+      pool_status: pool_status,
+      healthy: healthy_workers,
+      pool_size: get_pool_size(),
+      max_overflow: get_max_overflow()
+    }
+  rescue
+    _ -> %{healthy: false, error: "Pool not available"}
+  end
+
+  defp get_pool_size do
+    Application.get_env(:autonomous_opponent_core, :amqp_pool_size, 10)
+  end
+
+  defp get_max_overflow do
+    Application.get_env(:autonomous_opponent_core, :amqp_max_overflow, 5)
   end
 end

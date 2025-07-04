@@ -1,86 +1,72 @@
 defmodule AutonomousOpponentV2Core.AMCP.HealthMonitorTest do
   use ExUnit.Case, async: false
-
+  
   alias AutonomousOpponentV2Core.AMCP.HealthMonitor
-  alias AutonomousOpponentV2Core.EventBus
-
-  describe "health monitor (stub mode)" do
+  
+  describe "HealthMonitor" do
     setup do
-      # Ensure we're running in stub mode for tests
-      Application.put_env(:autonomous_opponent_core, :amqp_enabled, false)
-      
-      # Start EventBus for tests
-      {:ok, _} = EventBus.start_link(name: :test_event_bus)
-      
-      on_exit(fn ->
-        Process.sleep(100)
-      end)
+      # Ensure health monitor is started
+      case Process.whereis(HealthMonitor) do
+        nil -> 
+          {:ok, _pid} = HealthMonitor.start_link([])
+        pid when is_pid(pid) ->
+          :ok
+      end
       
       :ok
     end
-
-    test "starts successfully in stub mode" do
-      assert {:ok, pid} = HealthMonitor.start_link([])
-      assert Process.alive?(pid)
-      GenServer.stop(pid)
+    
+    test "get_status returns health information" do
+      status = HealthMonitor.get_status()
+      
+      assert is_map(status)
+      assert Map.has_key?(status, :status)
+      assert Map.has_key?(status, :consecutive_failures)
+      assert Map.has_key?(status, :history)
+      assert status.status in [:initializing, :healthy, :degraded, :critical]
     end
-
-    test "get_health returns unavailable status in stub mode" do
-      {:ok, pid} = HealthMonitor.start_link([])
+    
+    test "force_check performs immediate health check" do
+      result = HealthMonitor.force_check()
       
-      health = HealthMonitor.get_health()
-      assert health.status == :unavailable
-      assert health.healthy_connections == 0
-      assert health.total_connections == 0
-      assert health.error == :amqp_not_available
-      
-      GenServer.stop(pid)
+      assert is_map(result)
+      assert Map.has_key?(result, :timestamp)
+      assert Map.has_key?(result, :health_score)
+      assert Map.has_key?(result, :healthy)
+      assert result.health_score >= 0 and result.health_score <= 1
     end
-
-    test "healthy? returns false in stub mode" do
-      {:ok, pid} = HealthMonitor.start_link([])
+    
+    test "health_indicator returns simplified status" do
+      indicator = HealthMonitor.health_indicator()
       
-      refute HealthMonitor.healthy?()
-      
-      GenServer.stop(pid)
+      assert indicator in [:ok, :degraded, :unhealthy, :unknown]
     end
-
-    test "responds to health check requests via EventBus" do
-      {:ok, pid} = HealthMonitor.start_link([])
+    
+    test "health check includes all required components" do
+      result = HealthMonitor.force_check()
       
-      # Subscribe to health check responses
-      EventBus.subscribe(:health_check_response)
+      assert Map.has_key?(result, :pool_health)
+      assert Map.has_key?(result, :publish_test)
+      assert Map.has_key?(result, :queue_status)
       
-      # Send health check request
-      EventBus.publish(:health_check_request, %{})
+      # Pool health should be a map
+      assert is_map(result.pool_health)
       
-      # Wait for response
-      assert_receive {:event, :health_check_response, data}, 1000
-      assert data.component == :amqp
-      assert data.status == :unavailable
-      
-      GenServer.stop(pid)
+      # Publish test should have status
+      assert Map.has_key?(result.publish_test, :status)
     end
   end
-
-  @tag :integration
-  @tag :skip
-  describe "health monitor (with AMQP)" do
-    setup do
-      Application.put_env(:autonomous_opponent_core, :amqp_enabled, true)
-      :ok
-    end
-
-    test "monitors connection health" do
-      # Implementation depends on AMQP availability
-    end
-
-    test "triggers algedonic signals for prolonged unhealthy state" do
-      # Implementation depends on AMQP availability
-    end
-
-    test "publishes health change events" do
-      # Implementation depends on AMQP availability
+  
+  describe "health scoring" do
+    test "health score calculation weights components correctly" do
+      result = HealthMonitor.force_check()
+      
+      # Health score should be between 0 and 1
+      assert result.health_score >= 0
+      assert result.health_score <= 1
+      
+      # In stub mode, we expect at least base score from queue status
+      assert result.health_score >= 0.1
     end
   end
 end

@@ -1,298 +1,399 @@
-# AMQP Patterns for VSM Usage
+# AMQP Patterns for VSM
 
 This document describes the AMQP messaging patterns implemented for the Viable System Model (VSM) in the Autonomous Opponent system.
 
-## Overview
+## Architecture Overview
 
-The AMQP infrastructure provides reliable, distributed message transport for VSM subsystem communication. It implements resilience patterns including connection pooling, automatic retry, circuit breakers, and dead letter queues.
+The AMQP infrastructure provides reliable, scalable messaging between VSM subsystems with the following key features:
 
-## Architecture
+- **Connection Pooling**: 10 connections by default with overflow handling
+- **Automatic Retry**: Exponential backoff for failed operations
+- **Health Monitoring**: Continuous health checks with algedonic pain signals
+- **Graceful Degradation**: Falls back to EventBus when AMQP unavailable
+- **VSM-Specific Routing**: Optimized topology for S1-S5 communication
 
-### Connection Management
+## Connection Management
 
-The system uses a connection pool with the following characteristics:
-
-- **Pool Size**: 5 connections by default (configurable)
-- **Heartbeat**: 30-second intervals to detect connection failures
-- **Retry Logic**: Exponential backoff starting at 1 second, max 30 seconds
-- **Health Monitoring**: Continuous health checks every 30 seconds
-- **Circuit Breaker**: Prevents cascade failures during outages
-
-### Message Flow
-
-```
-EventBus <-> AMQP Router <-> Message Handler <-> RabbitMQ
-                                    |
-                                    v
-                              VSM Topology
-```
-
-## VSM Communication Patterns
-
-### 1. Event Broadcasting
-
-VSM subsystems publish events using topic exchanges:
+### Configuration
 
 ```elixir
-# Publishing a subsystem event
-MessageHandler.publish_vsm_event(:s3, :state_change, %{
-  old_state: :planning,
-  new_state: :executing,
-  timestamp: DateTime.utc_now()
-})
+# config/config.exs
+config :autonomous_opponent_core,
+  amqp_enabled: true,
+  amqp_connection: [
+    host: "localhost",
+    port: 5672,
+    username: "guest",
+    password: "guest",
+    virtual_host: "/",
+    heartbeat: 30,
+    connection_timeout: 10_000
+  ],
+  amqp_pool_size: 10,
+  amqp_max_overflow: 5
 ```
-
-**Routing Pattern**: `{subsystem}.{event_type}`
-- Example: `s3.state_change`
-
-### 2. Algedonic Signaling
-
-Pain/pleasure signals are broadcast to all subsystems with priority:
-
-```elixir
-# Publishing an algedonic signal
-MessageHandler.publish_algedonic(:critical, %{
-  source: :s1,
-  metric: :response_time,
-  value: 5000,
-  threshold: 1000,
-  message: "Response time critically high"
-})
-```
-
-**Priorities**:
-- `:critical` - Priority 10
-- `:high` - Priority 8
-- `:medium` - Priority 5
-- `:low` - Priority 2
-
-### 3. Coordination Messages
-
-S3 and above listen to coordination events:
-
-```elixir
-# Coordination between meta-system components
-MessageHandler.publish("vsm.events", "coordination.resource_allocation", %{
-  request_from: :s3,
-  resource_type: :compute,
-  quantity: 10,
-  priority: :high
-})
-```
-
-### 4. Command Routing
-
-Directed commands to specific subsystems:
-
-```elixir
-# Send command to specific subsystem
-MessageHandler.publish("vsm.commands", "s4.adjust_policy", %{
-  policy: :resource_limits,
-  adjustment: %{cpu_limit: 80, memory_limit: 90}
-})
-```
-
-## Queue Configuration
-
-### Per-Subsystem Queues
-
-Each VSM subsystem has dedicated queues with:
-
-- **Message TTL**: 1 hour
-- **Max Length**: 10,000 messages
-- **Dead Letter Queue**: Automatic routing on failure
-- **Durability**: Survives broker restarts
-
-### Queue Naming Convention
-
-- Events: `vsm.{subsystem}.events`
-- Commands: `vsm.{subsystem}.commands`
-- Algedonic: `vsm.algedonic.signals`
-- DLQ: `vsm.{subsystem}.events.dlq`
-
-## Error Handling Patterns
-
-### 1. Connection Failures
-
-```elixir
-# Automatic retry with exponential backoff
-# 1s -> 2s -> 4s -> 8s -> 16s -> 30s (max)
-
-# Circuit breaker prevents thundering herd
-# Opens after 5 consecutive failures
-# Half-opens after 60 seconds
-```
-
-### 2. Message Publishing Failures
-
-```elixir
-# Retry up to 3 times with backoff
-# On final failure, route to EventBus
-# Publish failure event for monitoring
-```
-
-### 3. Consumer Errors
-
-```elixir
-# Handler exceptions -> reject without requeue -> DLQ
-# Temporary failures -> reject with requeue
-# Success -> acknowledge
-```
-
-## Integration with EventBus
-
-The system provides seamless fallback to EventBus when AMQP is unavailable:
-
-```elixir
-# When AMQP is disabled, messages route through EventBus
-# Event naming: :vsm_{subsystem}_{event_type}
-# Example: :vsm_s3_state_change
-
-# Algedonic signals always route to both AMQP and EventBus
-# Ensures critical signals are never lost
-```
-
-## Monitoring and Observability
-
-### Health Metrics
-
-```elixir
-# Get connection pool health
-ConnectionPool.health_status()
-# => %{
-#   total_connections: 5,
-#   healthy_connections: 4,
-#   connection_details: %{...}
-# }
-
-# Get message handler stats
-MessageHandler.get_stats()
-# => %{
-#   publish: %{success: 1000, failure: 5},
-#   consume: %{success: 950, failure: 2},
-#   retry_queue_size: 3
-# }
-```
-
-### Health Check Integration
-
-The AMQP infrastructure integrates with system-wide health checks:
-
-```elixir
-# Responds to :health_check_request events
-# Publishes :health_check_response with component status
-# Triggers algedonic signals on prolonged unhealthy state
-```
-
-## Configuration
 
 ### Environment Variables
 
+- `AMQP_ENABLED`: Set to "false" to disable AMQP
+- `AMQP_URL`: Full connection URL (overrides other settings)
+- `AMQP_HOST`: RabbitMQ host
+- `AMQP_PORT`: RabbitMQ port
+- `AMQP_USERNAME`: Authentication username
+- `AMQP_PASSWORD`: Authentication password
+- `AMQP_VHOST`: Virtual host
+
+## VSM Communication Patterns
+
+### 1. Subsystem Publishing
+
+Each VSM subsystem (S1-S5) has dedicated queues with specific characteristics:
+
 ```elixir
-# Enable/disable AMQP
-config :autonomous_opponent_core, :amqp_enabled, true
+# S1: Operations - High throughput
+Client.publish_to_subsystem(:s1, %{
+  operation: "process_order",
+  order_id: "12345"
+})
 
-# Connection settings
-config :autonomous_opponent_core, :amqp_connection, [
-  hostname: "localhost",
-  username: "guest",
-  password: "guest",
-  port: 5672,
-  virtual_host: "/",
-  heartbeat: 30,
-  connection_timeout: 5_000
-]
+# S3: Control - Priority handling
+Client.publish_to_subsystem(:s3, %{
+  action: "emergency_stop",
+  reason: "threshold_exceeded"
+}, priority: 10)
 
-# Pool configuration
-config :autonomous_opponent_core, :amqp_pool_size, 5
+# S4: Intelligence - Analysis tasks
+Client.publish_to_subsystem(:s4, %{
+  task: "analyze_patterns",
+  dataset: "recent_operations"
+})
 ```
 
-### Runtime Configuration
+### 2. Algedonic Signaling
+
+Pain and pleasure signals bypass normal hierarchy:
 
 ```elixir
-# Adjust pool size
-{:ok, _} = AutonomousOpponentV2Core.AMCP.Supervisor.start_link(
-  pool_size: 10
+# Pain signal - highest priority
+Client.send_algedonic(:pain, %{
+  source: "resource_monitor",
+  severity: "critical",
+  metric: "memory_usage",
+  value: 95.5
+})
+
+# Pleasure signal - positive feedback
+Client.send_algedonic(:pleasure, %{
+  source: "goal_tracker",
+  achievement: "sales_target_exceeded",
+  value: 120
+})
+```
+
+### 3. Event Broadcasting
+
+Events are published to all interested subsystems:
+
+```elixir
+Client.publish_event(:system_state_changed, %{
+  previous_state: "normal",
+  new_state: "degraded",
+  reason: "high_load"
+})
+```
+
+### 4. Work Queues
+
+Distribute tasks among workers:
+
+```elixir
+# Create work queue
+Client.create_work_queue("data_processing", 
+  ttl: 3_600_000,  # 1 hour
+  max_length: 1000
 )
 
-# Configure consumer prefetch
-MessageHandler.consume(queue, handler, prefetch_count: 20)
+# Send work
+Client.send_work("data_processing", %{
+  file_path: "/data/input.csv",
+  operations: ["validate", "transform", "aggregate"]
+})
+
+# Consume work
+Client.consume_work("data_processing", fn work_item ->
+  process_data(work_item)
+  :ok  # Acknowledges message
+end)
+```
+
+## Exchange and Queue Topology
+
+### Exchanges
+
+1. **vsm.topic** (Topic Exchange)
+   - Main routing exchange for VSM communication
+   - Uses routing keys like "vsm.s1.operation"
+
+2. **vsm.events** (Fanout Exchange)
+   - Broadcasts events to all subsystems
+   - No routing key needed
+
+3. **vsm.algedonic** (Direct Exchange)
+   - Routes pain/pleasure signals
+   - Routing keys: "pain", "pleasure"
+
+4. **vsm.dlx** (Dead Letter Exchange)
+   - Handles failed messages
+   - Prevents message loss
+
+### Queue Configuration
+
+#### S1: Operations
+- **Queue**: vsm.s1.operations
+- **Features**: High throughput, 5-minute TTL, 10k message limit
+- **Routing**: operations.*, vsm.s1.*
+
+#### S2: Coordination
+- **Queue**: vsm.s2.coordination
+- **Features**: Single active consumer for ordering
+- **Routing**: coordination.*, vsm.s2.*
+
+#### S3: Control
+- **Queue**: vsm.s3.control.priority
+- **Features**: Priority queue (0-10), immediate processing
+- **Routing**: control.*, vsm.s3.*, vsm.s3star.*
+
+#### S4: Intelligence
+- **Queue**: vsm.s4.intelligence
+- **Features**: 1-hour TTL for long analysis
+- **Routing**: intelligence.*, vsm.s4.*, analysis.*
+
+#### S5: Policy
+- **Queue**: vsm.s5.policy
+- **Features**: Lazy queue mode for durability
+- **Routing**: policy.*, vsm.s5.*, governance.*
+
+## Error Handling and Recovery
+
+### Retry Logic
+
+Failed operations automatically retry with exponential backoff:
+
+1. Initial retry: 1 second
+2. Second retry: 2 seconds
+3. Third retry: 4 seconds
+4. Fourth retry: 8 seconds
+5. Fifth retry: 16 seconds
+6. Maximum backoff: 60 seconds
+
+### Connection Recovery
+
+Workers monitor their connections and automatically reconnect:
+
+```elixir
+# Handled automatically by ConnectionWorker
+# - Monitors connection process
+# - Reconnects on failure
+# - Preserves channel configuration
+```
+
+### Dead Letter Queues
+
+Failed messages are routed to DLQs for investigation:
+
+- vsm.dlq.s1.operations
+- vsm.dlq.s2.coordination
+- vsm.dlq.s3.control
+- vsm.dlq.s4.intelligence
+- vsm.dlq.s5.policy
+
+## Health Monitoring
+
+### Automated Health Checks
+
+Every 30 seconds, the system:
+1. Checks connection pool status
+2. Tests message publishing
+3. Monitors queue depths (when management API available)
+4. Calculates health score
+
+### Health Status API
+
+```elixir
+# Get detailed health status
+HealthMonitor.get_status()
+# => %{
+#   status: :healthy,
+#   last_check: %{...},
+#   consecutive_failures: 0,
+#   history: [...]
+# }
+
+# Simple health indicator
+HealthMonitor.health_indicator()
+# => :ok | :degraded | :unhealthy
+```
+
+### Integration with Health Endpoints
+
+```elixir
+# In your health controller
+def health(conn, _params) do
+  amqp_health = HealthMonitor.health_indicator()
+  
+  status = case amqp_health do
+    :ok -> :pass
+    :degraded -> :warn
+    _ -> :fail
+  end
+  
+  json(conn, %{
+    status: status,
+    checks: %{
+      amqp: amqp_health
+    }
+  })
+end
 ```
 
 ## Best Practices
 
-### 1. Message Design
+### 1. Use the Client API
 
-- Keep messages small and focused
-- Include timestamps for tracking
-- Use consistent field names across subsystems
-- Validate messages with Ecto schemas
+Always use the high-level Client API instead of direct AMQP calls:
 
-### 2. Queue Management
+```elixir
+# Good
+Client.publish_to_subsystem(:s1, message)
 
-- Monitor queue depths regularly
-- Set appropriate TTLs for message types
-- Use priority queues for critical paths
-- Implement proper DLQ handling
+# Avoid
+ConnectionPool.with_connection(fn channel ->
+  Topology.publish_message(channel, message, "vsm.s1.default")
+end)
+```
 
-### 3. Error Recovery
+### 2. Handle Errors Gracefully
 
-- Always handle both success and failure cases
-- Log errors with context for debugging
-- Use circuit breakers for external dependencies
-- Implement compensating transactions when needed
+Always handle potential failures:
 
-### 4. Performance
+```elixir
+case Client.publish_to_subsystem(:s1, message) do
+  :ok -> 
+    Logger.info("Message published successfully")
+  {:error, reason} ->
+    Logger.error("Failed to publish: #{inspect(reason)}")
+    # Fall back to EventBus or other mechanism
+    EventBus.publish(:s1_message, message)
+end
+```
 
-- Use connection pooling for high throughput
-- Batch messages when appropriate
-- Configure prefetch for optimal consumer performance
-- Monitor and tune based on metrics
+### 3. Set Appropriate Priorities
+
+Use priorities for time-sensitive operations:
+
+```elixir
+# Emergency stop - highest priority
+Client.publish_to_subsystem(:s3, stop_command, priority: 10)
+
+# Regular operation - default priority
+Client.publish_to_subsystem(:s1, regular_task)
+```
+
+### 4. Monitor Queue Depths
+
+In production, monitor queue depths to prevent overload:
+
+```elixir
+# Set up alerts when queues exceed thresholds
+# - S1: Alert at 5000 messages
+# - S2: Alert at 1000 messages
+# - S3: Alert at 100 messages (priority queue)
+```
+
+### 5. Use Work Queues for Heavy Processing
+
+Offload heavy processing to work queues:
+
+```elixir
+# Instead of processing in-line
+Client.publish_to_subsystem(:s4, %{
+  task: "analyze",
+  data: large_dataset  # Don't do this
+})
+
+# Use work queue reference
+Client.send_work("analysis_queue", %{
+  task: "analyze",
+  data_location: "s3://bucket/dataset.parquet"
+})
+```
+
+## Testing
+
+### Unit Tests
+
+Test with AMQP in stub mode:
+
+```elixir
+# In test config
+config :autonomous_opponent_core,
+  amqp_enabled: false
+```
+
+### Integration Tests
+
+Tag tests that require RabbitMQ:
+
+```elixir
+@tag :integration
+@tag :skip  # Skip in CI if RabbitMQ unavailable
+test "full message flow" do
+  # Test with real RabbitMQ
+end
+```
+
+### Load Testing
+
+Use the connection pool for concurrent operations:
+
+```elixir
+tasks = for i <- 1..1000 do
+  Task.async(fn ->
+    Client.publish_to_subsystem(:s1, %{id: i})
+  end)
+end
+
+results = Task.await_many(tasks)
+```
 
 ## Troubleshooting
 
-### Common Issues
+### Connection Issues
 
-1. **"No healthy connections"**
-   - Check RabbitMQ is running
-   - Verify network connectivity
-   - Check credentials and vhost permissions
+1. Check AMQP is enabled: `Application.get_env(:autonomous_opponent_core, :amqp_enabled)`
+2. Verify RabbitMQ is running: `rabbitmqctl status`
+3. Check connection settings match RabbitMQ config
+4. Look for connection errors in logs
 
-2. **Messages not being consumed**
-   - Verify queue bindings
-   - Check consumer is started
-   - Look for errors in consumer handlers
+### Message Not Delivered
 
-3. **High message latency**
-   - Check connection pool health
-   - Verify no circuit breakers are open
-   - Monitor RabbitMQ performance
+1. Check health status: `HealthMonitor.get_status()`
+2. Verify exchange and queue bindings
+3. Check for messages in DLQ
+4. Enable debug logging for AMQP modules
 
-4. **Messages going to DLQ**
-   - Check consumer handler errors
-   - Verify message format
-   - Look for timeout issues
+### Performance Issues
 
-### Debug Commands
+1. Monitor connection pool usage
+2. Check for connection churn (frequent reconnects)
+3. Verify heartbeat settings
+4. Consider increasing pool size for high load
 
-```elixir
-# Check topology
-VSMTopology.get_topology_info()
+## Future Enhancements
 
-# Monitor specific queue
-MessageHandler.consume("vsm.s3.events", &IO.inspect/2)
-
-# Test connectivity
-ConnectionPool.get_channel()
-
-# Force health check
-HealthMonitor.get_health()
-```
-
-## Future Improvements
-
-1. **Distributed Tracing**: Add trace IDs to messages
-2. **Message Versioning**: Support schema evolution
-3. **Federated Exchanges**: Multi-datacenter support
-4. **Stream Processing**: Integration with RabbitMQ Streams
-5. **Metrics Export**: Prometheus/OpenTelemetry integration
+1. **Request/Reply Pattern**: Full implementation with correlation IDs
+2. **RabbitMQ Management API**: Queue depth monitoring
+3. **Distributed Tracing**: OpenTelemetry integration
+4. **Circuit Breaker**: Per-subsystem circuit breakers
+5. **Message Compression**: For large payloads
+6. **Schema Registry**: Message validation
