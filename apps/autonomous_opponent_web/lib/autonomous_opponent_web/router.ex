@@ -36,6 +36,12 @@ defmodule AutonomousOpponentV2Web.Router do
     get "/health", HealthCheckController, :index
   end
 
+  # MCP Gateway SSE endpoints
+  scope "/mcp", AutonomousOpponentV2Web do
+    get "/sse/connect", MCPSSEController, :connect
+    get "/sse/events/:topic", MCPSSEController, :events
+  end
+  
   # Other scopes may use the generated code from Phoenix
   # for controllers and views, but here you can control
   # any modules with the `AutonomousOpponentV2Web` namespace.

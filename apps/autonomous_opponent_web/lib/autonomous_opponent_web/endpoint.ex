@@ -12,6 +12,11 @@ defmodule AutonomousOpponentV2Web.Endpoint do
   ]
 
   socket "/live", Phoenix.LiveView.Socket, websocket: [connect_info: %{session: @session_options}]
+  
+  # MCP Gateway WebSocket
+  socket "/mcp", AutonomousOpponentV2Web.MCPSocket,
+    websocket: true,
+    longpoll: false
 
   # Serve at "/" the static files from "priv/static" directory.
   #

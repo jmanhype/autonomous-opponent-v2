@@ -17,10 +17,16 @@ defmodule AutonomousOpponentV2Core.Application do
       # Start core infrastructure services
       {AutonomousOpponentV2Core.Core.CircuitBreaker, name: AutonomousOpponentV2Core.Core.CircuitBreaker},
       {AutonomousOpponentV2Core.Core.RateLimiter, name: AutonomousOpponentV2Core.Core.RateLimiter},
+      # Start Metrics system (Task 3)
+      {AutonomousOpponentV2Core.Core.Metrics, name: :mcp_gateway_metrics},
+      # Additional rate limiter for MCP Gateway
+      {AutonomousOpponentV2Core.Core.RateLimiter, name: :mcp_gateway_limiter, bucket_size: 100, refill_rate: 20},
       # Start the Telemetry supervisor
       # AutonomousOpponentV2Core.Telemetry,
       # Start Security services (Task 7)
       AutonomousOpponentV2Core.Security.Supervisor,
+      # Start MCP Gateway (Task 8)
+      {AutonomousOpponentV2Core.MCPGateway.Supervisor, name: AutonomousOpponentV2Core.MCPGateway.Supervisor},
     ] ++ amqp_children() ++ vsm_children()
 
     opts = [strategy: :one_for_one, name: AutonomousOpponentV2Core.Supervisor]
