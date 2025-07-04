@@ -56,7 +56,8 @@ defmodule AutonomousOpponentV2.MixProject do
       # Security dependencies for Task 7
       {:cloak, "~> 1.1"},
       {:cloak_ecto, "~> 1.2"},
-      {:vaultex, "~> 1.0"}
+      {:vaultex, "~> 1.0"},
+      {:pbkdf2_elixir, "~> 2.0"}
     ]
   end
 

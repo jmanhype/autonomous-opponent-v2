@@ -23,6 +23,8 @@ defmodule AutonomousOpponentV2Core.Security.KeyRotation do
   alias AutonomousOpponentV2Core.Security.SecretsManager
   alias AutonomousOpponentV2Core.EventBus
   
+  # Using Ecto.UUID for UUID generation (already available via Ecto dependency)
+  
   defstruct [
     :rotation_schedule,
     :active_rotations,
@@ -341,7 +343,7 @@ defmodule AutonomousOpponentV2Core.Security.KeyRotation do
         {:ok, generate_random_string(length)}
         
       :uuid ->
-        {:ok, UUID.uuid4()}
+        {:ok, Ecto.UUID.generate()}
         
       fun when is_function(fun) ->
         fun.()
