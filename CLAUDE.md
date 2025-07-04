@@ -28,6 +28,26 @@ npm install
 mix assets.setup
 ```
 
+### AMQP/RabbitMQ Setup
+```bash
+# Install RabbitMQ (macOS)
+brew install rabbitmq
+brew services start rabbitmq
+
+# Set up VSM topology (creates queues/exchanges)
+mix run scripts/setup_vsm_topology.exs
+
+# Check RabbitMQ status
+rabbitmqctl status
+
+# Access RabbitMQ Management UI
+open http://localhost:15672  # guest/guest
+
+# Run without AMQP (stub mode)
+export AMQP_ENABLED=false
+iex -S mix phx.server
+```
+
 ### Testing
 ```bash
 # Run all tests
@@ -130,15 +150,28 @@ apps/
    ```
    The internal module likely doesn't exist or returns hardcoded values.
 
-2. **VSM (Viable System Model)**: Despite extensive documentation, VSM is 95% unimplemented. Only database schemas and supervisors exist - no actual S1-S5 workers or Kalman filters. However, according to recent commits, S1-S5 subsystems and Algedonic system are now implemented (40% of Phase 1).
+2. **VSM (Viable System Model)**: NOW FULLY IMPLEMENTED! S1-S5 subsystems are operational with:
+   - S1: Operations processing with variety absorption
+   - S2: Coordination with anti-oscillation
+   - S3: Control with resource optimization
+   - S4: Intelligence with environmental scanning
+   - S5: Policy governance with dynamic constraints
+   - Algedonic bypass channels (pain/pleasure signals)
+   - Complete variety flow channels
 
-3. **Event Bus**: One of the few fully functional components. All modules communicate through:
+3. **Event Bus**: Fully functional component. All modules communicate through:
    ```elixir
    EventBus.publish(:event_name, data)
    EventBus.subscribe(:event_name)
    ```
 
-4. **AMQP Integration**: Functional but often disabled. Check `AMQP_ENABLED` env var. Uses 200-connection pool when enabled.
+4. **AMQP Integration**: FULLY OPERATIONAL with RabbitMQ:
+   - 29 queues and 5 exchanges for VSM topology
+   - Automatic fallback to stub mode if RabbitMQ unavailable
+   - VSMConsumer bridges AMQP → EventBus
+   - 10-connection pool (configurable)
+   - Dead Letter Queues for resilience
+   - Priority queues for urgent messages
 
 5. **"Wisdom Preservation"**: Comments throughout the code explain architectural decisions. These are aspirational guidance, not implemented patterns.
 
@@ -148,14 +181,15 @@ apps/
 - `AutonomousOpponent.EventBus` - Functional pub/sub system
 - `AutonomousOpponent.CircuitBreaker` - Basic implementation
 - `AutonomousOpponent.RateLimiter` - Token bucket algorithm
-- `AutonomousOpponent.AMQP.*` - When enabled, this works
+- `AutonomousOpponent.AMQP.*` - FULLY WORKING with RabbitMQ integration
+- `AutonomousOpponent.VSM.*` - ALL SUBSYSTEMS OPERATIONAL (S1-S5 + Algedonic)
+- `AutonomousOpponent.VSM.Channels.*` - Variety flow channels working
 - Phoenix LiveView components - The UI layer is solid
 
-### Modules That Are Mostly Empty
+### Modules That Are Still Stubs/Empty
 
 - `AutonomousOpponent.Consciousness` - Returns hardcoded values
 - `AutonomousOpponent.SystemGovernor` - TODO comment says it all
-- `AutonomousOpponent.VSM.*` - Database schemas only, no logic
 - `AutonomousOpponent.ChaosEngine` - Just a GenServer skeleton
 - `AutonomousOpponent.Metrics` - Returns fake benchmark data
 

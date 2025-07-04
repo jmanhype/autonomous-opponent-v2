@@ -36,11 +36,26 @@ cd autonomous-opponent-v2
 mix deps.get
 mix setup
 
+# (Optional) Install and start RabbitMQ for full AMQP support
+brew install rabbitmq  # or apt-get install rabbitmq-server
+brew services start rabbitmq
+
+# Set up VSM message topology (if using RabbitMQ)
+mix run scripts/setup_vsm_topology.exs
+
 # Start the system
 iex -S mix phx.server
 ```
 
 Visit [`localhost:4000`](http://localhost:4000) to see the LiveView interface.
+
+### AMQP/RabbitMQ Support
+
+The system can run in two modes:
+- **With RabbitMQ**: Full distributed messaging, 29 queues, resilient architecture
+- **Without RabbitMQ**: Stub mode using EventBus only (default if RabbitMQ not available)
+
+See [AMQP Setup Guide](docs/AMQP_SETUP_GUIDE.md) for detailed configuration.
 
 ## Architecture Overview
 
