@@ -25,6 +25,14 @@ defmodule AutonomousOpponentV2Web.Router do
     live "/metrics/dashboard", MetricsDashboardLive, :index
   end
   
+  # MCP Gateway endpoints
+  scope "/mcp", AutonomousOpponentV2Web do
+    pipe_through :api
+    
+    # Server-Sent Events endpoint
+    get "/sse", MCPSSEController, :stream
+  end
+  
   # Prometheus metrics endpoint (no CSRF protection needed)
   scope "/", AutonomousOpponentV2Web do
     get "/metrics", MetricsController, :index

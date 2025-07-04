@@ -21,6 +21,8 @@ defmodule AutonomousOpponentV2Core.Application do
       # AutonomousOpponentV2Core.Telemetry,
       # Start Security services (Task 7)
       AutonomousOpponentV2Core.Security.Supervisor,
+      # Start MCP Gateway (Task 8)
+      AutonomousOpponentV2Core.MCP.Gateway,
     ] ++ amqp_children() ++ vsm_children()
 
     opts = [strategy: :one_for_one, name: AutonomousOpponentV2Core.Supervisor]
