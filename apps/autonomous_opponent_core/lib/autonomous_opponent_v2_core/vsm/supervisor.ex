@@ -45,8 +45,11 @@ defmodule AutonomousOpponentV2Core.VSM.Supervisor do
       # S2 - Coordination
       {AutonomousOpponentV2Core.VSM.S2.Coordination, []},
       
-      # S1 - Operations
+      # S1 - Operations (internal)
       {AutonomousOpponentV2Core.VSM.S1.Operations, []},
+      
+      # S1 External - External MCP server operations
+      {AutonomousOpponentV2Core.VSM.S1ExternalOperations, []},
       
       # Variety channels - the nervous system
       {Task.Supervisor, name: AutonomousOpponentV2Core.VSM.ChannelSupervisor},
@@ -139,6 +142,7 @@ defmodule AutonomousOpponentV2Core.VSM.Supervisor do
     
     subsystems = [
       {AutonomousOpponentV2Core.VSM.S1.Operations, :s1},
+      {AutonomousOpponentV2Core.VSM.S1ExternalOperations, :s1_external},
       {AutonomousOpponentV2Core.VSM.S2.Coordination, :s2},
       {AutonomousOpponentV2Core.VSM.S3.Control, :s3},
       {AutonomousOpponentV2Core.VSM.S4.Intelligence, :s4},
