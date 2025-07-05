@@ -213,13 +213,10 @@ defmodule AutonomousOpponentV2Core.MCP.Message do
   end
   
   defp validate_mcp_request(%{"method" => method} = message) when is_binary(method) do
-    case validate_mcp_method(method) do
-      :ok ->
-        {:ok, atomize_keys(message)}
-        
-      {:error, reason} ->
-        {:error, reason}
-    end
+    # Since validate_mcp_method always returns :ok currently,
+    # we can simplify this
+    validate_mcp_method(method)
+    {:ok, atomize_keys(message)}
   end
   
   defp validate_mcp_request(_), do: {:error, :invalid_method}
@@ -229,13 +226,10 @@ defmodule AutonomousOpponentV2Core.MCP.Message do
   end
   
   defp validate_mcp_notification(%{"method" => method} = message) when is_binary(method) do
-    case validate_mcp_method(method) do
-      :ok ->
-        {:ok, atomize_keys(message)}
-        
-      {:error, reason} ->
-        {:error, reason}
-    end
+    # Since validate_mcp_method always returns :ok currently,
+    # we can simplify this
+    validate_mcp_method(method)
+    {:ok, atomize_keys(message)}
   end
   
   defp validate_mcp_notification(_), do: {:error, :invalid_method}

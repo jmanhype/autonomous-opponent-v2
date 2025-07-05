@@ -163,6 +163,30 @@ defmodule AutonomousOpponentV2Core.VSM.S3.Control do
   end
   
   @impl true
+  def handle_info({:event_bus, :algedonic_pain, pain_signal}, state) do
+    # Handle algedonic pain signal - trigger immediate intervention
+    Logger.warning("S3 received algedonic pain signal: #{inspect(pain_signal)}")
+    
+    # Determine emergency intervention
+    intervention = %{
+      type: :emergency_stop,
+      target: pain_signal.source,
+      action: :throttle,
+      priority: :critical
+    }
+    
+    # Execute intervention
+    new_state = execute_intervention(intervention, state)
+    {:noreply, new_state}
+  end
+  
+  @impl true
+  def handle_info({:event_bus, :s3_intervention_required, pain_signal}, state) do
+    # Handle intervention request from algedonic channel
+    handle_info({:event_bus, :algedonic_pain, pain_signal}, state)
+  end
+  
+  @impl true
   def handle_info({:event, :s2_coordination, coordination_report}, state) do
     # Process S2 coordination report
     Logger.debug("S3 received coordination report")
@@ -311,7 +335,7 @@ defmodule AutonomousOpponentV2Core.VSM.S3.Control do
   
   defp execute_optimization(optimization, state) do
     # Send control commands to S1
-    Enum.each(optimization.to, fn {unit, allocation} ->
+    Enum.each(optimization.to, fn {_unit, allocation} ->
       command = %{
         type: :allocate_resources,
         params: allocation

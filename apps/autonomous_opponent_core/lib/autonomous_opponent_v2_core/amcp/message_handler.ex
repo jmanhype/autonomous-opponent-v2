@@ -15,7 +15,7 @@ if Code.ensure_loaded?(AMQP) do
     alias AMQP.Basic
     alias AutonomousOpponentV2Core.AMCP.{ConnectionPool, VSMTopology}
     alias AutonomousOpponentV2Core.EventBus
-    alias AutonomousOpponentV2Core.Core.{CircuitBreaker, RateLimiter}
+    # alias AutonomousOpponentV2Core.Core.{CircuitBreaker, RateLimiter}
     
     @max_retries 3
     @retry_backoff_base 1_000
@@ -125,6 +125,31 @@ if Code.ensure_loaded?(AMQP) do
       {:noreply, state}
     end
     
+    @impl true
+    def handle_info({:basic_consume_ok, %{consumer_tag: consumer_tag}}, state) do
+      Logger.debug("Consumer registered with tag: #{consumer_tag}")
+      {:noreply, state}
+    end
+    
+    @impl true
+    def handle_info({:basic_cancel, %{consumer_tag: consumer_tag}}, state) do
+      Logger.warning("Consumer cancelled with tag: #{consumer_tag}")
+      {:noreply, state}
+    end
+    
+    @impl true
+    def handle_info({:basic_cancel_ok, %{consumer_tag: consumer_tag}}, state) do
+      Logger.debug("Consumer cancel confirmed for tag: #{consumer_tag}")
+      {:noreply, state}
+    end
+    
+    @impl true
+    def handle_info({:basic_deliver, _payload, meta}, state) do
+      Logger.debug("Received message: #{inspect(meta)}")
+      # Message delivery is handled by the consumer callback
+      {:noreply, state}
+    end
+    
     # Private functions
     
     defp do_publish(exchange, routing_key, payload, opts, retry_count \\ 0) do
@@ -151,7 +176,7 @@ if Code.ensure_loaded?(AMQP) do
           Logger.warning("Circuit breaker open for AMQP publish")
           handle_publish_failure(exchange, routing_key, payload, opts, retry_count, :circuit_open)
           
-        {:error, reason} = error ->
+        {:error, reason} = _error ->
           Logger.error("Failed to publish message: #{inspect(reason)}")
           send(self(), {:publish_result, :failure})
           handle_publish_failure(exchange, routing_key, payload, opts, retry_count, reason)
@@ -208,7 +233,7 @@ if Code.ensure_loaded?(AMQP) do
       end)
     end
     
-    defp create_wrapped_handler(channel, handler_fun, opts) do
+    defp create_wrapped_handler(channel, handler_fun, _opts) do
       fn payload, metadata ->
         try do
           # Decode payload if needed
@@ -244,7 +269,7 @@ if Code.ensure_loaded?(AMQP) do
       end
     end
     
-    defp start_consumer_process(channel, handler, consumer_tag) do
+    defp start_consumer_process(channel, handler, _consumer_tag) do
       Task.start_link(fn ->
         consume_loop(channel, handler)
       end)
@@ -276,8 +301,12 @@ if Code.ensure_loaded?(AMQP) do
     defp decode_payload(payload) when is_binary(payload) do
       case Jason.decode(payload) do
         {:ok, decoded} -> {:ok, decoded}
-        {:error, _} -> {:ok, payload}  # Return as-is if not JSON
+        {:error, reason} -> {:error, reason}
       end
+    end
+    
+    defp decode_payload(payload) do
+      {:ok, payload}
     end
     
     defp build_publish_opts(opts) do

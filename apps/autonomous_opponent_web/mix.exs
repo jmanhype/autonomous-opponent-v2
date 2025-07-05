@@ -42,6 +42,7 @@ defmodule AutonomousOpponentV2Web.MixProject do
       {:phoenix_live_view, "~> 0.20"},
       {:phoenix_html, "~> 4.1"},
       {:phoenix_live_dashboard, "~> 0.8.0"},
+      {:phoenix_live_reload, "~> 1.4", only: :dev},
       {:phoenix_pubsub, "~> 2.1"},
       {:ecto_sql, "~> 3.11"},
       {:postgrex, "~> 0.18"},
@@ -55,9 +56,7 @@ defmodule AutonomousOpponentV2Web.MixProject do
       {:floki, ">= 0.30.0", only: :test},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:dialyxir, "~> 1.4", only: [:dev], runtime: false},
-      {:mix_audit, "~> 2.1", only: [:dev, :test], runtime: false},
-      # Internal apps
-      {:autonomous_opponent_core, in_umbrella: true}
+      {:mix_audit, "~> 2.1", only: [:dev, :test], runtime: false}
     ]
   end
 

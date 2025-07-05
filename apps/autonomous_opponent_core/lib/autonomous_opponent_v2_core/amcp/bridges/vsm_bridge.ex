@@ -17,8 +17,7 @@ defmodule AutonomousOpponentV2Core.AMCP.Bridges.VSMBridge do
   require Logger
   
   alias AutonomousOpponentV2Core.EventBus
-  alias AutonomousOpponentV2Core.AMCP.{Goldrush, Memory, Security}
-  alias AutonomousOpponentV2Core.AMCP.Context.SemanticFusion
+  alias AutonomousOpponentV2Core.AMCP.{Goldrush, Memory}
   
   defstruct [
     :vsm_mappings,

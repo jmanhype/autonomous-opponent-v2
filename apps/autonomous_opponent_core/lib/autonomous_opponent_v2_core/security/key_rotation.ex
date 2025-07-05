@@ -247,7 +247,7 @@ defmodule AutonomousOpponentV2Core.Security.KeyRotation do
   def handle_info({:event, :security_breach, %{keys: keys}}, state) do
     # Emergency rotation for compromised keys
     Enum.each(keys, fn key ->
-      Logger.warn("Emergency rotation triggered for #{key}")
+      Logger.warning("Emergency rotation triggered for #{key}")
       rotate_now(key, [emergency: true, grace_period: 0])
     end)
     
@@ -271,7 +271,7 @@ defmodule AutonomousOpponentV2Core.Security.KeyRotation do
     }
   end
   
-  defp init_default_schedule(config) do
+  defp init_default_schedule(_config) do
     %{
       "OPENAI_API_KEY" => %{
         interval: :timer.hours(24 * 30),  # Monthly

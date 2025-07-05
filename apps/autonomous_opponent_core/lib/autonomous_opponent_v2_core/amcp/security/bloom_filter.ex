@@ -12,7 +12,7 @@ defmodule AutonomousOpponentV2Core.AMCP.Security.BloomFilter do
   - Thread-safe operations
   """
   
-  use Bitwise
+  import Bitwise
   require Logger
   
   defstruct [
@@ -115,7 +115,7 @@ defmodule AutonomousOpponentV2Core.AMCP.Security.BloomFilter do
   """
   def false_positive_rate(%__MODULE__{} = bloom_filter) do
     set_bits = count_set_bits(bloom_filter.bitset, bloom_filter.size)
-    bit_ratio = set_bits / bloom_filter.size
+    _bit_ratio = set_bits / bloom_filter.size
     
     # False positive rate = (1 - e^(-k * n / m))^k
     # where k = hash count, n = items added, m = filter size

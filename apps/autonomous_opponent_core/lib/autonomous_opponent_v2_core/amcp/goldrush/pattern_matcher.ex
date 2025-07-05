@@ -223,6 +223,11 @@ defmodule AutonomousOpponentV2Core.AMCP.Goldrush.PatternMatcher do
     {false, %{pattern_type: :statistical_trend}}
   end
   
+  # Catch-all clause for unknown pattern types
+  defp evaluate_pattern(_pattern, _event) do
+    false
+  end
+  
   # Value Comparison
   
   defp evaluate_value_spec(value, {:eq, expected}), do: value == expected

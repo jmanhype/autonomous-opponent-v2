@@ -195,7 +195,7 @@ defmodule AutonomousOpponentV2Core.WebGateway.IntegrationTest do
       Router.route_message(client_id, %{test: "after_failover"})
       
       # Should still receive message
-      assert_receive msg when msg in [{:sse_event, _}, {:ws_send, _}], 1000
+      assert_receive msg when elem(msg, 0) in [:sse_event, :ws_send], 1000
     end
     
     test "connection pool recovery from exhaustion" do

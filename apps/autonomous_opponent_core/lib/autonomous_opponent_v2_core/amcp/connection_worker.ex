@@ -31,7 +31,7 @@ defmodule AutonomousOpponentV2Core.AMCP.ConnectionWorker do
 
   @impl true
   def handle_info(:connect, state) do
-    state = close_existing_connection(state)
+    _cleaned_state = close_existing_connection(state)
     
     case establish_connection() do
       {:ok, connection, channel} ->

@@ -10,7 +10,6 @@ defmodule AutonomousOpponentWeb.WebGatewayDashboardLive do
   """
   use AutonomousOpponentV2Web, :live_view
   alias AutonomousOpponentV2Core.WebGateway.Gateway
-  alias Phoenix.LiveView.JS
 
   @refresh_interval 1000  # Update every second
   @history_size 60        # Keep 60 seconds of history

@@ -14,7 +14,7 @@ defmodule AutonomousOpponentV2Core.AMCP.Goldrush.PluginManager do
   use GenServer
   require Logger
   
-  alias AutonomousOpponentV2Core.EventBus
+  # alias AutonomousOpponentV2Core.EventBus
   
   defstruct [
     :plugins,
@@ -341,10 +341,10 @@ defmodule AutonomousOpponentV2Core.AMCP.Goldrush.PluginManager do
   end
   
   defp insert_by_priority(list, new_item) do
-    {before, after} = Enum.split_while(list, fn item ->
+    {before, after_items} = Enum.split_while(list, fn item ->
       item.priority >= new_item.priority
     end)
-    before ++ [new_item] ++ after
+    before ++ [new_item] ++ after_items
   end
   
   defp execute_hooks_internal(hooks, event, context, state) do

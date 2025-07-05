@@ -99,12 +99,24 @@ defmodule AutonomousOpponentV2Core.Core.CircuitBreaker do
   def force_close(name) do
     GenServer.call(name, :force_close)
   end
+
+  @doc """
+  Record a failure for the circuit breaker (for external failure reporting)
+  """
+  def record_failure(name) do
+    GenServer.cast(name, :record_failure)
+  end
   
   @doc """
   Initialize a circuit breaker by name.
   Creates or ensures a circuit breaker process exists.
   """
-  def init(name) do
+  def init(opts) when is_list(opts) do
+    name = Keyword.get(opts, :name, __MODULE__)
+    init(name)
+  end
+
+  def init(name) when is_atom(name) do
     # Check if the circuit breaker already exists
     case Process.whereis(name) do
       nil ->
@@ -354,6 +366,12 @@ defmodule AutonomousOpponentV2Core.Core.CircuitBreaker do
     })
     
     {:reply, :ok, new_state}
+  end
+
+  @impl true
+  def handle_cast(:record_failure, state) do
+    new_state = handle_failure(state, :external_failure)
+    {:noreply, new_state}
   end
 
   @impl true

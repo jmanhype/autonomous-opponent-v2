@@ -388,7 +388,7 @@ defmodule AutonomousOpponentV2Core.AMCP.WASM.Runtime do
     throughput > 1000  # More than 1000 validations per second
   end
   
-  defp accelerate_pattern_processing(data) do
+  defp accelerate_pattern_processing(_data) do
     # Asynchronous pattern acceleration
     Logger.debug("⚡ Accelerating pattern processing with WASM...")
     # Implementation would process pattern in WASM for speed

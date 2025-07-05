@@ -37,7 +37,7 @@ defmodule AutonomousOpponentV2Core.AMCP.WASM.ModuleLoader do
   @doc """
   Calls a function in a loaded WASM module.
   """
-  def call_function(module_instance, function_name, args) do
+  def call_function(_module_instance, function_name, args) do
     # In a real implementation, this would use a WASM runtime like Wasmex
     # For now, simulate function execution
     case function_name do

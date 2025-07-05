@@ -225,7 +225,12 @@ defmodule AutonomousOpponentV2Core.WebGateway.LoadBalancer.ConsistentHash do
       :error ->
         # Wrap around to the beginning
         case :gb_trees.smallest(ring.ring) do
-          {_hash, node} when node in allowed_nodes -> {:ok, node}
+          {_hash, node} ->
+            if node in allowed_nodes do
+              {:ok, node}
+            else
+              :error
+            end
           _ -> :error
         end
     end
@@ -242,7 +247,7 @@ defmodule AutonomousOpponentV2Core.WebGateway.LoadBalancer.ConsistentHash do
     
     case :gb_trees.next(iterator) do
       {_key, value, _iter} -> {:ok, value}
-      none -> :error
+      _none -> :error
     end
   end
   
@@ -260,12 +265,12 @@ defmodule AutonomousOpponentV2Core.WebGateway.LoadBalancer.ConsistentHash do
           find_allowed_in_iterator(next_iter, allowed_nodes)
         end
         
-      none ->
+      _none ->
         :error
     end
   end
   
-  defp find_successive_nodes(tree, hash, count, acc) when length(acc) >= count do
+  defp find_successive_nodes(_tree, _hash, count, acc) when length(acc) >= count do
     acc
   end
   
@@ -292,7 +297,7 @@ defmodule AutonomousOpponentV2Core.WebGateway.LoadBalancer.ConsistentHash do
     
     case :gb_trees.next(iterator) do
       {key, _value, _iter} -> key + 1
-      none -> 0
+      _none -> 0
     end
   end
   

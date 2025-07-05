@@ -17,7 +17,6 @@ defmodule AutonomousOpponentV2Core.WebGateway.Pool.ConnectionPool do
   @default_pool_size 100
   @default_overflow 50
   @checkout_timeout 5_000
-  @idle_timeout 300_000  # 5 minutes
   
   defmodule Worker do
     @moduledoc """
@@ -50,7 +49,7 @@ defmodule AutonomousOpponentV2Core.WebGateway.Pool.ConnectionPool do
       {:reply, :ok, new_state}
     end
     
-    def handle_call({:checkin}, _from, state) do
+    def handle_call(:checkin, _from, state) do
       new_state = %{state |
         connection_id: nil,
         client_id: nil,
@@ -115,13 +114,26 @@ defmodule AutonomousOpponentV2Core.WebGateway.Pool.ConnectionPool do
   def get_stats do
     status = :poolboy.status(@pool_name)
     
-    %{
-      pool_size: status[:pool_size] || @default_pool_size,
-      overflow: status[:overflow] || @default_overflow,
-      checked_out: status[:checked_out] || 0,
-      available: status[:available] || 0,
-      overflow_active: status[:overflow_active] || 0
-    }
+    # Poolboy status returns {state, pool_size, checked_out, overflow_active}
+    case status do
+      {:ready, pool_size, checked_out, overflow_active} ->
+        %{
+          pool_size: pool_size,
+          overflow: @default_overflow,
+          checked_out: checked_out,
+          available: pool_size - checked_out,
+          overflow_active: overflow_active
+        }
+      _ ->
+        # Fallback if status format is unexpected
+        %{
+          pool_size: @default_pool_size,
+          overflow: @default_overflow,
+          checked_out: 0,
+          available: @default_pool_size,
+          overflow_active: 0
+        }
+    end
   end
   
   @doc """
@@ -182,7 +194,7 @@ defmodule AutonomousOpponentV2Core.WebGateway.Pool.ConnectionPool do
   
   defp find_worker_by_connection(connection_id) do
     # Get all workers from pool
-    workers = :poolboy.transaction(@pool_name, fn worker ->
+    _workers = :poolboy.transaction(@pool_name, fn worker ->
       # This is a hack to get all workers, return immediately
       worker
     end)

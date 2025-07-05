@@ -9,12 +9,8 @@ defmodule AutonomousOpponentV2Core.WebGateway.Tracing do
   - Performance monitoring
   """
   
-  require OpentelemetryAPI.Tracer, as: Tracer
+  require OpenTelemetry.Tracer, as: Tracer
   require Logger
-  
-  alias AutonomousOpponentV2Core.EventBus
-  
-  @tracer_name :web_gateway
   
   # Trace attributes
   @transport_attr "mcp.transport"
@@ -270,12 +266,12 @@ defmodule AutonomousOpponentV2Core.WebGateway.Tracing do
   
   # Private functions
   
-  defp handle_telemetry_event(event, measurements, metadata, _config) do
+  defp handle_telemetry_event(event, _measurements, metadata, _config) do
     case event do
       [:mcp, :gateway, :message, :start] ->
         # Start a new span for message processing
-        span_name = "mcp.process_message"
-        attributes = extract_telemetry_attributes(metadata)
+        _span_name = "mcp.process_message"
+        _attributes = extract_telemetry_attributes(metadata)
         # This would need to store the span context for the stop event
         :ok
         
@@ -333,7 +329,7 @@ defmodule AutonomousOpponentV2Core.WebGateway.Tracing do
   end
   defp get_response_type(_), do: "unknown"
   
-  defp get_circuit_breaker_state(breaker_name) do
+  defp get_circuit_breaker_state(_breaker_name) do
     # This would query the actual circuit breaker state
     # For now, return a placeholder
     :closed

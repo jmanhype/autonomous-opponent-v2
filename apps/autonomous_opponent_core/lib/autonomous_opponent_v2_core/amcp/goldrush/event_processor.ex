@@ -17,7 +17,6 @@ defmodule AutonomousOpponentV2Core.AMCP.Goldrush.EventProcessor do
   
   alias AutonomousOpponentV2Core.EventBus
   alias AutonomousOpponentV2Core.AMCP.Goldrush.PatternMatcher
-  alias AutonomousOpponentV2Core.AMCP.Context.SemanticFusion
   
   defstruct [
     :event_buffer,
@@ -29,7 +28,6 @@ defmodule AutonomousOpponentV2Core.AMCP.Goldrush.EventProcessor do
   
   @buffer_size 10_000
   @batch_size 100
-  @processing_timeout 5_000
   
   # Public API
   
@@ -73,7 +71,7 @@ defmodule AutonomousOpponentV2Core.AMCP.Goldrush.EventProcessor do
   # GenStage Callbacks
   
   @impl true
-  def init(opts) do
+  def init(_opts) do
     # Subscribe to all EventBus events for stream processing
     EventBus.subscribe(:all)
     
@@ -253,7 +251,12 @@ defmodule AutonomousOpponentV2Core.AMCP.Goldrush.EventProcessor do
   
   defp enrich_event(event) do
     # Apply semantic fusion to extract additional context
-    semantic_context = SemanticFusion.analyze_event(event)
+    # TODO: Implement SemanticFusion module
+    semantic_context = %{
+      entities: [],
+      relationships: [],
+      themes: []
+    }
     
     Map.merge(event, %{
       semantic_context: semantic_context,

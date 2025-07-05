@@ -60,8 +60,8 @@ defmodule AutonomousOpponentV2Core.WebGateway.Auth.JWTAuthenticatorTest do
     end
     
     test "rejects invalid token format" do
-      assert {:error, :invalid_token} = JWTAuthenticator.validate_token("not.a.token")
-      assert {:error, :invalid_token} = JWTAuthenticator.validate_token("")
+      assert {:error, :invalid_signature} = JWTAuthenticator.validate_token("not.a.token")
+      assert {:error, :invalid_signature} = JWTAuthenticator.validate_token("")
       assert {:error, :invalid_token} = JWTAuthenticator.validate_token(nil)
     end
     
@@ -88,7 +88,7 @@ defmodule AutonomousOpponentV2Core.WebGateway.Auth.JWTAuthenticatorTest do
       {:ok, token} = JWTAuthenticator.generate_token(@user_id, role: "premium")
       
       # Mock socket
-      socket = %Phoenix.Socket{assigns: %{}}
+      socket = %{assigns: %{}}
       
       assert {:ok, updated_socket} = JWTAuthenticator.validate_channel_token(token, socket)
       assert updated_socket.assigns.user_id == @user_id
@@ -97,9 +97,9 @@ defmodule AutonomousOpponentV2Core.WebGateway.Auth.JWTAuthenticatorTest do
     end
     
     test "rejects invalid token for channel" do
-      socket = %Phoenix.Socket{assigns: %{}}
+      socket = %{assigns: %{}}
       
-      assert {:error, %{reason: "invalid_token"}} = 
+      assert {:error, %{reason: "invalid_signature"}} = 
         JWTAuthenticator.validate_channel_token("invalid", socket)
     end
   end
@@ -118,7 +118,7 @@ defmodule AutonomousOpponentV2Core.WebGateway.Auth.JWTAuthenticatorTest do
     end
     
     test "rejects invalid token for SSE" do
-      assert {:error, :invalid_token} = JWTAuthenticator.validate_sse_token("invalid")
+      assert {:error, :invalid_signature} = JWTAuthenticator.validate_sse_token("invalid")
     end
   end
   

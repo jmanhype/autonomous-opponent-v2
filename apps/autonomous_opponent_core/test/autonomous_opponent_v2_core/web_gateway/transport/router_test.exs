@@ -25,9 +25,11 @@ defmodule AutonomousOpponentV2Core.WebGateway.Transport.RouterTest do
     unless Process.whereis(HTTPSSE), do: HTTPSSE.start_link()
     unless Process.whereis(WebSocket), do: WebSocket.start_link()
     
-    # Reset circuit breakers
-    CircuitBreaker.reset(:http_sse_transport)
-    CircuitBreaker.reset(:websocket_transport)
+    # Reset circuit breakers if they exist
+    if Process.whereis(AutonomousOpponentV2Core.Core.CircuitBreaker) do
+      CircuitBreaker.reset(:http_sse_transport)
+      CircuitBreaker.reset(:websocket_transport)
+    end
     
     :ok
   end
@@ -44,10 +46,7 @@ defmodule AutonomousOpponentV2Core.WebGateway.Transport.RouterTest do
       assert Router.route_message(client_id, %{test: "data"}) == :ok
       
       # Should receive on one of the transports
-      assert_receive msg when msg in [
-        {:sse_event, _},
-        {:ws_send, _}
-      ], 1000
+      assert_receive msg when elem(msg, 0) in [:sse_event, :ws_send], 1000
     end
     
     test "routes based on message size preference" do

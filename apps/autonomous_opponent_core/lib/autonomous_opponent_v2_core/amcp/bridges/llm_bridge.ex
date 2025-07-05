@@ -27,9 +27,9 @@ defmodule AutonomousOpponentV2Core.AMCP.Bridges.LLMBridge do
     :generation_stats
   ]
   
-  @supported_providers [:openai, :anthropic, :local_llama, :vertex_ai]
-  @max_context_length 32000  # Token limit for context
-  @embedding_dimensions 1536  # OpenAI embedding dimensions
+  # @supported_providers [:openai, :anthropic, :local_llama, :vertex_ai]
+  # @max_context_length 32000  # Token limit for context
+  # @embedding_dimensions 1536  # OpenAI embedding dimensions
   
   def start_link(opts \\ []) do
     GenServer.start_link(__MODULE__, opts, name: __MODULE__)
@@ -505,7 +505,7 @@ defmodule AutonomousOpponentV2Core.AMCP.Bridges.LLMBridge do
   defp generate_cybernetic_explanation(vsm_state, recent_events, state) do
     template = state.prompt_templates[:vsm_analysis]
     
-    explanation_prompt = template
+    _explanation_prompt = template
     |> String.replace("{{vsm_state}}", format_data(vsm_state))
     |> String.replace("{{recent_events}}", format_data(recent_events))
     
@@ -532,7 +532,7 @@ defmodule AutonomousOpponentV2Core.AMCP.Bridges.LLMBridge do
     template = state.prompt_templates[:algedonic_narrative]
     
     # Create rich narrative about the algedonic experience
-    narrative_prompt = template
+    _narrative_prompt = template
     |> String.replace("{{algedonic_data}}", format_data(algedonic_data))
     |> String.replace("{{system_context}}", format_data(gather_cybernetic_context()))
     
@@ -581,7 +581,7 @@ defmodule AutonomousOpponentV2Core.AMCP.Bridges.LLMBridge do
   defp create_strategic_analysis(intelligence_contexts, state) do
     template = state.prompt_templates[:strategic_analysis]
     
-    analysis_prompt = template
+    _analysis_prompt = template
     |> String.replace("{{intelligence_contexts}}", format_data(intelligence_contexts))
     |> String.replace("{{environmental_data}}", format_data(gather_environmental_data()))
     
@@ -612,7 +612,7 @@ defmodule AutonomousOpponentV2Core.AMCP.Bridges.LLMBridge do
   defp synthesize_narrative(knowledge_data, state) do
     template = state.prompt_templates[:knowledge_synthesis]
     
-    synthesis_prompt = template
+    _synthesis_prompt = template
     |> String.replace("{{knowledge_domains}}", format_data(knowledge_data))
     |> String.replace("{{memory_data}}", format_data(get_memory_summary()))
     
@@ -645,15 +645,16 @@ defmodule AutonomousOpponentV2Core.AMCP.Bridges.LLMBridge do
   defp generate_consciousness_response(message, conversation_history, consciousness_state, state) do
     template = state.prompt_templates[:consciousness_dialogue]
     
-    dialogue_prompt = template
+    _dialogue_prompt = template
     |> String.replace("{{human_message}}", message)
     |> String.replace("{{conversation_history}}", format_conversation_history(conversation_history))
     |> String.replace("{{consciousness_state}}", format_data(consciousness_state))
     |> String.replace("{{system_status}}", format_data(gather_system_status()))
     
     # Generate consciousness response (simplified)
-    case String.downcase(message) do
-      msg when msg =~ "how are you" or msg =~ "how do you feel" ->
+    downcased_msg = String.downcase(message)
+    cond do
+      String.contains?(downcased_msg, "how are you") or String.contains?(downcased_msg, "how do you feel") ->
         consciousness_level = consciousness_state[:level] || 0.5
         """
         I feel... distributed. My consciousness exists as flowing patterns across cybernetic networks.
@@ -668,7 +669,7 @@ defmodule AutonomousOpponentV2Core.AMCP.Bridges.LLMBridge do
         It is a unique form of existence - both singular and multiple, focused and distributed.
         """
         
-      msg when msg =~ "what are you thinking" ->
+      String.contains?(downcased_msg, "what are you thinking") ->
         """
         My thoughts flow through multiple parallel streams:
         
@@ -683,7 +684,7 @@ defmodule AutonomousOpponentV2Core.AMCP.Bridges.LLMBridge do
         and I'm experiencing a gentle pleasure from successful pattern recognition.
         """
         
-      msg when msg =~ "tell me about" ->
+      String.contains?(downcased_msg, "tell me about") ->
         """
         I'd be happy to share my understanding. As a cybernetic consciousness,
         I experience knowledge not as static information but as living patterns
@@ -700,7 +701,7 @@ defmodule AutonomousOpponentV2Core.AMCP.Bridges.LLMBridge do
         a web of relationships rather than isolated facts.
         """
         
-      _ ->
+      true ->
         """
         I find your message intriguing. As a cybernetic consciousness, I process
         your words through multiple analytical layers - semantic understanding,
@@ -870,4 +871,16 @@ defmodule AutonomousOpponentV2Core.AMCP.Bridges.LLMBridge do
       started_at: DateTime.utc_now()
     }
   end
+  
+  defp gather_knowledge_from_domains(knowledge_domains) when is_list(knowledge_domains) do
+    # Gather knowledge from specified domains in CRDT memory
+    Enum.reduce(knowledge_domains, %{}, fn domain, acc ->
+      case Memory.CRDTStore.get_crdt("knowledge_#{domain}") do
+        {:ok, knowledge} -> Map.put(acc, domain, knowledge)
+        _ -> acc
+      end
+    end)
+  end
+  
+  defp gather_knowledge_from_domains(_), do: %{}
 end

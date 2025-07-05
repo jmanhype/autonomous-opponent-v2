@@ -65,9 +65,6 @@ defmodule AutonomousOpponentV2Core.AMCP.WASM.Sandbox do
             nil ->
               {:error, :execution_timeout}
           end
-          
-        {:error, reason} ->
-          {:error, reason}
       end
     rescue
       error ->
@@ -78,7 +75,7 @@ defmodule AutonomousOpponentV2Core.AMCP.WASM.Sandbox do
   @doc """
   Destroys a sandbox instance.
   """
-  def destroy_instance(sandbox) do
+  def destroy_instance(_sandbox) do
     # Clean up resources
     Logger.debug("Destroying WASM sandbox instance")
     :ok

@@ -108,7 +108,7 @@ defmodule AutonomousOpponentV2Web.WebGatewayChannel do
   end
   
   @doc """
-  Handles incoming messages from clients.
+  Handles incoming messages from clients, including messages, pings, pongs, and subscriptions.
   """
   def handle_in("message", payload, socket) do
     connection_id = socket.assigns.connection_id
@@ -120,26 +120,17 @@ defmodule AutonomousOpponentV2Web.WebGatewayChannel do
     {:reply, {:ok, %{received: true}}, socket}
   end
   
-  @doc """
-  Handles ping messages for keep-alive.
-  """
   def handle_in("ping", _payload, socket) do
     # Respond with pong
     {:reply, {:ok, %{type: "pong", timestamp: DateTime.utc_now()}}, socket}
   end
   
-  @doc """
-  Handles pong responses from clients.
-  """
   def handle_in("pong", _payload, socket) do
     connection_id = socket.assigns.connection_id
     WebSocket.handle_pong(connection_id)
     {:noreply, socket}
   end
   
-  @doc """
-  Handles client requesting specific event subscriptions.
-  """
   def handle_in("subscribe", %{"events" => events}, socket) when is_list(events) do
     # Subscribe to requested event types
     Enum.each(events, fn event_type ->
@@ -151,9 +142,6 @@ defmodule AutonomousOpponentV2Web.WebGatewayChannel do
     {:reply, {:ok, %{subscribed: events}}, socket}
   end
   
-  @doc """
-  Handles client unsubscribe requests.
-  """
   def handle_in("unsubscribe", %{"events" => events}, socket) when is_list(events) do
     # Unsubscribe from event types
     Enum.each(events, fn event_type ->

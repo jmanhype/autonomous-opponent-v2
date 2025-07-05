@@ -14,7 +14,7 @@ if Code.ensure_loaded?(AMQP) do
     use GenServer
     require Logger
 
-    alias AutonomousOpponentV2Core.AMCP.{MessageHandler, Message, VSMTopology}
+    alias AutonomousOpponentV2Core.AMCP.{MessageHandler, Message}
     alias AutonomousOpponentV2Core.EventBus
     import Ecto.Changeset
 
@@ -169,7 +169,7 @@ if Code.ensure_loaded?(AMQP) do
       :ok
     end
 
-    defp handle_vsm_message(payload, metadata) do
+    defp handle_vsm_message(payload, _metadata) do
       Logger.debug("Processing VSM message: #{inspect(payload)}")
       
       # Extract subsystem and route appropriately

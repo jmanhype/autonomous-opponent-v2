@@ -257,7 +257,7 @@ defmodule AutonomousOpponentV2Core.AMCP.Memory.CRDTStore do
         {:reply, {:error, :not_found}, state}
         
       {crdt_type, crdt_instance} ->
-        case update_crdt_instance(crdt_type, crdt_instance, operation, value, state.node_id) do
+        case update_crdt_instance(crdt_type, crdt_instance, operation, value) do
           {:ok, new_instance} ->
             new_crdts = Map.put(state.crdts, crdt_id, {crdt_type, new_instance})
             new_state = increment_vector_clock(state)

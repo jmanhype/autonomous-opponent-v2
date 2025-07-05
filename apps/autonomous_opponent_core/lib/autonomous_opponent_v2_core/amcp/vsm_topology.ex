@@ -94,35 +94,45 @@ if Code.ensure_loaded?(AMQP) do
     defp declare_vsm_topology do
       ConnectionPool.with_connection(fn channel ->
           try do
-            # Declare main VSM topic exchange
-            :ok = Exchange.declare(channel, @vsm_exchange, :topic, durable: true)
-            Logger.debug("Declared VSM exchange: #{@vsm_exchange}")
-            
-            # Declare algedonic fanout exchange for pain/pleasure signals
-            :ok = Exchange.declare(channel, @algedonic_exchange, :fanout, durable: true)
-            Logger.debug("Declared algedonic exchange: #{@algedonic_exchange}")
-            
-            # Declare command topic exchange for directed commands
-            :ok = Exchange.declare(channel, @command_exchange, :topic, durable: true)
-            Logger.debug("Declared command exchange: #{@command_exchange}")
-            
-            # Create queues for each subsystem
-            subsystem_queues = Enum.reduce(@subsystems, %{}, fn subsystem, acc ->
-              queue_name = create_subsystem_queues(channel, subsystem)
-              Map.put(acc, subsystem, queue_name)
-            end)
-            
-            # Create algedonic queue (all subsystems receive algedonic signals)
-            algedonic_queue = create_algedonic_queue(channel)
-            
-            # Create command queues
-            command_queues = create_command_queues(channel)
-            
-            {:ok, %{
-              subsystem_queues: subsystem_queues,
-              algedonic_queue: algedonic_queue,
-              command_queues: command_queues
-            }}
+            # Check if we're in stub mode
+            if channel == :stub_channel do
+              Logger.info("VSM Topology running in stub mode - skipping AMQP declarations")
+              {:ok, %{
+                subsystem_queues: %{},
+                algedonic_queue: nil,
+                command_queues: %{}
+              }}
+            else
+              # Declare main VSM topic exchange
+              :ok = Exchange.declare(channel, @vsm_exchange, :topic, durable: true)
+              Logger.debug("Declared VSM exchange: #{@vsm_exchange}")
+              
+              # Declare algedonic fanout exchange for pain/pleasure signals
+              :ok = Exchange.declare(channel, @algedonic_exchange, :fanout, durable: true)
+              Logger.debug("Declared algedonic exchange: #{@algedonic_exchange}")
+              
+              # Declare command topic exchange for directed commands
+              :ok = Exchange.declare(channel, @command_exchange, :topic, durable: true)
+              Logger.debug("Declared command exchange: #{@command_exchange}")
+              
+              # Create queues for each subsystem
+              subsystem_queues = Enum.reduce(@subsystems, %{}, fn subsystem, acc ->
+                queue_name = create_subsystem_queues(channel, subsystem)
+                Map.put(acc, subsystem, queue_name)
+              end)
+              
+              # Create algedonic queue (all subsystems receive algedonic signals)
+              algedonic_queue = create_algedonic_queue(channel)
+              
+              # Create command queues
+              command_queues = create_command_queues(channel)
+              
+              {:ok, %{
+                subsystem_queues: subsystem_queues,
+                algedonic_queue: algedonic_queue,
+                command_queues: command_queues
+              }}
+            end
           rescue
             error ->
               Logger.error("Error declaring VSM topology: #{inspect(error)}")
@@ -213,12 +223,19 @@ if Code.ensure_loaded?(AMQP) do
             timestamp: DateTime.utc_now()
           })
           
-          Basic.publish(channel, @vsm_exchange, routing_key, message,
-            persistent: true,
-            content_type: "application/json"
-          )
+          if channel == :stub_channel do
+            # In stub mode, publish to EventBus instead
+            alias AutonomousOpponentV2Core.EventBus
+            EventBus.publish(:"vsm_#{subsystem}_#{event_type}", payload)
+            Logger.debug("Published VSM event to EventBus: vsm_#{subsystem}_#{event_type}")
+          else
+            Basic.publish(channel, @vsm_exchange, routing_key, message,
+              persistent: true,
+              content_type: "application/json"
+            )
+            Logger.debug("Published VSM event to #{routing_key}")
+          end
           
-          Logger.debug("Published VSM event to #{routing_key}")
           :ok
           
       end)
@@ -240,13 +257,20 @@ if Code.ensure_loaded?(AMQP) do
             timestamp: DateTime.utc_now()
           })
           
-          Basic.publish(channel, @algedonic_exchange, "", message,
-            persistent: true,
-            priority: priority,
-            content_type: "application/json"
-          )
+          if channel == :stub_channel do
+            # In stub mode, publish to EventBus instead
+            alias AutonomousOpponentV2Core.EventBus
+            EventBus.publish(:algedonic_signal, %{severity: severity, payload: payload, priority: priority})
+            Logger.info("Published algedonic signal to EventBus with severity: #{severity}")
+          else
+            Basic.publish(channel, @algedonic_exchange, "", message,
+              persistent: true,
+              priority: priority,
+              content_type: "application/json"
+            )
+            Logger.info("Published algedonic signal with severity: #{severity}")
+          end
           
-          Logger.info("Published algedonic signal with severity: #{severity}")
           :ok
           
       end)

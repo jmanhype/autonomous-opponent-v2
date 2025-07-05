@@ -354,9 +354,10 @@ defmodule AutonomousOpponentV2Core.AMCP.Security.SignatureVerifier do
   defp verify_hmac(message, signature, shared_key) do
     expected_signature = sign_hmac(message, shared_key)
     
-    case :crypto.equal_const_time(signature, expected_signature) do
-      true -> :valid
-      false -> {:invalid, :signature_mismatch}
+    if signature == expected_signature do
+      :valid
+    else
+      {:invalid, :signature_mismatch}
     end
   end
   

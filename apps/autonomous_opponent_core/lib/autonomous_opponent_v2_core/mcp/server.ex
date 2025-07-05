@@ -16,7 +16,7 @@ defmodule AutonomousOpponentV2Core.MCP.Server do
   require Logger
   
   alias AutonomousOpponentV2Core.EventBus
-  alias AutonomousOpponentV2Core.MCP.{Message, Transport, Capabilities}
+  alias AutonomousOpponentV2Core.MCP.{Message, Transport}
   
   defstruct [
     :transport,
@@ -68,7 +68,7 @@ defmodule AutonomousOpponentV2Core.MCP.Server do
   # GenServer Callbacks
   
   @impl true
-  def init(opts) do
+  def init(_opts) do
     Logger.info("Starting MCP Server for VSM integration...")
     
     # Subscribe to VSM events for real-time data
@@ -127,7 +127,7 @@ defmodule AutonomousOpponentV2Core.MCP.Server do
         
       {:error, reason} ->
         Logger.error("Invalid MCP message: #{inspect(reason)}")
-        send_error(state, "parse_error", "Invalid JSON-RPC message")
+        send_error(state, nil, "parse_error", "Invalid JSON-RPC message")
         {:noreply, state}
     end
   end
@@ -318,7 +318,7 @@ defmodule AutonomousOpponentV2Core.MCP.Server do
     %{state | client_info: client_info}
   end
   
-  defp process_mcp_message(%{method: "resources/list"}, state) do
+  defp process_mcp_message(%{method: "resources/list"} = message, state) do
     send_response(state, message.id, %{resources: state.resources})
     state
   end
@@ -339,7 +339,7 @@ defmodule AutonomousOpponentV2Core.MCP.Server do
     state
   end
   
-  defp process_mcp_message(%{method: "tools/list"}, state) do
+  defp process_mcp_message(%{method: "tools/list"} = message, state) do
     send_response(state, message.id, %{tools: state.tools})
     state
   end
@@ -353,7 +353,7 @@ defmodule AutonomousOpponentV2Core.MCP.Server do
     state
   end
   
-  defp process_mcp_message(%{method: "prompts/list"}, state) do
+  defp process_mcp_message(%{method: "prompts/list"} = message, state) do
     send_response(state, message.id, %{prompts: state.prompts})
     state
   end

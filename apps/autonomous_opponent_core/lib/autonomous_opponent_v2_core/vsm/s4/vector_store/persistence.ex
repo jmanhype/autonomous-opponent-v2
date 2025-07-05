@@ -31,7 +31,6 @@ defmodule AutonomousOpponentV2Core.VSM.S4.VectorStore.Persistence do
   # Increment this when breaking changes are made to the index format
   @index_version 2
   @current_version 1  # Legacy support
-  @file_extension ".hnsw"
   
   @doc """
   Saves HNSW index state to disk.

@@ -21,7 +21,7 @@ defmodule AutonomousOpponentV2Core.Security.SecretsManager do
   
   alias AutonomousOpponentV2Core.EventBus
   alias AutonomousOpponentV2Core.Security.VaultClient
-  alias AutonomousOpponentV2Core.Security.Encryption
+  # alias AutonomousOpponentV2Core.Security.Encryption
   
   defstruct [
     :vault_client,
@@ -88,7 +88,7 @@ defmodule AutonomousOpponentV2Core.Security.SecretsManager do
       case VaultClient.start_link(config.vault_config) do
         {:ok, client} -> client
         {:error, reason} ->
-          Logger.warn("Failed to initialize Vault client: #{inspect(reason)}")
+          Logger.warning("Failed to initialize Vault client: #{inspect(reason)}")
           nil
       end
     else
@@ -264,7 +264,7 @@ defmodule AutonomousOpponentV2Core.Security.SecretsManager do
   @impl true
   def handle_info({:event, :security_breach, %{key: key}}, state) do
     # Immediate rotation on security breach
-    Logger.warn("Security breach detected for key: #{key}. Rotating immediately.")
+    Logger.warning("Security breach detected for key: #{key}. Rotating immediately.")
     
     case rotate_secret(key) do
       {:ok, _} ->
@@ -306,7 +306,7 @@ defmodule AutonomousOpponentV2Core.Security.SecretsManager do
     }
   end
   
-  defp init_rotation_schedule(config) do
+  defp init_rotation_schedule(_config) do
     # Default rotation schedule for known secrets
     %{
       "OPENAI_API_KEY" => %{
@@ -324,11 +324,11 @@ defmodule AutonomousOpponentV2Core.Security.SecretsManager do
     }
   end
   
-  defp schedule_rotations(state) do
+  defp schedule_rotations(_state) do
     Process.send_after(self(), :rotate_secrets, :timer.hours(1))
   end
   
-  defp get_from_cache(cache, key, opts) do
+  defp get_from_cache(cache, key, _opts) do
     case Map.get(cache, key) do
       nil -> :miss
       {value, expiry} ->

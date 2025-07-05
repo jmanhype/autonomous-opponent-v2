@@ -40,7 +40,7 @@ defmodule AutonomousOpponentV2Core.AMCP.ClientTest do
         message: "Test pain signal"
       })
       
-      assert match?({:ok, _} | {:error, _}, result)
+      assert match?({:ok, _}, result) or match?({:error, _}, result)
       
       # Test pleasure signal
       result = Client.send_algedonic(:pleasure, %{
@@ -48,7 +48,7 @@ defmodule AutonomousOpponentV2Core.AMCP.ClientTest do
         message: "Test pleasure signal"
       })
       
-      assert match?({:ok, _} | {:error, _}, result)
+      assert match?({:ok, _}, result) or match?({:error, _}, result)
     end
     
     test "publish_event adds required metadata" do
@@ -66,7 +66,7 @@ defmodule AutonomousOpponentV2Core.AMCP.ClientTest do
         max_length: 100
       )
       
-      assert match?({:ok, _} | {:error, _}, result)
+      assert match?({:ok, _}, result) or match?({:error, _}, result)
     end
     
     test "send_work publishes to work queue" do

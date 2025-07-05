@@ -14,7 +14,6 @@ defmodule AutonomousOpponentV2Core.AMCP.Client do
   """
   
   alias AutonomousOpponentV2Core.AMCP.{ConnectionPool, Topology}
-  alias AutonomousOpponentV2Core.EventBus
   require Logger
   
   @default_timeout 5000
@@ -96,7 +95,7 @@ defmodule AutonomousOpponentV2Core.AMCP.Client do
       end
   """
   def request(service_name, message, opts \\ []) do
-    timeout = Keyword.get(opts, :timeout, @default_timeout)
+    _timeout = Keyword.get(opts, :timeout, @default_timeout)
     correlation_id = generate_correlation_id()
     reply_queue = @reply_queue_prefix <> correlation_id
     
