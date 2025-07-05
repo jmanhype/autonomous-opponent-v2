@@ -22,16 +22,10 @@ defmodule AutonomousOpponentV2Core.AMCP.Memory.GSet do
       iex> gset = GSet.new("node1")
       %GSet{id: "node1", elements: #MapSet<[]>}
   """
-  @spec new(String.t()) :: t()
   def new(id) when is_binary(id) do
     %__MODULE__{id: id, elements: MapSet.new()}
   end
   
-  @doc """
-  Creates a new G-Set with initial elements.
-  Used by CRDT store for initialization.
-  """
-  @spec new(list()) :: t()
   def new(initial_elements) when is_list(initial_elements) do
     %__MODULE__{id: "", elements: MapSet.new(initial_elements)}
   end

@@ -17,8 +17,8 @@ defmodule AutonomousOpponentV2Core.AMCP.Bridges.OpenAIClient do
     api_key = get_api_key()
     
     unless api_key do
-      return {:error, :no_api_key}
-    end
+      {:error, :no_api_key}
+    else
     
     headers = [
       {"Content-Type", "application/json"},
@@ -51,6 +51,7 @@ defmodule AutonomousOpponentV2Core.AMCP.Bridges.OpenAIClient do
         Logger.error("HTTP request failed: #{inspect(reason)}")
         {:error, {:http_error, reason}}
     end
+    end
   end
   
   @doc """
@@ -61,8 +62,8 @@ defmodule AutonomousOpponentV2Core.AMCP.Bridges.OpenAIClient do
     api_key = get_api_key()
     
     unless api_key do
-      return {:error, :no_api_key}
-    end
+      {:error, :no_api_key}
+    else
     
     headers = [
       {"Content-Type", "application/json"},
@@ -87,6 +88,7 @@ defmodule AutonomousOpponentV2Core.AMCP.Bridges.OpenAIClient do
       {:error, reason} ->
         Logger.error("Failed to start stream: #{inspect(reason)}")
         {:error, reason}
+    end
     end
   end
   

@@ -31,13 +31,25 @@ defmodule AutonomousOpponentV2Core.AMCP.Memory.CRDTMap do
       iex> CRDTMap.new(:node2, 10)
       %CRDTMap{actor_id: :node2, clock: 10, entries: %{}}
   """
-  @spec new(actor_id(), clock()) :: t()
-  def new(actor_id, initial_clock \\ 0) do
+  @spec new(actor_id()) :: t()
+  @spec new(actor_id(), clock() | map()) :: t()
+  
+  def new(actor_id, initial_clock_or_map \\ 0)
+  
+  def new(actor_id, initial_clock) when is_integer(initial_clock) do
     %__MODULE__{
       actor_id: actor_id,
       clock: initial_clock,
       entries: %{}
     }
+  end
+  
+  def new(actor_id, initial_map) when is_map(initial_map) do
+    base_map = new(actor_id, 0)
+    
+    Enum.reduce(initial_map, base_map, fn {key, value}, acc ->
+      put(acc, key, value)
+    end)
   end
 
   @doc """
@@ -53,14 +65,32 @@ defmodule AutonomousOpponentV2Core.AMCP.Memory.CRDTMap do
       iex> CRDTMap.value(map)
       %{key1: "value1"}
   """
-  @spec put(t(), term(), term(), clock()) :: t()
-  def put(%__MODULE__{} = map, key, value, clock \\ nil) do
+  @spec put(t(), term(), term()) :: t()
+  @spec put(t(), term(), term(), clock() | term()) :: t()
+  
+  def put(map, key, value, clock_or_subkey \\ nil)
+  
+  def put(%__MODULE__{} = map, key, value, clock) when is_integer(clock) or is_nil(clock) do
     new_clock = clock || map.clock + 1
     
     %{map | 
       clock: new_clock,
       entries: Map.put(map.entries, key, {value, new_clock, map.actor_id})
     }
+  end
+  
+  def put(%__MODULE__{} = map, key, subkey, value) do
+    # Get current value for the key, default to empty map
+    current_value = case Map.get(map.entries, key) do
+      {val, _, _} when is_map(val) -> val
+      _ -> %{}
+    end
+    
+    # Update the nested map
+    updated_value = Map.put(current_value, subkey, value)
+    
+    # Put the updated nested map back
+    put(map, key, updated_value)
   end
 
   @doc """
@@ -78,14 +108,38 @@ defmodule AutonomousOpponentV2Core.AMCP.Memory.CRDTMap do
       iex> CRDTMap.value(map)
       %{}
   """
-  @spec remove(t(), term(), clock()) :: t()
-  def remove(%__MODULE__{} = map, key, clock \\ nil) do
+  @spec remove(t(), term()) :: t()
+  @spec remove(t(), term(), clock() | term()) :: t()
+  
+  def remove(map, key, clock_or_subkey \\ nil)
+  
+  def remove(%__MODULE__{} = map, key, clock) when is_integer(clock) or is_nil(clock) do
     new_clock = clock || map.clock + 1
     
     %{map | 
       clock: new_clock,
       entries: Map.put(map.entries, key, {nil, new_clock, map.actor_id})
     }
+  end
+  
+  def remove(%__MODULE__{} = map, key, subkey) do
+    # Get current value for the key
+    case Map.get(map.entries, key) do
+      {val, _, _} when is_map(val) ->
+        # Remove the subkey
+        updated_value = Map.delete(val, subkey)
+        
+        # If the map is now empty, remove the entire key
+        if map_size(updated_value) == 0 do
+          remove(map, key)
+        else
+          put(map, key, updated_value)
+        end
+        
+      _ ->
+        # Key doesn't exist or isn't a map, nothing to do
+        map
+    end
   end
 
   @doc """
@@ -170,49 +224,6 @@ defmodule AutonomousOpponentV2Core.AMCP.Memory.CRDTMap do
     end
   end
   
-  @doc """
-  Alternative put method for hierarchical key paths.
-  Used by CRDT store for nested structures.
-  """
-  @spec put(t(), term(), term(), term()) :: t()
-  def put(%__MODULE__{} = map, key, subkey, value) do
-    # Get current value for the key, default to empty map
-    current_value = case Map.get(map.entries, key) do
-      {val, _, _} when is_map(val) -> val
-      _ -> %{}
-    end
-    
-    # Update the nested map
-    updated_value = Map.put(current_value, subkey, value)
-    
-    # Put the updated nested map back
-    put(map, key, updated_value)
-  end
-  
-  @doc """
-  Alternative remove method for hierarchical key paths.
-  Used by CRDT store for nested structures.
-  """
-  @spec remove(t(), term(), term()) :: t()
-  def remove(%__MODULE__{} = map, key, subkey) do
-    # Get current value for the key
-    case Map.get(map.entries, key) do
-      {val, _, _} when is_map(val) ->
-        # Remove the subkey
-        updated_value = Map.delete(val, subkey)
-        
-        # If the map is now empty, remove the entire key
-        if map_size(updated_value) == 0 do
-          remove(map, key)
-        else
-          put(map, key, updated_value)
-        end
-        
-      _ ->
-        # Key doesn't exist or isn't a map, nothing to do
-        map
-    end
-  end
   
   @doc """
   Converts CRDT Map to map for serialization.
@@ -234,16 +245,4 @@ defmodule AutonomousOpponentV2Core.AMCP.Memory.CRDTMap do
     end)
   end
   
-  @doc """
-  Alternative constructor accepting initial map data.
-  Used by CRDT store.
-  """
-  @spec new(actor_id(), map()) :: t()
-  def new(actor_id, initial_map) when is_map(initial_map) do
-    base_map = new(actor_id)
-    
-    Enum.reduce(initial_map, base_map, fn {key, value}, acc ->
-      put(acc, key, value)
-    end)
-  end
 end

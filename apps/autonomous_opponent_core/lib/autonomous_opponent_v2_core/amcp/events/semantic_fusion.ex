@@ -558,7 +558,8 @@ defmodule AutonomousOpponentV2Core.AMCP.Events.SemanticFusion do
     
     if length(intervals) > 0 do
       avg = Enum.sum(intervals) / length(intervals)
-      variance = Enum.map(intervals, fn i -> abs(i - avg) end) |> Enum.sum() / length(intervals)
+      variance = Enum.map(intervals, fn i -> abs(i - avg) end) |> Enum.sum()
+      variance = variance / length(intervals)
       
       # Lower variance = higher consistency
       max(0, 1 - (variance / avg))
@@ -771,7 +772,7 @@ defmodule AutonomousOpponentV2Core.AMCP.Events.SemanticFusion do
     |> Enum.map(fn e -> e.data end)
   end
   
-  defp determine_evolution_direction(events) do
+  defp determine_evolution_direction(_events) do
     # Determine if consciousness is evolving positively
     :ascending
   end

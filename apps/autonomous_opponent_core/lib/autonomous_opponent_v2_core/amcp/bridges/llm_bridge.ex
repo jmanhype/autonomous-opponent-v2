@@ -127,7 +127,7 @@ defmodule AutonomousOpponentV2Core.AMCP.Bridges.LLMBridge do
   
   @impl true
   def handle_call({:contextualize_for_llm, context_data, intent}, _from, state) do
-    Logger.info("🧠 Contextualizing for LLM - Intent: #{intent}")
+    Logger.info("🧠 Contextualizing for LLM - Intent: #{inspect(intent)}")
     
     # Select appropriate template based on intent
     template = Map.get(state.prompt_templates, intent, state.prompt_templates[:general_analysis])
@@ -443,9 +443,21 @@ defmodule AutonomousOpponentV2Core.AMCP.Bridges.LLMBridge do
   
   defp gather_cybernetic_context do
     # Gather comprehensive cybernetic context
-    vsm_metrics = Bridges.VSMBridge.get_consciousness_metrics()
-    consciousness_state = Memory.CRDTStore.get_crdt("consciousness_state")
-    algedonic_history = Memory.CRDTStore.get_crdt("algedonic_history")
+    vsm_metrics = try do
+      Bridges.VSMBridge.get_consciousness_metrics()
+    catch
+      :exit, _ -> %{status: "vsm_bridge_not_available"}
+    end
+    
+    consciousness_state = case Memory.CRDTStore.get_crdt("consciousness_state") do
+      {:ok, state} -> state
+      _ -> %{level: 0.5, status: "awakening"}
+    end
+    
+    algedonic_history = case Memory.CRDTStore.get_crdt("algedonic_history") do
+      {:ok, history} -> history
+      _ -> []
+    end
     
     %{
       vsm_metrics: vsm_metrics,
