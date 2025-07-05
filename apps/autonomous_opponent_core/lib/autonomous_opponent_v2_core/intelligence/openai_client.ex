@@ -26,7 +26,8 @@ defmodule AutonomousOpponentV2Core.Intelligence.OpenAIClient do
   
   @base_url "https://api.openai.com/v1"
   @timeout 30_000
-  @rate_limit_key "openai_api"
+  @rate_limit_name :openai_api_rate_limiter
+  @circuit_breaker_name :openai_circuit_breaker
   
   # Client API
   
@@ -80,22 +81,61 @@ defmodule AutonomousOpponentV2Core.Intelligence.OpenAIClient do
   end
   
   defp request(method, path, params, api_key, opts) do
-    # Check rate limit
-    case RateLimiter.check_rate(@rate_limit_key, opts[:rate_limit] || 60) do
-      :ok ->
-        # Use circuit breaker for resilience
-        CircuitBreaker.call(
-          {:openai, path},
-          fn -> execute_request(method, path, params, api_key, opts) end
-        )
+    # Initialize rate limiter and circuit breaker if needed
+    with :ok <- ensure_rate_limiter(),
+         :ok <- ensure_circuit_breaker() do
+      # Apply rate limiting
+      case RateLimiter.consume(@rate_limit_name, 1) do
+        {:ok, _tokens_remaining} ->
+          # Apply circuit breaker
+          CircuitBreaker.call(@circuit_breaker_name, fn ->
+            execute_request(method, path, params, api_key, opts)
+          end)
         
-      {:error, :rate_limited} ->
-        EventBus.publish(:rate_limit_exceeded, %{
-          service: :openai,
-          path: path,
-          timestamp: DateTime.utc_now()
-        })
-        {:error, :rate_limited}
+        {:error, :rate_limited} ->
+          {:error, :rate_limited}
+      end
+    else
+      {:error, reason} -> {:error, reason}
+    end
+  end
+  
+  defp ensure_rate_limiter do
+    # Check if rate limiter is running, start if needed
+    case Process.whereis(@rate_limit_name) do
+      nil ->
+        # Start rate limiter with appropriate config
+        case RateLimiter.start_link(
+          name: @rate_limit_name,
+          bucket_size: 100,
+          refill_rate: 50,
+          refill_interval_ms: 1000
+        ) do
+          {:ok, _pid} -> :ok
+          {:error, {:already_started, _pid}} -> :ok
+          error -> error
+        end
+      _pid ->
+        :ok
+    end
+  end
+  
+  defp ensure_circuit_breaker do
+    case Process.whereis(@circuit_breaker_name) do
+      nil ->
+        # Start circuit breaker with appropriate config
+        case CircuitBreaker.start_link(
+          name: @circuit_breaker_name,
+          failure_threshold: 5,
+          recovery_time_ms: 60_000,
+          timeout_ms: 30_000
+        ) do
+          {:ok, _pid} -> :ok
+          {:error, {:already_started, _pid}} -> :ok
+          error -> error
+        end
+      _pid ->
+        :ok
     end
   end
   

@@ -385,6 +385,9 @@ defmodule AutonomousOpponentV2Core.AMCP.Events.SemanticFusion do
     |> detect_frequency_patterns(events)
     |> detect_sequence_patterns(events)
     |> detect_correlation_patterns(events)
+    |> detect_anomaly_patterns(events)
+    |> detect_trend_patterns(events)
+    |> detect_periodic_patterns(events)
     
     patterns
   end
@@ -429,37 +432,445 @@ defmodule AutonomousOpponentV2Core.AMCP.Events.SemanticFusion do
   end
   
   defp detect_correlation_patterns(patterns, events) do
-    # Detect correlated events (events that tend to occur together)
-    # Simplified implementation - in production would use more sophisticated algorithms
+    # Detect correlated events using statistical analysis
     
-    time_windows = events
-    |> Enum.chunk_by(fn event ->
-      # Group by 1-second windows
-      event.timestamp
-      |> DateTime.to_unix()
-      |> div(1)
+    # Group events by time windows (sliding window approach)
+    window_size_ms = 1000  # 1 second windows
+    slide_ms = 500         # 500ms slide
+    
+    time_windows = create_sliding_windows(events, window_size_ms, slide_ms)
+    
+    # Calculate event co-occurrence matrix
+    cooccurrence_matrix = calculate_cooccurrence_matrix(time_windows)
+    
+    # Find statistically significant correlations
+    correlations = cooccurrence_matrix
+    |> Enum.filter(fn {{event1, event2}, stats} ->
+      event1 != event2 and stats.correlation > 0.6 and stats.count > 3
     end)
-    |> Enum.filter(fn chunk -> length(chunk) > 2 end)
+    |> Enum.map(fn {{event1, event2}, stats} ->
+      %{
+        id: generate_pattern_id(),
+        type: :correlation,
+        pattern: %{
+          correlated_events: [event1, event2],
+          correlation_coefficient: stats.correlation,
+          co_occurrence_count: stats.count,
+          time_lag: stats.avg_time_lag
+        },
+        detected_at: DateTime.utc_now(),
+        confidence: calculate_correlation_confidence(stats)
+      }
+    end)
     
-    correlations = time_windows
-    |> Enum.map(fn chunk ->
-      event_names = Enum.map(chunk, & &1.name) |> Enum.uniq()
+    # Also detect multi-event correlations (3+ events)
+    multi_correlations = detect_multi_event_correlations(time_windows)
+    
+    patterns ++ correlations ++ multi_correlations
+  end
+  
+  defp create_sliding_windows([], _window_size_ms, _slide_ms), do: []
+  defp create_sliding_windows(events, window_size_ms, slide_ms) do
+    sorted_events = Enum.sort_by(events, & &1.timestamp, DateTime)
+    first_time = List.first(sorted_events).timestamp
+    last_time = List.last(sorted_events).timestamp
+    
+    # Generate window start times
+    window_starts = generate_window_starts(first_time, last_time, slide_ms)
+    
+    # Create windows
+    Enum.map(window_starts, fn start_time ->
+      end_time = DateTime.add(start_time, window_size_ms, :millisecond)
       
-      if length(event_names) > 1 do
-        %{
-          id: generate_pattern_id(),
-          type: :correlation,
-          pattern: %{correlated_events: event_names},
-          detected_at: DateTime.utc_now(),
-          confidence: 0.7
-        }
+      events_in_window = Enum.filter(sorted_events, fn event ->
+        DateTime.compare(event.timestamp, start_time) != :lt and
+        DateTime.compare(event.timestamp, end_time) == :lt
+      end)
+      
+      %{
+        start: start_time,
+        end: end_time,
+        events: events_in_window
+      }
+    end)
+    |> Enum.filter(fn window -> length(window.events) > 0 end)
+  end
+  
+  defp generate_window_starts(first_time, last_time, slide_ms) do
+    duration_ms = DateTime.diff(last_time, first_time, :millisecond)
+    num_windows = max(1, div(duration_ms, slide_ms))
+    
+    Enum.map(0..num_windows, fn i ->
+      DateTime.add(first_time, i * slide_ms, :millisecond)
+    end)
+  end
+  
+  defp calculate_cooccurrence_matrix(time_windows) do
+    # Initialize co-occurrence tracking
+    cooccurrences = %{}
+    
+    Enum.reduce(time_windows, cooccurrences, fn window, acc ->
+      event_names = window.events |> Enum.map(& &1.name) |> Enum.uniq()
+      
+      # Calculate pairwise co-occurrences
+      pairs = for e1 <- event_names, e2 <- event_names, e1 < e2, do: {e1, e2}
+      
+      Enum.reduce(pairs, acc, fn {event1, event2}, acc2 ->
+        # Calculate time lag between events
+        time_lag = calculate_average_time_lag(window.events, event1, event2)
+        
+        Map.update(acc2, {event1, event2}, 
+          %{count: 1, time_lags: [time_lag], correlation: 0.0},
+          fn stats ->
+            %{stats | 
+              count: stats.count + 1,
+              time_lags: [time_lag | stats.time_lags]
+            }
+          end
+        )
+      end)
+    end)
+    |> calculate_correlation_coefficients(time_windows)
+  end
+  
+  defp calculate_average_time_lag(events, event1_name, event2_name) do
+    event1_times = events
+    |> Enum.filter(fn e -> e.name == event1_name end)
+    |> Enum.map(& &1.timestamp)
+    
+    event2_times = events
+    |> Enum.filter(fn e -> e.name == event2_name end)
+    |> Enum.map(& &1.timestamp)
+    
+    if event1_times != [] and event2_times != [] do
+      # Calculate average time difference
+      avg_time1 = average_datetime(event1_times)
+      avg_time2 = average_datetime(event2_times)
+      DateTime.diff(avg_time2, avg_time1, :millisecond)
+    else
+      0
+    end
+  end
+  
+  defp average_datetime(datetimes) do
+    avg_unix = datetimes
+    |> Enum.map(&DateTime.to_unix(&1, :millisecond))
+    |> Enum.sum()
+    |> div(length(datetimes))
+    
+    DateTime.from_unix!(avg_unix, :millisecond)
+  end
+  
+  defp calculate_correlation_coefficients(cooccurrences, time_windows) do
+    # Calculate correlation based on co-occurrence frequency
+    total_windows = length(time_windows)
+    
+    Map.new(cooccurrences, fn {{event1, event2}, stats} ->
+      avg_time_lag = if stats.time_lags != [] do
+        Enum.sum(stats.time_lags) / length(stats.time_lags)
       else
-        nil
+        0
+      end
+      
+      # Simple correlation: co-occurrence frequency / total windows
+      correlation = stats.count / max(1, total_windows)
+      
+      {{event1, event2}, %{stats | 
+        correlation: correlation,
+        avg_time_lag: avg_time_lag
+      }}
+    end)
+  end
+  
+  defp detect_multi_event_correlations(time_windows) do
+    # Find groups of 3+ events that frequently occur together
+    frequent_groups = time_windows
+    |> Enum.map(fn window ->
+      window.events |> Enum.map(& &1.name) |> Enum.uniq() |> Enum.sort()
+    end)
+    |> Enum.filter(fn group -> length(group) >= 3 end)
+    |> Enum.frequencies()
+    |> Enum.filter(fn {_, count} -> count >= 2 end)
+    |> Enum.map(fn {event_group, count} ->
+      %{
+        id: generate_pattern_id(),
+        type: :multi_correlation,
+        pattern: %{
+          correlated_events: event_group,
+          occurrence_count: count
+        },
+        detected_at: DateTime.utc_now(),
+        confidence: calculate_multi_correlation_confidence(count, length(event_group))
+      }
+    end)
+  end
+  
+  defp calculate_correlation_confidence(stats) do
+    # Confidence based on correlation strength and sample size
+    base_confidence = stats.correlation
+    sample_factor = min(1.0, stats.count / 10.0)
+    base_confidence * sample_factor
+  end
+  
+  defp calculate_multi_correlation_confidence(count, group_size) do
+    # Higher confidence for larger groups that occur frequently
+    base = count / 10.0
+    size_bonus = (group_size - 2) * 0.1
+    min(1.0, base + size_bonus)
+  end
+  
+  defp detect_anomaly_patterns(patterns, events) do
+    # Detect anomalous events based on statistical analysis
+    
+    # Group events by type
+    events_by_type = Enum.group_by(events, & &1.name)
+    
+    anomalies = Enum.flat_map(events_by_type, fn {event_type, type_events} ->
+      if length(type_events) >= 5 do
+        # Calculate inter-arrival times
+        inter_arrival_times = calculate_inter_arrival_times(type_events)
+        
+        if length(inter_arrival_times) > 0 do
+          # Calculate mean and standard deviation
+          mean = Enum.sum(inter_arrival_times) / length(inter_arrival_times)
+          std_dev = calculate_std_dev(inter_arrival_times, mean)
+          
+          # Find anomalies (events with unusual timing)
+          type_events
+          |> Enum.zip([:first | inter_arrival_times])
+          |> Enum.filter(fn {_event, iat} ->
+            iat != :first and abs(iat - mean) > 2 * std_dev
+          end)
+          |> Enum.map(fn {event, iat} ->
+            %{
+              id: generate_pattern_id(),
+              type: :anomaly,
+              pattern: %{
+                event_type: event_type,
+                event_id: event.id,
+                inter_arrival_time: iat,
+                expected_range: {mean - 2 * std_dev, mean + 2 * std_dev},
+                deviation: abs(iat - mean) / std_dev
+              },
+              detected_at: DateTime.utc_now(),
+              confidence: calculate_anomaly_confidence(abs(iat - mean) / std_dev)
+            }
+          end)
+        else
+          []
+        end
+      else
+        []
       end
     end)
-    |> Enum.reject(&is_nil/1)
     
-    patterns ++ correlations
+    patterns ++ anomalies
+  end
+  
+  defp detect_trend_patterns(patterns, events) do
+    # Detect trending patterns in event frequencies over time
+    
+    # Group events by type and time buckets
+    time_bucket_size = 10_000  # 10 seconds
+    events_by_type_and_time = group_by_type_and_time(events, time_bucket_size)
+    
+    trends = Enum.flat_map(events_by_type_and_time, fn {event_type, time_buckets} ->
+      if map_size(time_buckets) >= 3 do
+        # Sort by time and get counts
+        sorted_buckets = time_buckets
+        |> Enum.sort_by(fn {time, _} -> time end)
+        |> Enum.map(fn {_, count} -> count end)
+        
+        # Calculate trend using linear regression
+        trend = calculate_trend(sorted_buckets)
+        
+        if abs(trend.slope) > 0.1 do  # Significant trend
+          [%{
+            id: generate_pattern_id(),
+            type: :trend,
+            pattern: %{
+              event_type: event_type,
+              direction: if(trend.slope > 0, do: :increasing, else: :decreasing),
+              slope: trend.slope,
+              r_squared: trend.r_squared,
+              data_points: sorted_buckets
+            },
+            detected_at: DateTime.utc_now(),
+            confidence: trend.r_squared  # Use R² as confidence
+          }]
+        else
+          []
+        end
+      else
+        []
+      end
+    end)
+    
+    patterns ++ trends
+  end
+  
+  defp detect_periodic_patterns(patterns, events) do
+    # Detect periodic/cyclical patterns using autocorrelation
+    
+    events_by_type = Enum.group_by(events, & &1.name)
+    
+    periodicities = Enum.flat_map(events_by_type, fn {event_type, type_events} ->
+      if length(type_events) >= 10 do
+        # Convert to time series
+        time_series = events_to_time_series(type_events)
+        
+        # Calculate autocorrelation for different lags
+        autocorrelations = calculate_autocorrelations(time_series, 1..10)
+        
+        # Find significant peaks (indicating periodicity)
+        periodic_lags = autocorrelations
+        |> Enum.filter(fn {_lag, correlation} -> correlation > 0.5 end)
+        |> Enum.map(fn {lag, correlation} ->
+          %{
+            id: generate_pattern_id(),
+            type: :periodic,
+            pattern: %{
+              event_type: event_type,
+              period_ms: lag * 1000,  # Convert to milliseconds
+              correlation: correlation,
+              sample_size: length(type_events)
+            },
+            detected_at: DateTime.utc_now(),
+            confidence: correlation
+          }
+        end)
+      else
+        []
+      end
+    end)
+    
+    patterns ++ periodicities
+  end
+  
+  defp calculate_inter_arrival_times(events) do
+    events
+    |> Enum.sort_by(& &1.timestamp, DateTime)
+    |> Enum.chunk_every(2, 1, :discard)
+    |> Enum.map(fn [e1, e2] ->
+      DateTime.diff(e2.timestamp, e1.timestamp, :millisecond)
+    end)
+  end
+  
+  defp calculate_std_dev(values, mean) do
+    variance = values
+    |> Enum.map(fn v -> :math.pow(v - mean, 2) end)
+    |> Enum.sum()
+    |> Kernel./(length(values))
+    
+    :math.sqrt(variance)
+  end
+  
+  defp calculate_anomaly_confidence(z_score) do
+    # Higher z-score = higher confidence in anomaly
+    min(1.0, z_score / 5.0)
+  end
+  
+  defp group_by_type_and_time(events, bucket_size) do
+    events
+    |> Enum.group_by(& &1.name)
+    |> Map.new(fn {event_type, type_events} ->
+      time_buckets = type_events
+      |> Enum.group_by(fn event ->
+        # Group by time bucket
+        unix_ms = DateTime.to_unix(event.timestamp, :millisecond)
+        div(unix_ms, bucket_size) * bucket_size
+      end)
+      |> Map.new(fn {bucket, events} -> {bucket, length(events)} end)
+      
+      {event_type, time_buckets}
+    end)
+  end
+  
+  defp calculate_trend(values) do
+    n = length(values)
+    if n < 2 do
+      %{slope: 0.0, r_squared: 0.0}
+    else
+      # Simple linear regression
+      xs = Enum.to_list(0..(n-1))
+      
+      x_mean = Enum.sum(xs) / n
+      y_mean = Enum.sum(values) / n
+      
+      numerator = xs
+      |> Enum.zip(values)
+      |> Enum.map(fn {x, y} -> (x - x_mean) * (y - y_mean) end)
+      |> Enum.sum()
+      
+      denominator = xs
+      |> Enum.map(fn x -> :math.pow(x - x_mean, 2) end)
+      |> Enum.sum()
+      
+      slope = if denominator == 0, do: 0.0, else: numerator / denominator
+      
+      # Calculate R-squared
+      y_pred = Enum.map(xs, fn x -> y_mean + slope * (x - x_mean) end)
+      
+      ss_res = values
+      |> Enum.zip(y_pred)
+      |> Enum.map(fn {y, y_p} -> :math.pow(y - y_p, 2) end)
+      |> Enum.sum()
+      
+      ss_tot = values
+      |> Enum.map(fn y -> :math.pow(y - y_mean, 2) end)
+      |> Enum.sum()
+      
+      r_squared = if ss_tot == 0, do: 0.0, else: 1 - (ss_res / ss_tot)
+      
+      %{slope: slope, r_squared: r_squared}
+    end
+  end
+  
+  defp events_to_time_series(events) do
+    # Convert events to a time series (1-second buckets)
+    events
+    |> Enum.group_by(fn event ->
+      DateTime.to_unix(event.timestamp)
+    end)
+    |> Enum.sort_by(fn {time, _} -> time end)
+    |> Enum.map(fn {_time, events} -> length(events) end)
+  end
+  
+  defp calculate_autocorrelations(time_series, lag_range) do
+    n = length(time_series)
+    mean = Enum.sum(time_series) / n
+    
+    variance = time_series
+    |> Enum.map(fn x -> :math.pow(x - mean, 2) end)
+    |> Enum.sum()
+    |> Kernel./(n)
+    
+    Enum.map(lag_range, fn lag ->
+      if lag < n do
+        correlation = calculate_autocorrelation_at_lag(time_series, mean, variance, lag)
+        {lag, correlation}
+      else
+        {lag, 0.0}
+      end
+    end)
+  end
+  
+  defp calculate_autocorrelation_at_lag(time_series, mean, variance, lag) do
+    n = length(time_series)
+    
+    if variance == 0 or lag >= n do
+      0.0
+    else
+      covariance = time_series
+      |> Enum.drop(lag)
+      |> Enum.zip(time_series)
+      |> Enum.take(n - lag)
+      |> Enum.map(fn {x1, x2} -> (x1 - mean) * (x2 - mean) end)
+      |> Enum.sum()
+      |> Kernel./(n - lag)
+      
+      covariance / variance
+    end
   end
   
   defp calculate_frequency_confidence(count) do

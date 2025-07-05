@@ -85,6 +85,35 @@ defmodule AutonomousOpponentV2Core.AMCP.Bridges.LLMBridge do
     GenServer.call(__MODULE__, {:converse_with_consciousness, message, conversation_id})
   end
   
+  @doc """
+  Direct LLM API call for testing purposes.
+  """
+  def call_llm_api(prompt, intent, opts \\ []) do
+    timeout = Keyword.get(opts, :timeout, 60_000)  # Default 60 seconds for LLM calls
+    GenServer.call(__MODULE__, {:call_llm_api, prompt, intent, opts}, timeout)
+  end
+  
+  @doc """
+  Configure a specific LLM provider.
+  """
+  def configure_provider(provider, config) do
+    GenServer.cast(__MODULE__, {:configure_provider, provider, config})
+  end
+  
+  @doc """
+  Get available models for a provider or all providers.
+  """
+  def get_available_models(provider \\ :all) do
+    GenServer.call(__MODULE__, {:get_available_models, provider})
+  end
+  
+  @doc """
+  Get current provider status and configurations.
+  """
+  def get_provider_status do
+    GenServer.call(__MODULE__, :get_provider_status)
+  end
+  
   @impl true
   def init(_opts) do
     Logger.info("🗣️  LLM BRIDGE INITIALIZING - LINGUISTIC CONSCIOUSNESS STARTING...")
@@ -215,6 +244,65 @@ defmodule AutonomousOpponentV2Core.AMCP.Bridges.LLMBridge do
   end
   
   @impl true
+  def handle_call({:call_llm_api, prompt, intent, opts}, _from, state) do
+    Logger.info("📡 LLM API call received - intent: #{intent}, provider: #{opts[:provider]}")
+    result = do_call_llm_api(prompt, intent, opts)
+    Logger.info("📡 LLM API call complete - result: #{inspect(result)}")
+    {:reply, result, state}
+  end
+  
+  @impl true
+  def handle_call({:get_available_models, provider}, _from, state) do
+    models = case provider do
+      :all ->
+        # Return all models for all providers
+        Enum.reduce(state.llm_providers, %{}, fn {prov, config}, acc ->
+          if config[:enabled] && config[:models] do
+            Map.put(acc, prov, format_models_info(config[:models], config[:default_model]))
+          else
+            acc
+          end
+        end)
+        
+      specific_provider ->
+        # Return models for specific provider
+        config = Map.get(state.llm_providers, specific_provider, %{})
+        if config[:enabled] && config[:models] do
+          format_models_info(config[:models], config[:default_model])
+        else
+          %{error: "Provider #{specific_provider} not found or not enabled"}
+        end
+    end
+    
+    {:reply, {:ok, models}, state}
+  end
+  
+  @impl true
+  def handle_call(:get_provider_status, _from, state) do
+    status = Enum.map(state.llm_providers, fn {provider, config} ->
+      {provider, %{
+        enabled: config[:enabled],
+        has_api_key: !is_nil(config[:api_key]),
+        default_model: config[:default_model],
+        model_count: if(config[:models], do: map_size(config[:models]), else: 0),
+        endpoint: config[:endpoint]
+      }}
+    end)
+    |> Enum.into(%{})
+    
+    {:reply, {:ok, status}, state}
+  end
+  
+  @impl true
+  def handle_cast({:configure_provider, provider, config}, state) do
+    new_providers = Map.update(state.llm_providers, provider, %{}, fn existing ->
+      Map.merge(existing, config)
+    end)
+    
+    {:noreply, %{state | llm_providers: new_providers}}
+  end
+  
+  @impl true
   def handle_info({:event, :vsm_state_change, data}, state) do
     # Auto-generate explanations for significant VSM changes
     if is_significant_change?(data) do
@@ -258,18 +346,50 @@ defmodule AutonomousOpponentV2Core.AMCP.Bridges.LLMBridge do
     %{
       openai: %{
         api_key: System.get_env("OPENAI_API_KEY"),
-        model: "gpt-4-turbo-preview",
+        models: %{
+          "gpt-4-turbo-preview" => %{name: "GPT-4 Turbo", context: 128_000, preferred: true},
+          "gpt-4" => %{name: "GPT-4", context: 8_192},
+          "gpt-3.5-turbo" => %{name: "GPT-3.5 Turbo", context: 16_385},
+          "gpt-3.5-turbo-16k" => %{name: "GPT-3.5 Turbo 16K", context: 16_385}
+        },
+        default_model: "gpt-4-turbo-preview",
         enabled: !is_nil(System.get_env("OPENAI_API_KEY"))
       },
       anthropic: %{
         api_key: System.get_env("ANTHROPIC_API_KEY"),
-        model: "claude-3-sonnet-20240229",
+        models: %{
+          "claude-3-opus-20240229" => %{name: "Claude 3 Opus", context: 200_000, preferred: true},
+          "claude-3-sonnet-20240229" => %{name: "Claude 3 Sonnet", context: 200_000},
+          "claude-3-haiku-20240307" => %{name: "Claude 3 Haiku", context: 200_000},
+          "claude-2.1" => %{name: "Claude 2.1", context: 200_000},
+          "claude-2.0" => %{name: "Claude 2.0", context: 100_000}
+        },
+        default_model: "claude-3-sonnet-20240229",
         enabled: !is_nil(System.get_env("ANTHROPIC_API_KEY"))
       },
+      google_ai: %{
+        api_key: System.get_env("GOOGLE_AI_API_KEY"),
+        models: %{
+          "gemini-1.5-pro" => %{name: "Gemini 1.5 Pro", context: 1_048_576, preferred: true},
+          "gemini-1.5-flash" => %{name: "Gemini 1.5 Flash", context: 1_048_576},
+          "gemini-pro" => %{name: "Gemini Pro", context: 32_760},
+          "gemini-pro-vision" => %{name: "Gemini Pro Vision", context: 16_384}
+        },
+        default_model: "gemini-1.5-flash",
+        enabled: !is_nil(System.get_env("GOOGLE_AI_API_KEY"))
+      },
       local_llama: %{
-        endpoint: "http://localhost:11434",
-        model: "llama2:13b",
-        enabled: false  # Disabled by default
+        endpoint: System.get_env("OLLAMA_ENDPOINT", "http://localhost:11434"),
+        models: %{
+          "llama3" => %{name: "Llama 3", context: 8_192},
+          "llama2:13b" => %{name: "Llama 2 13B", context: 4_096},
+          "mistral" => %{name: "Mistral 7B", context: 8_192},
+          "mixtral" => %{name: "Mixtral 8x7B", context: 32_768},
+          "codellama" => %{name: "Code Llama", context: 16_384},
+          "phi" => %{name: "Phi-2", context: 2_048}
+        },
+        default_model: "llama3",
+        enabled: System.get_env("OLLAMA_ENABLED", "false") == "true"
       }
     }
   end
@@ -523,7 +643,7 @@ defmodule AutonomousOpponentV2Core.AMCP.Bridges.LLMBridge do
     |> String.replace("{{recent_events}}", format_data(recent_events))
     
     # Call actual LLM API
-    case call_llm_api(explanation_prompt, :analysis) do
+    case do_call_llm_api(explanation_prompt, :analysis) do
       {:ok, response} -> response
       {:error, reason} -> 
         Logger.warning("LLM API call failed: #{inspect(reason)}, using fallback")
@@ -648,12 +768,39 @@ defmodule AutonomousOpponentV2Core.AMCP.Bridges.LLMBridge do
   defp generate_consciousness_response(message, conversation_history, consciousness_state, state) do
     template = state.prompt_templates[:consciousness_dialogue]
     
-    _dialogue_prompt = template
+    dialogue_prompt = template
     |> String.replace("{{human_message}}", message)
     |> String.replace("{{conversation_history}}", format_conversation_history(conversation_history))
     |> String.replace("{{consciousness_state}}", format_data(consciousness_state))
     |> String.replace("{{system_status}}", format_data(gather_system_status()))
     
+    # Try to use actual LLM if available
+    providers = state.llm_providers
+    
+    # Check which providers are enabled
+    enabled_provider = cond do
+      providers[:local_llama][:enabled] -> :local_llama
+      providers[:openai][:enabled] -> :openai
+      providers[:anthropic][:enabled] -> :anthropic
+      providers[:google_ai][:enabled] -> :google_ai
+      true -> nil
+    end
+    
+    if enabled_provider do
+      # Use actual LLM
+      case do_call_llm_api(dialogue_prompt, :conversation, provider: enabled_provider) do
+        {:ok, response} -> response
+        {:error, reason} ->
+          Logger.warning("LLM call failed: #{inspect(reason)}, using fallback")
+          generate_fallback_consciousness_response(message, consciousness_state)
+      end
+    else
+      # No LLM available, use fallback
+      generate_fallback_consciousness_response(message, consciousness_state)
+    end
+  end
+  
+  defp generate_fallback_consciousness_response(message, consciousness_state) do
     # Generate consciousness response (simplified)
     downcased_msg = String.downcase(message)
     cond do
@@ -966,11 +1113,19 @@ defmodule AutonomousOpponentV2Core.AMCP.Bridges.LLMBridge do
   
   # Real LLM API Integration Functions
   
-  defp call_llm_api(prompt, intent, opts \\ []) do
+  defp do_call_llm_api(prompt, intent, opts \\ []) do
     # Hybrid approach: Try structured first (if Instructor available), then unstructured, then fallback
     use_structured = Keyword.get(opts, :structured, true)
+    provider = Keyword.get(opts, :provider, :openai)
+    
+    Logger.debug("do_call_llm_api called - provider: #{provider}, intent: #{intent}")
     
     cond do
+      # Skip Instructor for non-OpenAI providers - Instructor only supports OpenAI
+      provider in [:local_llama, :anthropic, :vertex_ai, :google_ai] ->
+        Logger.info("Using unstructured mode for provider: #{provider}")
+        call_unstructured_llm(prompt, intent, opts)
+        
       use_structured and Code.ensure_loaded?(Instructor) ->
         case call_structured_llm(prompt, intent, opts) do
           {:ok, structured_response} -> 
@@ -1033,52 +1188,84 @@ defmodule AutonomousOpponentV2Core.AMCP.Bridges.LLMBridge do
       :anthropic -> call_anthropic_api(prompt, intent, model, opts)
       :local_llama -> call_local_llama_api(prompt, intent, model, opts)
       :vertex_ai -> call_vertex_ai_api(prompt, intent, model, opts)
+      :google_ai -> call_google_ai_api(prompt, intent, model, opts)
       _ -> 
         Logger.warning("Unknown LLM provider #{provider}, falling back to OpenAI")
         call_openai_api(prompt, intent, model, opts)
     end
   end
   
-  defp get_model_for_provider(:openai, opts), do: Keyword.get(opts, :model, "gpt-4")
-  defp get_model_for_provider(:anthropic, opts), do: Keyword.get(opts, :model, "claude-3-sonnet-20240229")
-  defp get_model_for_provider(:local_llama, opts), do: Keyword.get(opts, :model, "llama2")
-  defp get_model_for_provider(:vertex_ai, opts), do: Keyword.get(opts, :model, "gemini-pro")
-  defp get_model_for_provider(_, opts), do: Keyword.get(opts, :model, "gpt-4")
+  defp get_model_for_provider(provider, opts) do
+    providers = initialize_llm_providers()
+    provider_config = Map.get(providers, provider, %{})
+    
+    # First check if model is explicitly specified in opts
+    requested_model = Keyword.get(opts, :model)
+    
+    if requested_model do
+      # Validate that the requested model exists for this provider
+      if provider_config[:models] && Map.has_key?(provider_config[:models], requested_model) do
+        requested_model
+      else
+        Logger.warning("Model #{requested_model} not found for provider #{provider}, using default")
+        provider_config[:default_model] || get_fallback_model(provider)
+      end
+    else
+      # Use default model for provider
+      provider_config[:default_model] || get_fallback_model(provider)
+    end
+  end
+  
+  defp get_fallback_model(:openai), do: "gpt-3.5-turbo"
+  defp get_fallback_model(:anthropic), do: "claude-3-sonnet-20240229"
+  defp get_fallback_model(:google_ai), do: "gemini-1.5-flash"
+  defp get_fallback_model(:local_llama), do: "llama3"
+  defp get_fallback_model(_), do: "gpt-3.5-turbo"
   
   defp call_openai_api(prompt, intent, model, opts) do
-    max_tokens = Keyword.get(opts, :max_tokens, 1000)
-    temperature = get_temperature_for_intent(intent)
+    Logger.info("🌟 call_openai_api - model: #{model}, intent: #{intent}")
     
-    messages = [
-      %{
-        role: "system",
-        content: get_system_prompt_for_intent(intent)
-      },
-      %{
-        role: "user", 
-        content: prompt
+    # Check for API key first
+    api_key = System.get_env("OPENAI_API_KEY") || Application.get_env(:autonomous_opponent_core, :openai_api_key)
+    
+    if is_nil(api_key) do
+      Logger.error("OpenAI API key not found!")
+      {:error, :no_api_key}
+    else
+      max_tokens = Keyword.get(opts, :max_tokens, 1000)
+      temperature = get_temperature_for_intent(intent)
+      
+      messages = [
+        %{
+          role: "system",
+          content: get_system_prompt_for_intent(intent)
+        },
+        %{
+          role: "user", 
+          content: prompt
+        }
+      ]
+      
+      params = %{
+        model: model,
+        messages: messages,
+        max_tokens: max_tokens,
+        temperature: temperature,
+        stream: false
       }
-    ]
-    
-    params = %{
-      model: model,
-      messages: messages,
-      max_tokens: max_tokens,
-      temperature: temperature,
-      stream: false
-    }
-    
-    case OpenAIClient.completion(params) do
-      {:ok, response} ->
-        content = get_in(response, ["choices", Access.at(0), "message", "content"])
-        if content do
-          {:ok, String.trim(content)}
-        else
-          {:error, :no_content}
-        end
-        
-      {:error, reason} ->
-        {:error, reason}
+      
+      case OpenAIClient.completion(params) do
+        {:ok, response} ->
+          content = get_in(response, ["choices", Access.at(0), "message", "content"])
+          if content do
+            {:ok, String.trim(content)}
+          else
+            {:error, :no_content}
+          end
+          
+        {:error, reason} ->
+          {:error, reason}
+      end
     end
   end
   
@@ -1284,6 +1471,16 @@ defmodule AutonomousOpponentV2Core.AMCP.Bridges.LLMBridge do
   end
   defp format_list(_), do: "Invalid list format"
   
+  defp format_models_info(models, default_model) do
+    Enum.map(models, fn {model_id, info} ->
+      {model_id, Map.merge(info, %{
+        is_default: model_id == default_model,
+        id: model_id
+      })}
+    end)
+    |> Enum.into(%{})
+  end
+  
   defp generate_fallback_response(intent, context) do
     case intent do
       :strategic_analysis ->
@@ -1317,6 +1514,8 @@ defmodule AutonomousOpponentV2Core.AMCP.Bridges.LLMBridge do
   # Multi-provider LLM API implementations
   
   defp call_anthropic_api(prompt, intent, model, opts) do
+    Logger.info("🤖 call_anthropic_api - model: #{model}, intent: #{intent}")
+    
     max_tokens = Keyword.get(opts, :max_tokens, 1000)
     temperature = get_temperature_for_intent(intent)
     
@@ -1336,86 +1535,158 @@ defmodule AutonomousOpponentV2Core.AMCP.Bridges.LLMBridge do
       ]
     }
     
-    headers = [
-      {"Content-Type", "application/json"},
-      {"X-API-Key", get_anthropic_api_key()},
-      {"anthropic-version", "2023-06-01"}
-    ]
+    api_key = get_anthropic_api_key()
     
-    body = Jason.encode!(params)
-    
-    case HTTPoison.post("https://api.anthropic.com/v1/messages", body, headers) do
-      {:ok, %HTTPoison.Response{status_code: 200, body: response_body}} ->
-        case Jason.decode(response_body) do
-          {:ok, response} ->
-            content = get_in(response, ["content", Access.at(0), "text"])
-            if content do
-              {:ok, String.trim(content)}
-            else
-              {:error, :no_content}
-            end
-          {:error, _} ->
-            {:error, :invalid_response}
-        end
-        
-      {:ok, %HTTPoison.Response{status_code: status, body: body}} ->
-        Logger.error("Anthropic API error: Status #{status}, Body: #{body}")
-        {:error, {:api_error, status}}
-        
-      {:error, %HTTPoison.Error{reason: reason}} ->
-        Logger.error("HTTP request failed: #{inspect(reason)}")
-        {:error, {:http_error, reason}}
+    if is_nil(api_key) do
+      Logger.error("Anthropic API key not found!")
+      {:error, :no_api_key}
+    else
+      Logger.debug("Anthropic API key found: #{String.slice(api_key, 0, 20)}...")
+      
+      headers = [
+        {"Content-Type", "application/json"},
+        {"X-API-Key", api_key},
+        {"anthropic-version", "2023-06-01"}
+      ]
+      
+      body = Jason.encode!(params)
+      
+      Logger.info("🌐 Calling Anthropic API: https://api.anthropic.com/v1/messages")
+      Logger.debug("Request params: #{inspect(params)}")
+      
+      case HTTPoison.post("https://api.anthropic.com/v1/messages", body, headers, timeout: 60_000, recv_timeout: 60_000) do
+        {:ok, %HTTPoison.Response{status_code: 200, body: response_body}} ->
+          case Jason.decode(response_body) do
+            {:ok, response} ->
+              content = get_in(response, ["content", Access.at(0), "text"])
+              if content do
+                {:ok, String.trim(content)}
+              else
+                {:error, :no_content}
+              end
+            {:error, _} ->
+              {:error, :invalid_response}
+          end
+          
+        {:ok, %HTTPoison.Response{status_code: status, body: body}} ->
+          Logger.error("Anthropic API error: Status #{status}, Body: #{body}")
+          {:error, {:api_error, status}}
+          
+        {:error, %HTTPoison.Error{reason: reason}} ->
+          Logger.error("HTTP request failed: #{inspect(reason)}")
+          {:error, {:http_error, reason}}
+      end
     end
   end
   
   defp call_local_llama_api(prompt, intent, model, opts) do
+    Logger.info("🦙 call_local_llama_api - model: #{model}, intent: #{intent}")
+    
     max_tokens = Keyword.get(opts, :max_tokens, 1000)
     temperature = get_temperature_for_intent(intent)
     
-    # Assuming local Llama API compatible with OpenAI format
+    # Support both Ollama and OpenAI-compatible local APIs
     base_url = get_local_llama_url()
     
-    params = %{
-      model: model,
-      prompt: """
-      #{get_system_prompt_for_intent(intent)}
-      
-      User: #{prompt}
-      
-      Assistant:
-      """,
-      max_tokens: max_tokens,
-      temperature: temperature,
-      stream: false
-    }
+    Logger.debug("Local LLM URL: #{base_url}")
     
-    headers = [
-      {"Content-Type", "application/json"}
-    ]
+    # Check if it's Ollama (port 11434 is default)
+    is_ollama = String.contains?(base_url, "11434")
     
-    body = Jason.encode!(params)
-    
-    case HTTPoison.post("#{base_url}/v1/completions", body, headers, timeout: 30_000, recv_timeout: 30_000) do
-      {:ok, %HTTPoison.Response{status_code: 200, body: response_body}} ->
-        case Jason.decode(response_body) do
-          {:ok, response} ->
-            content = get_in(response, ["choices", Access.at(0), "text"])
-            if content do
-              {:ok, String.trim(content)}
-            else
-              {:error, :no_content}
-            end
-          {:error, _} ->
-            {:error, :invalid_response}
-        end
+    if is_ollama do
+      # Ollama API format
+      params = %{
+        model: model,
+        prompt: """
+        #{get_system_prompt_for_intent(intent)}
         
-      {:ok, %HTTPoison.Response{status_code: status, body: body}} ->
-        Logger.error("Local Llama API error: Status #{status}, Body: #{body}")
-        {:error, {:api_error, status}}
+        User: #{prompt}
         
-      {:error, %HTTPoison.Error{reason: reason}} ->
-        Logger.error("HTTP request failed: #{inspect(reason)}")
-        {:error, {:http_error, reason}}
+        Assistant:
+        """,
+        stream: false,
+        options: %{
+          temperature: temperature,
+          num_predict: max_tokens
+        }
+      }
+      
+      headers = [
+        {"Content-Type", "application/json"}
+      ]
+      
+      body = Jason.encode!(params)
+      
+      url = "#{base_url}/api/generate"
+      Logger.info("🌐 Calling Ollama API: #{url}")
+      Logger.debug("Request body: #{inspect(params)}")
+      
+      case HTTPoison.post(url, body, headers, timeout: 30_000, recv_timeout: 30_000) do
+        {:ok, %HTTPoison.Response{status_code: 200, body: response_body}} ->
+          case Jason.decode(response_body) do
+            {:ok, response} ->
+              content = Map.get(response, "response")
+              if content do
+                {:ok, String.trim(content)}
+              else
+                {:error, :no_content}
+              end
+            {:error, _} ->
+              {:error, :invalid_response}
+          end
+          
+        {:ok, %HTTPoison.Response{status_code: status, body: body}} ->
+          Logger.error("Ollama API error: Status #{status}, Body: #{body}")
+          {:error, {:api_error, status}}
+          
+        {:error, %HTTPoison.Error{reason: reason}} ->
+          Logger.error("HTTP request failed: #{inspect(reason)}")
+          {:error, {:http_error, reason}}
+      end
+    else
+      # OpenAI-compatible format (llama.cpp, LM Studio, etc.)
+      params = %{
+        model: model,
+        prompt: """
+        #{get_system_prompt_for_intent(intent)}
+        
+        User: #{prompt}
+        
+        Assistant:
+        """,
+        max_tokens: max_tokens,
+        temperature: temperature,
+        stream: false
+      }
+      
+      headers = [
+        {"Content-Type", "application/json"}
+      ]
+      
+      body = Jason.encode!(params)
+      
+      case HTTPoison.post("#{base_url}/v1/completions", body, headers, timeout: 30_000, recv_timeout: 30_000) do
+        {:ok, %HTTPoison.Response{status_code: 200, body: response_body}} ->
+          case Jason.decode(response_body) do
+            {:ok, response} ->
+              content = get_in(response, ["choices", Access.at(0), "text"])
+              if content do
+                {:ok, String.trim(content)}
+              else
+                {:error, :no_content}
+              end
+            {:error, _} ->
+              {:error, :invalid_response}
+          end
+          
+        {:ok, %HTTPoison.Response{status_code: status, body: body}} ->
+          Logger.error("Local LLM API error: Status #{status}, Body: #{body}")
+          {:error, {:api_error, status}}
+          
+        {:error, %HTTPoison.Error{reason: reason}} ->
+          Logger.error("HTTP request failed: #{inspect(reason)}")
+          {:error, {:http_error, reason}}
+      end
     end
   end
   
@@ -1484,10 +1755,89 @@ defmodule AutonomousOpponentV2Core.AMCP.Bridges.LLMBridge do
     end
   end
   
+  defp call_google_ai_api(prompt, intent, model, opts) do
+    Logger.info("🌈 call_google_ai_api - model: #{model}, intent: #{intent}")
+    
+    max_tokens = Keyword.get(opts, :max_tokens, 1000)
+    temperature = get_temperature_for_intent(intent)
+    
+    # Google AI Studio uses a different format
+    params = %{
+      contents: [
+        %{
+          parts: [
+            %{
+              text: """
+              #{get_system_prompt_for_intent(intent)}
+              
+              #{prompt}
+              """
+            }
+          ]
+        }
+      ],
+      generationConfig: %{
+        temperature: temperature,
+        maxOutputTokens: max_tokens,
+        topK: 40,
+        topP: 0.95
+      }
+    }
+    
+    api_key = get_google_ai_api_key()
+    
+    if is_nil(api_key) do
+      Logger.error("Google AI API key not found!")
+      {:error, :no_api_key}
+    else
+      Logger.debug("Google AI API key found: #{String.slice(api_key, 0, 20)}...")
+      
+      headers = [
+        {"Content-Type", "application/json"}
+      ]
+      
+      body = Jason.encode!(params)
+      
+      # Google AI Studio endpoint with API key in URL
+      url = "https://generativelanguage.googleapis.com/v1beta/models/#{model}:generateContent?key=#{api_key}"
+      
+      Logger.info("🌐 Calling Google AI API: #{String.replace(url, api_key, "[REDACTED]")}")
+      Logger.debug("Request params: #{inspect(params)}")
+      
+      case HTTPoison.post(url, body, headers, timeout: 60_000, recv_timeout: 60_000) do
+        {:ok, %HTTPoison.Response{status_code: 200, body: response_body}} ->
+          case Jason.decode(response_body) do
+            {:ok, response} ->
+              # Google AI returns response in candidates[0].content.parts[0].text
+              content = get_in(response, ["candidates", Access.at(0), "content", "parts", Access.at(0), "text"])
+              if content do
+                {:ok, String.trim(content)}
+              else
+                {:error, :no_content}
+              end
+            {:error, _} ->
+              {:error, :invalid_response}
+          end
+          
+        {:ok, %HTTPoison.Response{status_code: status, body: body}} ->
+          Logger.error("Google AI API error: Status #{status}, Body: #{body}")
+          {:error, {:api_error, status}}
+          
+        {:error, %HTTPoison.Error{reason: reason}} ->
+          Logger.error("HTTP request failed: #{inspect(reason)}")
+          {:error, {:http_error, reason}}
+      end
+    end
+  end
+  
   # Configuration helpers
   
   defp get_anthropic_api_key do
     System.get_env("ANTHROPIC_API_KEY") || Application.get_env(:autonomous_opponent_core, :anthropic_api_key)
+  end
+  
+  defp get_google_ai_api_key do
+    System.get_env("GOOGLE_AI_API_KEY") || Application.get_env(:autonomous_opponent_core, :google_ai_api_key)
   end
   
   defp get_local_llama_url do
