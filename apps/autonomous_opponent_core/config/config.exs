@@ -30,8 +30,8 @@ config :autonomous_opponent_core, AutonomousOpponentV2Core.Security.Encryption,
     }
   ]
 
-# Task 8: MCP Gateway Configuration
-config :autonomous_opponent_core, :mcp_gateway,
+# Task 8: Web Gateway Configuration
+config :autonomous_opponent_core, :web_gateway,
   transports: [
     http_sse: [
       port: 4001,
@@ -68,7 +68,7 @@ config :autonomous_opponent_core, :mcp_gateway,
 config :opentelemetry,
   resource: [
     service: [
-      name: "mcp-gateway",
+      name: "web-gateway",
       namespace: "autonomous-opponent"
     ]
   ],

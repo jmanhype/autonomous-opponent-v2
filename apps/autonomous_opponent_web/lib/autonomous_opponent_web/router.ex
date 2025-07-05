@@ -45,16 +45,16 @@ defmodule AutonomousOpponentV2Web.Router do
     # VSM Metrics Dashboard
     live "/metrics/dashboard", MetricsDashboardLive, :index
     
-    # MCP Gateway Dashboard
-    live "/mcp/dashboard", MCPDashboardLive, :index
+    # Web Gateway Dashboard
+    live "/web-gateway/dashboard", WebGatewayDashboardLive, :index
   end
   
-  # MCP Gateway endpoints
-  scope "/mcp", AutonomousOpponentV2Web do
+  # Web Gateway endpoints
+  scope "/web-gateway", AutonomousOpponentV2Web do
     pipe_through :api_auth_optional
     
     # Server-Sent Events endpoint (supports optional authentication)
-    get "/sse", MCPSSEController, :stream
+    get "/sse", WebGatewaySSEController, :stream
   end
   
   # Prometheus metrics endpoint (no CSRF protection needed)

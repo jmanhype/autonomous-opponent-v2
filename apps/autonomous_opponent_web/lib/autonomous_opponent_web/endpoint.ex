@@ -13,8 +13,8 @@ defmodule AutonomousOpponentV2Web.Endpoint do
 
   socket "/live", Phoenix.LiveView.Socket, websocket: [connect_info: %{session: @session_options}]
   
-  # MCP Gateway WebSocket endpoint
-  socket "/mcp/ws", AutonomousOpponentV2Web.MCPSocket,
+  # Web Gateway WebSocket endpoint
+  socket "/web-gateway/ws", AutonomousOpponentV2Web.WebGatewaySocket,
     websocket: [
       compress: true,
       max_frame_size: 65_536,

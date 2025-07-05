@@ -78,7 +78,7 @@ if Code.ensure_loaded?(AMQP) do
           {:reply, result, state}
           
         {:error, changeset} ->
-          Logger.error("Invalid AMCP message: #{inspect(changeset.errors)}")
+          Logger.error("Invalid Web Gateway message: #{inspect(changeset.errors)}")
           state = update_in(state.routing_stats.failed, &(&1 + 1))
           {:reply, {:error, :invalid_message}, state}
       end
@@ -200,7 +200,7 @@ if Code.ensure_loaded?(AMQP) do
     # Public API
 
     @doc """
-    Publishes an AMCP message through the router.
+    Publishes a Web Gateway message through the router.
     """
     def publish_message(message_map) do
       GenServer.call(__MODULE__, {:publish, message_map})
@@ -248,7 +248,7 @@ else
           {:reply, :ok, state}
           
         {:error, changeset} ->
-          Logger.error("Invalid AMCP message: #{inspect(changeset.errors)}")
+          Logger.error("Invalid Web Gateway message: #{inspect(changeset.errors)}")
           state = update_in(state.stats.failed, &(&1 + 1))
           {:reply, {:error, :invalid_message}, state}
       end
