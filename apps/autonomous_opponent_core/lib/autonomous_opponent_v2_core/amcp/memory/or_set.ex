@@ -217,4 +217,55 @@ defmodule AutonomousOpponentV2Core.AMCP.Memory.ORSet do
       MapSet.union(uids1, uids2)
     end)
   end
+  
+  @doc """
+  Converts OR-Set to map for serialization.
+  """
+  @spec to_map(t()) :: map()
+  def to_map(%__MODULE__{adds: adds, removes: removes}) do
+    %{
+      adds: Map.new(adds, fn {elem, uids} -> 
+        {elem, MapSet.to_list(uids)}
+      end),
+      removes: Map.new(removes, fn {elem, uids} -> 
+        {elem, MapSet.to_list(uids)}
+      end)
+    }
+  end
+  
+  @doc """
+  Reconstructs OR-Set from serialized data.
+  """
+  @spec reconstruct(String.t(), map(), map()) :: t()
+  def reconstruct(node_id, adds_map, removes_map) do
+    adds = Map.new(adds_map || %{}, fn {elem, uid_list} ->
+      {elem, MapSet.new(uid_list)}
+    end)
+    
+    removes = Map.new(removes_map || %{}, fn {elem, uid_list} ->
+      {elem, MapSet.new(uid_list)}
+    end)
+    
+    # Calculate the max counter from existing UIDs
+    all_uids = Enum.concat([
+      Enum.flat_map(Map.values(adds), &MapSet.to_list/1),
+      Enum.flat_map(Map.values(removes), &MapSet.to_list/1)
+    ])
+    
+    max_counter = case all_uids do
+      [] -> 0
+      uids -> 
+        uids
+        |> Enum.filter(fn {n, _} -> n == node_id end)
+        |> Enum.map(fn {_, c} -> c end)
+        |> Enum.max(fn -> 0 end)
+    end
+    
+    %__MODULE__{
+      node_id: node_id,
+      adds: adds,
+      removes: removes,
+      counter: max_counter + 1
+    }
+  end
 end

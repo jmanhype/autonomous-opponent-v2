@@ -368,6 +368,12 @@ defmodule AutonomousOpponentV2Core.AMCP.Memory.CRDTStore do
   end
   
   @impl true
+  def handle_info({:crdt_sync_message, message}, state) do
+    new_state = handle_sync_message(message, state)
+    {:noreply, new_state}
+  end
+  
+  @impl true
   def handle_info({:event, event_name, data}, state) do
     # Handle context and belief events automatically
     new_state = case event_name do
@@ -495,13 +501,37 @@ defmodule AutonomousOpponentV2Core.AMCP.Memory.CRDTStore do
   defp merge_crdt_instances(:crdt_map, local, remote), do: {:ok, CRDTMap.merge(local, remote)}
   
   defp broadcast_crdt_creation(crdt_id, crdt_type, state) do
+    {_, crdt_instance} = Map.get(state.crdts, crdt_id)
+    
     EventBus.publish(:amcp_crdt_created, %{
       crdt_id: crdt_id,
       crdt_type: crdt_type,
       node_id: state.node_id,
-      vector_clock: state.vector_clock
+      vector_clock: state.vector_clock,
+      crdt_data: serialize_crdt_instance(crdt_type, crdt_instance)
     })
+    
+    # Also send directly to known peers
+    if MapSet.size(state.sync_peers) > 0 do
+      sync_message = %{
+        type: :crdt_sync,
+        operation: :create,
+        crdt_id: crdt_id,
+        crdt_type: crdt_type,
+        crdt_data: serialize_crdt_instance(crdt_type, crdt_instance),
+        vector_clock: state.vector_clock,
+        node_id: state.node_id
+      }
+      
+      send_to_peers(state.sync_peers, sync_message)
+    end
   end
+  
+  defp serialize_crdt_instance(:g_set, instance), do: GSet.to_list(instance)
+  defp serialize_crdt_instance(:pn_counter, instance), do: PNCounter.to_map(instance)
+  defp serialize_crdt_instance(:lww_register, instance), do: LWWRegister.to_map(instance)
+  defp serialize_crdt_instance(:or_set, instance), do: ORSet.to_map(instance)
+  defp serialize_crdt_instance(:crdt_map, instance), do: CRDTMap.to_map(instance)
   
   defp broadcast_crdt_update(crdt_id, operation, value, state) do
     EventBus.publish(:amcp_crdt_updated, %{
@@ -515,17 +545,167 @@ defmodule AutonomousOpponentV2Core.AMCP.Memory.CRDTStore do
   
   defp perform_peer_sync(state) do
     if MapSet.size(state.sync_peers) > 0 do
-      # Broadcast current state to peers
-      EventBus.publish(:amcp_crdt_sync_request, %{
+      # Create sync digest
+      sync_digest = %{
+        type: :sync_digest,
         node_id: state.node_id,
         vector_clock: state.vector_clock,
-        crdt_summaries: create_crdt_summaries(state.crdts)
-      })
+        crdt_summaries: create_crdt_summaries(state.crdts),
+        timestamp: DateTime.utc_now()
+      }
+      
+      # Send to all peers
+      send_to_peers(state.sync_peers, sync_digest)
+      
+      # Also publish to EventBus for monitoring
+      EventBus.publish(:amcp_crdt_sync_request, sync_digest)
       
       new_stats = increment_stat(state.stats, :syncs)
       %{state | stats: new_stats}
     else
       state
+    end
+  end
+  
+  defp send_to_peers(peers, message) do
+    Enum.each(peers, fn peer_node_id ->
+      # Try multiple transport mechanisms
+      case send_via_transport(peer_node_id, message) do
+        :ok -> 
+          Logger.debug("Sent sync message to #{peer_node_id}")
+        {:error, reason} ->
+          Logger.warning("Failed to send to #{peer_node_id}: #{inspect(reason)}")
+          # Fallback to EventBus
+          EventBus.publish({:crdt_sync, peer_node_id}, message)
+      end
+    end)
+  end
+  
+  defp send_via_transport(peer_node_id, message) do
+    # First try direct process messaging if on same node
+    case Process.whereis(String.to_atom("crdt_store_#{peer_node_id}")) do
+      pid when is_pid(pid) ->
+        send(pid, {:crdt_sync_message, message})
+        :ok
+        
+      nil ->
+        # Try AMQP if available
+        send_via_amqp(peer_node_id, message)
+    end
+  end
+  
+  defp send_via_amqp(peer_node_id, message) do
+    case EventBus.call(:amqp_publisher, {:publish, "crdt.sync.#{peer_node_id}", message}, 1000) do
+      {:ok, _} -> :ok
+      error -> error
+    end
+  end
+  
+  defp handle_sync_message(%{type: :sync_digest} = digest, state) do
+    # Compare vector clocks and summaries
+    differences = find_crdt_differences(digest, state)
+    
+    if not Enum.empty?(differences) do
+      # Send full state for differing CRDTs
+      sync_response = %{
+        type: :sync_response,
+        node_id: state.node_id,
+        updates: prepare_sync_updates(differences, state),
+        vector_clock: state.vector_clock
+      }
+      
+      send_via_transport(digest.node_id, sync_response)
+    end
+    
+    state
+  end
+  
+  defp handle_sync_message(%{type: :sync_response, updates: updates}, state) do
+    # Apply remote updates
+    Enum.reduce(updates, state, fn update, acc_state ->
+      case update do
+        %{crdt_id: id, operation: :create, crdt_type: type, crdt_data: data} ->
+          case create_crdt_from_remote(id, %{crdt_type: type, crdt_data: data, vector_clock: update.vector_clock}, acc_state) do
+            {:ok, new_state} -> new_state
+            _ -> acc_state
+          end
+          
+        %{crdt_id: id, operation: :update, crdt_data: data} ->
+          case merge_remote_state(id, data) do
+            :ok -> acc_state
+            _ -> acc_state
+          end
+      end
+    end)
+  end
+  
+  defp handle_sync_message(%{type: :crdt_sync, operation: operation} = message, state) do
+    # Handle direct CRDT operations from peers
+    case operation do
+      :create ->
+        handle_remote_create(message, state)
+      :update ->
+        handle_remote_update(message, state)
+      _ ->
+        state
+    end
+  end
+  
+  defp handle_sync_message(_message, state), do: state
+  
+  defp find_crdt_differences(digest, state) do
+    remote_summaries = Map.new(digest.crdt_summaries, &{&1.id, &1})
+    
+    state.crdts
+    |> Enum.filter(fn {crdt_id, {crdt_type, crdt_instance}} ->
+      case Map.get(remote_summaries, crdt_id) do
+        nil -> true  # Remote doesn't have this CRDT
+        %{checksum: remote_checksum} ->
+          local_checksum = calculate_crdt_checksum(crdt_type, crdt_instance)
+          local_checksum != remote_checksum
+      end
+    end)
+    |> Enum.map(fn {crdt_id, _} -> crdt_id end)
+  end
+  
+  defp prepare_sync_updates(crdt_ids, state) do
+    Enum.map(crdt_ids, fn crdt_id ->
+      {crdt_type, crdt_instance} = Map.get(state.crdts, crdt_id)
+      
+      %{
+        crdt_id: crdt_id,
+        operation: :update,
+        crdt_type: crdt_type,
+        crdt_data: serialize_crdt_instance(crdt_type, crdt_instance),
+        vector_clock: state.vector_clock
+      }
+    end)
+  end
+  
+  defp handle_remote_create(message, state) do
+    %{crdt_id: id, crdt_type: type, crdt_data: data, vector_clock: clock} = message
+    
+    case create_crdt_from_remote(id, %{crdt_type: type, crdt_data: data, vector_clock: clock}, state) do
+      {:ok, new_state} -> new_state
+      _ -> state
+    end
+  end
+  
+  defp handle_remote_update(message, state) do
+    %{crdt_id: id, crdt_data: data} = message
+    
+    case Map.get(state.crdts, id) do
+      {crdt_type, local_instance} ->
+        remote_instance = reconstruct_crdt_instance(crdt_type, data, message.node_id)
+        case merge_crdt_instances(crdt_type, local_instance, remote_instance) do
+          {:ok, merged} ->
+            new_crdts = Map.put(state.crdts, id, {crdt_type, merged})
+            %{state | crdts: new_crdts}
+          _ ->
+            state
+        end
+      nil ->
+        state
     end
   end
   
@@ -565,8 +745,60 @@ defmodule AutonomousOpponentV2Core.AMCP.Memory.CRDTStore do
     state
   end
   
-  defp create_crdt_from_remote(_crdt_id, _remote_state, state) do
-    # Simplified implementation - in practice would reconstruct CRDT from remote state
-    {:ok, state}
+  defp create_crdt_from_remote(crdt_id, remote_state, state) do
+    case remote_state do
+      %{crdt_type: crdt_type, crdt_data: crdt_data, vector_clock: remote_clock} ->
+        # Reconstruct CRDT instance from remote state
+        case reconstruct_crdt_instance(crdt_type, crdt_data, state.node_id) do
+          {:ok, crdt_instance} ->
+            new_crdts = Map.put(state.crdts, crdt_id, {crdt_type, crdt_instance})
+            
+            # Merge vector clocks
+            merged_clock = merge_vector_clocks(state.vector_clock, remote_clock)
+            
+            new_state = %{state | 
+              crdts: new_crdts,
+              vector_clock: merged_clock
+            }
+            
+            Logger.info("Created CRDT #{crdt_id} from remote state")
+            {:ok, new_state}
+            
+          error ->
+            Logger.error("Failed to reconstruct CRDT from remote: #{inspect(error)}")
+            error
+        end
+        
+      _ ->
+        {:error, :invalid_remote_state}
+    end
+  end
+  
+  defp reconstruct_crdt_instance(:g_set, data, _node_id) when is_list(data) do
+    {:ok, GSet.new(data)}
+  end
+  
+  defp reconstruct_crdt_instance(:pn_counter, %{increments: inc, decrements: dec}, node_id) do
+    {:ok, PNCounter.reconstruct(node_id, inc, dec)}
+  end
+  
+  defp reconstruct_crdt_instance(:lww_register, %{value: value, timestamp: ts}, node_id) do
+    {:ok, LWWRegister.reconstruct(node_id, value, ts)}
+  end
+  
+  defp reconstruct_crdt_instance(:or_set, %{adds: adds, removes: removes}, node_id) do
+    {:ok, ORSet.reconstruct(node_id, adds, removes)}
+  end
+  
+  defp reconstruct_crdt_instance(:crdt_map, data, node_id) when is_map(data) do
+    {:ok, CRDTMap.reconstruct(node_id, data)}
+  end
+  
+  defp reconstruct_crdt_instance(type, _data, _node_id) do
+    {:error, {:unsupported_crdt_type, type}}
+  end
+  
+  defp merge_vector_clocks(local_clock, remote_clock) do
+    Map.merge(local_clock, remote_clock, fn _k, v1, v2 -> max(v1, v2) end)
   end
 end

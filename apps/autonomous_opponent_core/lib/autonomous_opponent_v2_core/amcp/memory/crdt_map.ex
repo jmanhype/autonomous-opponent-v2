@@ -169,4 +169,81 @@ defmodule AutonomousOpponentV2Core.AMCP.Memory.CRDTMap do
       true -> entry2
     end
   end
+  
+  @doc """
+  Alternative put method for hierarchical key paths.
+  Used by CRDT store for nested structures.
+  """
+  @spec put(t(), term(), term(), term()) :: t()
+  def put(%__MODULE__{} = map, key, subkey, value) do
+    # Get current value for the key, default to empty map
+    current_value = case Map.get(map.entries, key) do
+      {val, _, _} when is_map(val) -> val
+      _ -> %{}
+    end
+    
+    # Update the nested map
+    updated_value = Map.put(current_value, subkey, value)
+    
+    # Put the updated nested map back
+    put(map, key, updated_value)
+  end
+  
+  @doc """
+  Alternative remove method for hierarchical key paths.
+  Used by CRDT store for nested structures.
+  """
+  @spec remove(t(), term(), term()) :: t()
+  def remove(%__MODULE__{} = map, key, subkey) do
+    # Get current value for the key
+    case Map.get(map.entries, key) do
+      {val, _, _} when is_map(val) ->
+        # Remove the subkey
+        updated_value = Map.delete(val, subkey)
+        
+        # If the map is now empty, remove the entire key
+        if map_size(updated_value) == 0 do
+          remove(map, key)
+        else
+          put(map, key, updated_value)
+        end
+        
+      _ ->
+        # Key doesn't exist or isn't a map, nothing to do
+        map
+    end
+  end
+  
+  @doc """
+  Converts CRDT Map to map for serialization.
+  """
+  @spec to_map(t()) :: map()
+  def to_map(%__MODULE__{} = map) do
+    value(map)
+  end
+  
+  @doc """
+  Reconstructs CRDT Map from serialized data.
+  """
+  @spec reconstruct(actor_id(), map()) :: t()
+  def reconstruct(actor_id, data) do
+    base_map = new(actor_id)
+    
+    Enum.reduce(data || %{}, base_map, fn {key, value}, acc ->
+      put(acc, key, value)
+    end)
+  end
+  
+  @doc """
+  Alternative constructor accepting initial map data.
+  Used by CRDT store.
+  """
+  @spec new(actor_id(), map()) :: t()
+  def new(actor_id, initial_map) when is_map(initial_map) do
+    base_map = new(actor_id)
+    
+    Enum.reduce(initial_map, base_map, fn {key, value}, acc ->
+      put(acc, key, value)
+    end)
+  end
 end

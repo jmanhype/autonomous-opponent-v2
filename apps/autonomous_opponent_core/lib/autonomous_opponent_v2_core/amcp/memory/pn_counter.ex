@@ -155,4 +155,24 @@ defmodule AutonomousOpponentV2Core.AMCP.Memory.PNCounter do
   defp merge_maps(map1, map2) do
     Map.merge(map1, map2, fn _key, val1, val2 -> max(val1, val2) end)
   end
+  
+  @doc """
+  Converts PN-Counter to map for serialization.
+  """
+  @spec to_map(t()) :: map()
+  def to_map(%__MODULE__{positive: positive, negative: negative}) do
+    %{increments: positive, decrements: negative}
+  end
+  
+  @doc """
+  Reconstructs PN-Counter from serialized data.
+  """
+  @spec reconstruct(replica_id(), map(), map()) :: t()
+  def reconstruct(replica_id, increments, decrements) do
+    %__MODULE__{
+      replica_id: replica_id,
+      positive: increments,
+      negative: decrements
+    }
+  end
 end

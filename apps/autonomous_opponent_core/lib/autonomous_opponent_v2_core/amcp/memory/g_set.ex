@@ -26,6 +26,15 @@ defmodule AutonomousOpponentV2Core.AMCP.Memory.GSet do
   def new(id) when is_binary(id) do
     %__MODULE__{id: id, elements: MapSet.new()}
   end
+  
+  @doc """
+  Creates a new G-Set with initial elements.
+  Used by CRDT store for initialization.
+  """
+  @spec new(list()) :: t()
+  def new(initial_elements) when is_list(initial_elements) do
+    %__MODULE__{id: "", elements: MapSet.new(initial_elements)}
+  end
 
   @doc """
   Adds an element to the G-Set.
@@ -53,9 +62,9 @@ defmodule AutonomousOpponentV2Core.AMCP.Memory.GSet do
       iex> GSet.value(gset)
       #MapSet<["apple", "banana"]>
   """
-  @spec value(t()) :: MapSet.t()
+  @spec value(t()) :: MapSet.t() | list()
   def value(%__MODULE__{elements: elements}) do
-    elements
+    MapSet.to_list(elements)
   end
 
   @doc """
@@ -94,5 +103,13 @@ defmodule AutonomousOpponentV2Core.AMCP.Memory.GSet do
       id: id1,
       elements: MapSet.union(elements1, elements2)
     }
+  end
+  
+  @doc """
+  Converts G-Set to list for serialization.
+  """
+  @spec to_list(t()) :: list()
+  def to_list(%__MODULE__{elements: elements}) do
+    MapSet.to_list(elements)
   end
 end
