@@ -25,6 +25,11 @@ defmodule AutonomousOpponentV2Web.Router do
     plug :accepts, ["json"]
     plug AutonomousOpponentV2Web.Plugs.JWTAuthPlug, required: false
   end
+  
+  pipeline :sse do
+    plug :accepts, ["html", "text"]
+    plug AutonomousOpponentV2Web.Plugs.JWTAuthPlug, required: false
+  end
 
   # Define authenticated browser pipeline
   pipeline :authenticated_browser do
@@ -51,7 +56,7 @@ defmodule AutonomousOpponentV2Web.Router do
   
   # Web Gateway endpoints
   scope "/web-gateway", AutonomousOpponentV2Web do
-    pipe_through :api_auth_optional
+    pipe_through :sse
     
     # Server-Sent Events endpoint (supports optional authentication)
     get "/sse", WebGatewaySSEController, :stream

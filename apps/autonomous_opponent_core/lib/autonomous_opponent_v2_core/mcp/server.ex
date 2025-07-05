@@ -119,6 +119,44 @@ defmodule AutonomousOpponentV2Core.MCP.Server do
   end
   
   @impl true
+  def handle_call({:handle_message, message}, _from, state) when is_map(message) do
+    # Handle already parsed message from transport
+    new_state = process_mcp_message(message, state)
+    
+    # For handle_call, we need to build a response
+    response = case message do
+      %{"id" => id} when not is_nil(id) ->
+        # This is a request that expects a response
+        # The process_mcp_message should have sent the response already
+        # Return a simple acknowledgment
+        %{
+          "jsonrpc" => "2.0",
+          "result" => %{"status" => "processed"},
+          "id" => id
+        }
+      _ ->
+        # Notification, no response needed
+        nil
+    end
+    
+    {:reply, {:ok, response}, new_state}
+  end
+  
+  @impl true
+  def handle_call({:handle_message_with_transport, message, transport_pid}, _from, state) do
+    # Process without transport to get direct response
+    temp_state = %{state | transport: nil}
+    
+    # Process the message and capture any response
+    case process_mcp_message(message, temp_state) do
+      {response, _new_state} when not is_nil(response) ->
+        {:reply, {:ok, response}, state}
+      _new_state ->
+        {:reply, {:ok, nil}, state}
+    end
+  end
+  
+  @impl true
   def handle_cast({:handle_message, raw_message}, state) do
     case Message.parse(raw_message) do
       {:ok, message} ->
@@ -127,7 +165,9 @@ defmodule AutonomousOpponentV2Core.MCP.Server do
         
       {:error, reason} ->
         Logger.error("Invalid MCP message: #{inspect(reason)}")
-        send_error(state, nil, "parse_error", "Invalid JSON-RPC message")
+        if state.transport do
+          send_error(state, nil, "parse_error", "Invalid JSON-RPC message")
+        end
         {:noreply, state}
     end
   end
@@ -305,7 +345,7 @@ defmodule AutonomousOpponentV2Core.MCP.Server do
   defp process_mcp_message(%{method: "initialize"} = message, state) do
     client_info = message.params
     
-    response = %{
+    response_data = %{
       protocolVersion: @mcp_version,
       capabilities: state.capabilities,
       serverInfo: %{
@@ -314,8 +354,14 @@ defmodule AutonomousOpponentV2Core.MCP.Server do
       }
     }
     
-    send_response(state, message.id, response)
-    %{state | client_info: client_info}
+    response = Message.create_response(message.id, response_data)
+    
+    if state.transport do
+      send_response(state, message.id, response_data)
+      %{state | client_info: client_info}
+    else
+      {response, %{state | client_info: client_info}}
+    end
   end
   
   defp process_mcp_message(%{method: "resources/list"} = message, state) do
@@ -340,8 +386,15 @@ defmodule AutonomousOpponentV2Core.MCP.Server do
   end
   
   defp process_mcp_message(%{method: "tools/list"} = message, state) do
-    send_response(state, message.id, %{tools: state.tools})
-    state
+    response_data = %{tools: state.tools}
+    response = Message.create_response(message.id, response_data)
+    
+    if state.transport do
+      send_response(state, message.id, response_data)
+      state
+    else
+      {response, state}
+    end
   end
   
   defp process_mcp_message(%{method: "tools/call"} = message, state) do
@@ -576,18 +629,24 @@ defmodule AutonomousOpponentV2Core.MCP.Server do
   end
   
   defp send_response(state, id, result) do
-    response = Message.create_response(id, result)
-    Transport.send_message(state.transport, response)
+    if state.transport do
+      response = Message.create_response(id, result)
+      Transport.send_message(state.transport, response)
+    end
   end
   
   defp send_error(state, id, code, message) do
-    error_response = Message.create_error(id, code, message)
-    Transport.send_message(state.transport, error_response)
+    if state.transport do
+      error_response = Message.create_error(id, code, message)
+      Transport.send_message(state.transport, error_response)
+    end
   end
   
   defp send_notification(state, method, params) do
-    notification = Message.create_notification(method, params)
-    Transport.send_message(state.transport, notification)
+    if state.transport do
+      notification = Message.create_notification(method, params)
+      Transport.send_message(state.transport, notification)
+    end
   end
   
   defp generate_session_id do
