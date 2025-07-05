@@ -32,7 +32,10 @@ defmodule AutonomousOpponentV2Core.AMCP.Events.SemanticFusion do
   
   @event_buffer_size 1000
   @pattern_ttl_seconds 3600  # 1 hour
-  @fusion_interval_ms 100    # Process every 100ms
+  @fusion_interval_ms 500    # Process every 500ms (reduced from 100ms for performance)
+  @max_event_buffer_size 10_000  # Maximum events to keep in buffer
+  @max_pattern_cache_size 1_000  # Maximum patterns to cache
+  @max_causal_chains 100       # Maximum causal chains to maintain
   
   # Public API
   
@@ -78,6 +81,9 @@ defmodule AutonomousOpponentV2Core.AMCP.Events.SemanticFusion do
     # Start fusion timer
     :timer.send_interval(@fusion_interval_ms, :perform_fusion)
     
+    # Start cleanup timer (every 5 minutes)
+    :timer.send_interval(300_000, :perform_cleanup)
+    
     state = %__MODULE__{
       fusion_rules: init_fusion_rules(),
       event_buffer: :queue.new(),
@@ -87,7 +93,7 @@ defmodule AutonomousOpponentV2Core.AMCP.Events.SemanticFusion do
       fusion_stats: init_stats()
     }
     
-    Logger.info("Semantic Fusion Engine initialized")
+    Logger.info("Semantic Fusion Engine initialized with performance optimizations")
     {:ok, state}
   end
   
@@ -162,6 +168,32 @@ defmodule AutonomousOpponentV2Core.AMCP.Events.SemanticFusion do
   def handle_info({:event, event_name, event_data}, state) do
     # Handle EventBus events
     handle_cast({:fuse_event, event_name, event_data}, state)
+  end
+  
+  @impl true
+  def handle_info(:perform_cleanup, state) do
+    # Periodic cleanup to prevent memory leaks
+    Logger.debug("Performing periodic cleanup of SemanticFusion state")
+    
+    # Clean context graph - remove old contexts
+    cutoff_time = DateTime.add(DateTime.utc_now(), -3600, :second)  # 1 hour
+    cleaned_context = state.context_graph
+    |> Enum.filter(fn {_key, context} ->
+      case context do
+        %{timestamp: ts} -> DateTime.compare(ts, cutoff_time) == :gt
+        _ -> true
+      end
+    end)
+    |> Map.new()
+    
+    # Log cleanup stats
+    original_context_size = map_size(state.context_graph)
+    cleaned_context_size = map_size(cleaned_context)
+    if original_context_size > cleaned_context_size do
+      Logger.info("Cleaned up #{original_context_size - cleaned_context_size} old contexts")
+    end
+    
+    {:noreply, %{state | context_graph: cleaned_context}}
   end
   
   # Private Functions
@@ -285,12 +317,31 @@ defmodule AutonomousOpponentV2Core.AMCP.Events.SemanticFusion do
   defp add_to_buffer(buffer, event) do
     new_buffer = :queue.in(event, buffer)
     
-    # Maintain buffer size limit
-    if :queue.len(new_buffer) > @event_buffer_size do
-      {_, trimmed} = :queue.out(new_buffer)
-      trimmed
-    else
-      new_buffer
+    # Maintain buffer size limit more aggressively
+    current_size = :queue.len(new_buffer)
+    
+    cond do
+      current_size > @max_event_buffer_size ->
+        # Emergency trim - drop many old events
+        Logger.warning("Event buffer exceeded max size (#{current_size}), dropping old events")
+        drop_count = current_size - @event_buffer_size
+        drop_from_queue(new_buffer, drop_count)
+        
+      current_size > @event_buffer_size ->
+        # Normal trim - remove one
+        {_, trimmed} = :queue.out(new_buffer)
+        trimmed
+        
+      true ->
+        new_buffer
+    end
+  end
+  
+  defp drop_from_queue(queue, 0), do: queue
+  defp drop_from_queue(queue, count) do
+    case :queue.out(queue) do
+      {{:value, _}, new_queue} -> drop_from_queue(new_queue, count - 1)
+      {:empty, queue} -> queue
     end
   end
   
@@ -358,12 +409,25 @@ defmodule AutonomousOpponentV2Core.AMCP.Events.SemanticFusion do
     # Pattern detection logic
     new_patterns = detect_event_patterns(state.event_buffer)
     
-    # Update pattern cache
+    # Update pattern cache with size limit
     updated_cache = Enum.reduce(new_patterns, state.pattern_cache, fn pattern, cache ->
-      Map.put(cache, pattern.id, pattern)
+      # If cache is full, remove oldest pattern first
+      cache_to_use = if map_size(cache) >= @max_pattern_cache_size do
+        # Find and remove oldest pattern
+        oldest_id = cache
+        |> Enum.min_by(fn {_id, p} -> p.detected_at end, fn -> nil end)
+        |> case do
+          {id, _} -> Map.delete(cache, id)
+          _ -> cache
+        end
+      else
+        cache
+      end
+      
+      Map.put(cache_to_use, pattern.id, pattern)
     end)
     
-    # Clean old patterns
+    # Clean old patterns (TTL-based)
     cleaned_cache = clean_old_patterns(updated_cache)
     
     # Update stats
@@ -900,8 +964,10 @@ defmodule AutonomousOpponentV2Core.AMCP.Events.SemanticFusion do
     # Merge with existing chains
     merged_chains = merge_causal_chains(state.causal_chains, new_chains)
     
-    # Limit chain storage
-    trimmed_chains = Enum.take(merged_chains, -100)  # Keep last 100 chains
+    # Limit chain storage and remove old chains
+    trimmed_chains = merged_chains
+    |> Enum.sort_by(& &1.detected_at, {:desc, DateTime})
+    |> Enum.take(@max_causal_chains)
     
     %{state | causal_chains: trimmed_chains}
   end

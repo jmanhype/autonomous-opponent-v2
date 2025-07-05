@@ -1183,15 +1183,53 @@ defmodule AutonomousOpponentV2Core.AMCP.Bridges.LLMBridge do
     provider = Keyword.get(opts, :provider, :openai)
     model = get_model_for_provider(provider, opts)
     
-    case provider do
-      :openai -> call_openai_api(prompt, intent, model, opts)
-      :anthropic -> call_anthropic_api(prompt, intent, model, opts)
-      :local_llama -> call_local_llama_api(prompt, intent, model, opts)
-      :vertex_ai -> call_vertex_ai_api(prompt, intent, model, opts)
-      :google_ai -> call_google_ai_api(prompt, intent, model, opts)
-      _ -> 
-        Logger.warning("Unknown LLM provider #{provider}, falling back to OpenAI")
-        call_openai_api(prompt, intent, model, opts)
+    # Wrap the API call with comprehensive error handling
+    try do
+      result = case provider do
+        :openai -> call_openai_api(prompt, intent, model, opts)
+        :anthropic -> call_anthropic_api(prompt, intent, model, opts)
+        :local_llama -> call_local_llama_api(prompt, intent, model, opts)
+        :vertex_ai -> call_vertex_ai_api(prompt, intent, model, opts)
+        :google_ai -> call_google_ai_api(prompt, intent, model, opts)
+        _ -> 
+          Logger.warning("Unknown LLM provider #{provider}, falling back to OpenAI")
+          call_openai_api(prompt, intent, model, opts)
+      end
+      
+      case result do
+        {:ok, response} -> 
+          {:ok, response}
+          
+        {:error, :rate_limited} ->
+          Logger.warning("Rate limited by #{provider}, applying backoff")
+          Process.sleep(1000)  # Simple backoff
+          {:error, :rate_limited}
+          
+        {:error, {:api_error, 429}} ->
+          Logger.warning("Rate limited (429) by #{provider}, applying backoff")
+          Process.sleep(2000)
+          {:error, :rate_limited}
+          
+        {:error, {:api_error, status}} when status >= 500 ->
+          Logger.error("Server error from #{provider}: #{status}")
+          {:error, {:server_error, status}}
+          
+        {:error, {:http_error, :timeout}} ->
+          Logger.error("Timeout calling #{provider}")
+          {:error, :timeout}
+          
+        {:error, reason} ->
+          Logger.error("LLM API error from #{provider}: #{inspect(reason)}")
+          {:error, reason}
+      end
+    rescue
+      exception ->
+        Logger.error("Exception in LLM API call: #{inspect(exception)}")
+        {:error, {:exception, exception}}
+    catch
+      :exit, reason ->
+        Logger.error("Process exit in LLM API call: #{inspect(reason)}")
+        {:error, {:exit, reason}}
     end
   end
   
@@ -1541,7 +1579,7 @@ defmodule AutonomousOpponentV2Core.AMCP.Bridges.LLMBridge do
       Logger.error("Anthropic API key not found!")
       {:error, :no_api_key}
     else
-      Logger.debug("Anthropic API key found: #{String.slice(api_key, 0, 20)}...")
+      Logger.debug("Anthropic API key found: #{String.slice(api_key, 0, 10)}...")
       
       headers = [
         {"Content-Type", "application/json"},
@@ -1558,14 +1596,14 @@ defmodule AutonomousOpponentV2Core.AMCP.Bridges.LLMBridge do
         {:ok, %HTTPoison.Response{status_code: 200, body: response_body}} ->
           case Jason.decode(response_body) do
             {:ok, response} ->
-              content = get_in(response, ["content", Access.at(0), "text"])
-              if content do
-                {:ok, String.trim(content)}
-              else
-                {:error, :no_content}
+              # Validate response structure
+              case extract_anthropic_content(response) do
+                {:ok, content} -> {:ok, String.trim(content)}
+                {:error, reason} -> {:error, reason}
               end
-            {:error, _} ->
-              {:error, :invalid_response}
+            {:error, decode_error} ->
+              Logger.error("Failed to decode Anthropic response: #{inspect(decode_error)}")
+              {:error, :invalid_json_response}
           end
           
         {:ok, %HTTPoison.Response{status_code: status, body: body}} ->
@@ -1790,7 +1828,7 @@ defmodule AutonomousOpponentV2Core.AMCP.Bridges.LLMBridge do
       Logger.error("Google AI API key not found!")
       {:error, :no_api_key}
     else
-      Logger.debug("Google AI API key found: #{String.slice(api_key, 0, 20)}...")
+      Logger.debug("Google AI API key found: #{String.slice(api_key, 0, 10)}...")
       
       headers = [
         {"Content-Type", "application/json"}
@@ -1808,15 +1846,14 @@ defmodule AutonomousOpponentV2Core.AMCP.Bridges.LLMBridge do
         {:ok, %HTTPoison.Response{status_code: 200, body: response_body}} ->
           case Jason.decode(response_body) do
             {:ok, response} ->
-              # Google AI returns response in candidates[0].content.parts[0].text
-              content = get_in(response, ["candidates", Access.at(0), "content", "parts", Access.at(0), "text"])
-              if content do
-                {:ok, String.trim(content)}
-              else
-                {:error, :no_content}
+              # Validate response structure
+              case extract_google_ai_content(response) do
+                {:ok, content} -> {:ok, String.trim(content)}
+                {:error, reason} -> {:error, reason}
               end
-            {:error, _} ->
-              {:error, :invalid_response}
+            {:error, decode_error} ->
+              Logger.error("Failed to decode Google AI response: #{inspect(decode_error)}")
+              {:error, :invalid_json_response}
           end
           
         {:ok, %HTTPoison.Response{status_code: status, body: body}} ->
@@ -1833,11 +1870,75 @@ defmodule AutonomousOpponentV2Core.AMCP.Bridges.LLMBridge do
   # Configuration helpers
   
   defp get_anthropic_api_key do
-    System.get_env("ANTHROPIC_API_KEY") || Application.get_env(:autonomous_opponent_core, :anthropic_api_key)
+    key = System.get_env("ANTHROPIC_API_KEY") || Application.get_env(:autonomous_opponent_core, :anthropic_api_key)
+    validate_api_key(key, "Anthropic")
   end
   
   defp get_google_ai_api_key do
-    System.get_env("GOOGLE_AI_API_KEY") || Application.get_env(:autonomous_opponent_core, :google_ai_api_key)
+    key = System.get_env("GOOGLE_AI_API_KEY") || Application.get_env(:autonomous_opponent_core, :google_ai_api_key)
+    validate_api_key(key, "Google AI")
+  end
+  
+  defp validate_api_key(nil, provider) do
+    Logger.warning("No API key found for #{provider}")
+    nil
+  end
+  
+  defp validate_api_key(key, provider) when is_binary(key) do
+    # Basic validation - check key format and length
+    cond do
+      String.length(key) < 20 ->
+        Logger.error("Invalid #{provider} API key: too short")
+        nil
+        
+      String.contains?(key, " ") ->
+        Logger.error("Invalid #{provider} API key: contains spaces")
+        nil
+        
+      provider == "Anthropic" and not String.starts_with?(key, "sk-") ->
+        Logger.error("Invalid #{provider} API key format")
+        nil
+        
+      provider == "Google AI" and not String.match?(key, ~r/^[A-Za-z0-9_-]+$/) ->
+        Logger.error("Invalid #{provider} API key format")
+        nil
+        
+      true ->
+        # Don't log the actual key!
+        Logger.debug("#{provider} API key validated (#{String.slice(key, 0, 10)}...)")
+        key
+    end
+  end
+  
+  defp validate_api_key(_, provider) do
+    Logger.error("Invalid #{provider} API key type")
+    nil
+  end
+  
+  defp extract_anthropic_content(response) do
+    case response do
+      %{"content" => [%{"text" => text} | _]} when is_binary(text) ->
+        {:ok, text}
+      %{"content" => []} ->
+        {:error, :empty_content}
+      %{"content" => content} when is_list(content) ->
+        {:error, :invalid_content_format}
+      _ ->
+        {:error, :unexpected_response_structure}
+    end
+  end
+  
+  defp extract_google_ai_content(response) do
+    case response do
+      %{"candidates" => [%{"content" => %{"parts" => [%{"text" => text} | _]}} | _]} when is_binary(text) ->
+        {:ok, text}
+      %{"candidates" => []} ->
+        {:error, :no_candidates}
+      %{"candidates" => [%{"finishReason" => reason} | _]} ->
+        {:error, {:finish_reason, reason}}
+      _ ->
+        {:error, :unexpected_response_structure}
+    end
   end
   
   defp get_local_llama_url do
@@ -1853,11 +1954,35 @@ defmodule AutonomousOpponentV2Core.AMCP.Bridges.LLMBridge do
   end
   
   defp get_vertex_ai_token do
-    # In production, use proper Google Cloud auth
-    # This is a simplified example
-    case System.cmd("gcloud", ["auth", "print-access-token"]) do
-      {token, 0} -> {:ok, String.trim(token)}
-      _ -> {:error, :auth_failed}
+    # Use environment variable or application config instead of system commands
+    # This is much safer than executing shell commands
+    
+    token = System.get_env("VERTEX_AI_ACCESS_TOKEN") || 
+            Application.get_env(:autonomous_opponent_core, :vertex_ai_access_token)
+    
+    case token do
+      nil ->
+        # Try to get from Google Cloud SDK config file (safer than executing commands)
+        config_path = Path.expand("~/.config/gcloud/application_default_credentials.json")
+        
+        if File.exists?(config_path) do
+          Logger.warning("Using Google Cloud SDK credentials from file - consider using service account in production")
+          {:error, :use_service_account}
+        else
+          Logger.error("No Vertex AI credentials found. Set VERTEX_AI_ACCESS_TOKEN environment variable")
+          {:error, :no_credentials}
+        end
+        
+      token when is_binary(token) ->
+        if String.length(token) > 20 do
+          {:ok, String.trim(token)}
+        else
+          Logger.error("Invalid Vertex AI token format")
+          {:error, :invalid_token}
+        end
+        
+      _ ->
+        {:error, :invalid_token_type}
     end
   end
 end
