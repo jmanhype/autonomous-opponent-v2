@@ -46,7 +46,7 @@ defmodule AutonomousOpponentV2Web.WebGatewayChannelTest do
   end
   
   describe "join/3" do
-    test "successfully joins mcp:gateway channel", %{socket: socket} do
+    test "successfully joins web_gateway:gateway channel", %{socket: socket} do
       assert {:ok, socket} = subscribe_and_join(socket, WebGatewayChannel, "web_gateway:gateway", %{})
       
       # Should have connection info
@@ -56,7 +56,7 @@ defmodule AutonomousOpponentV2Web.WebGatewayChannelTest do
     end
     
     test "receives welcome message on join", %{socket: socket} do
-      {:ok, _socket} = subscribe_and_join(socket, WebGatewayChannel, "mcp:gateway", %{})
+      {:ok, _socket} = subscribe_and_join(socket, WebGatewayChannel, "web_gateway:gateway", %{})
       
       assert_push "connected", %{
         client_id: client_id,
@@ -71,7 +71,7 @@ defmodule AutonomousOpponentV2Web.WebGatewayChannelTest do
     test "accepts custom client_id", %{socket: socket} do
       custom_id = "custom_client_123"
       
-      {:ok, socket} = subscribe_and_join(socket, WebGatewayChannel, "mcp:gateway", %{
+      {:ok, socket} = subscribe_and_join(socket, WebGatewayChannel, "web_gateway:gateway", %{
         "client_id" => custom_id
       })
       
