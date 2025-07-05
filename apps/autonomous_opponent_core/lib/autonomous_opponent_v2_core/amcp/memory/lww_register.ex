@@ -96,4 +96,24 @@ defmodule AutonomousOpponentV2Core.AMCP.Memory.LWWRegister do
         reg2
     end
   end
+  
+  @doc """
+  Converts LWW-Register to map for serialization.
+  """
+  @spec to_map(t()) :: map()
+  def to_map(%__MODULE__{value: value, timestamp: timestamp}) do
+    %{value: value, timestamp: timestamp}
+  end
+  
+  @doc """
+  Reconstructs LWW-Register from serialized data.
+  """
+  @spec reconstruct(String.t(), any(), integer()) :: t()
+  def reconstruct(node_id, value, timestamp) do
+    %__MODULE__{
+      node_id: node_id,
+      value: value,
+      timestamp: timestamp
+    }
+  end
 end
