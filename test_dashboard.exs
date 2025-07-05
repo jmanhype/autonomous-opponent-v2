@@ -1,17 +1,17 @@
 #!/usr/bin/env elixir
 
-# MCP Gateway Dashboard Test Script
+# Web Gateway Dashboard Test Script
 # This script verifies the functionality of the LiveView dashboard
 
 defmodule DashboardTester do
   @moduledoc """
-  Comprehensive test script for MCP Gateway Dashboard verification.
+  Comprehensive test script for Web Gateway Dashboard verification.
   """
   
   def run do
     IO.puts """
     ========================================
-    MCP Gateway Dashboard Test Script
+    Web Gateway Dashboard Test Script
     ========================================
     """
     
@@ -39,7 +39,7 @@ defmodule DashboardTester do
     # Check if route exists
     routes = AutonomousOpponentV2Web.Router.__routes__()
     dashboard_route = Enum.find(routes, fn route -> 
-      route.path == "/mcp/dashboard" && route.plug == Phoenix.LiveView.Plug
+      route.path == "/web-gateway/dashboard" && route.plug == Phoenix.LiveView.Plug
     end)
     
     if dashboard_route do
@@ -55,7 +55,7 @@ defmodule DashboardTester do
     
     # Test Gateway.get_dashboard_metrics
     IO.puts "  Testing Gateway.get_dashboard_metrics/0..."
-    case AutonomousOpponentV2Core.MCP.Gateway.get_dashboard_metrics() do
+    case AutonomousOpponentV2Core.WebGateway.Gateway.get_dashboard_metrics() do
       {:ok, metrics} ->
         IO.puts "  ✓ Successfully retrieved metrics"
         IO.puts "    - Connections: #{inspect(metrics[:connections])}"
@@ -75,7 +75,7 @@ defmodule DashboardTester do
     
     # Test Router.get_throughput
     try do
-      throughput = AutonomousOpponentV2Core.MCP.Transport.Router.get_throughput()
+      throughput = AutonomousOpponentV2Core.WebGateway.Transport.Router.get_throughput()
       IO.puts "  ✓ Router.get_throughput/0: #{throughput} msg/s"
     rescue
       e -> IO.puts "  ✗ Router.get_throughput/0 failed: #{inspect(e)}"
@@ -83,8 +83,8 @@ defmodule DashboardTester do
     
     # Test Router.get_error_rate
     try do
-      {:ok, ws_error_rate} = AutonomousOpponentV2Core.MCP.Transport.Router.get_error_rate(:websocket)
-      {:ok, sse_error_rate} = AutonomousOpponentV2Core.MCP.Transport.Router.get_error_rate(:http_sse)
+      {:ok, ws_error_rate} = AutonomousOpponentV2Core.WebGateway.Transport.Router.get_error_rate(:websocket)
+      {:ok, sse_error_rate} = AutonomousOpponentV2Core.WebGateway.Transport.Router.get_error_rate(:http_sse)
       IO.puts "  ✓ Router.get_error_rate/1 - WebSocket: #{ws_error_rate}%, SSE: #{sse_error_rate}%"
     rescue
       e -> IO.puts "  ✗ Router.get_error_rate/1 failed: #{inspect(e)}"
@@ -92,7 +92,7 @@ defmodule DashboardTester do
     
     # Test ConnectionPool.get_status
     try do
-      pool_status = AutonomousOpponentV2Core.MCP.Pool.ConnectionPool.get_status()
+      pool_status = AutonomousOpponentV2Core.WebGateway.Pool.ConnectionPool.get_status()
       IO.puts "  ✓ ConnectionPool.get_status/0: #{inspect(pool_status)}"
     rescue
       e -> IO.puts "  ✗ ConnectionPool.get_status/0 failed: #{inspect(e)}"
@@ -178,7 +178,7 @@ defmodule DashboardTester do
     
     # Test with invalid transport
     try do
-      {:ok, _rate} = AutonomousOpponentV2Core.MCP.Transport.Router.get_error_rate(:invalid_transport)
+      {:ok, _rate} = AutonomousOpponentV2Core.WebGateway.Transport.Router.get_error_rate(:invalid_transport)
       IO.puts "  ✗ Should have failed with invalid transport"
     rescue
       _ -> IO.puts "  ✓ Correctly handles invalid transport"

@@ -6,7 +6,7 @@ defmodule AutonomousOpponentV2Web.Plugs.JWTAuthPlug do
   """
   
   import Plug.Conn
-  alias AutonomousOpponentV2Core.MCP.Auth.JWTAuthenticator
+  alias AutonomousOpponentV2Core.WebGateway.Auth.JWTAuthenticator
   
   def init(opts), do: opts
   
