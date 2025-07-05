@@ -15,14 +15,46 @@ defmodule AutonomousOpponentV2Web.Router do
   pipeline :api do
     plug :accepts, ["json"]
   end
+  
+  pipeline :api_auth do
+    plug :accepts, ["json"]
+    plug AutonomousOpponentV2Web.Plugs.JWTAuthPlug, required: true
+  end
+  
+  pipeline :api_auth_optional do
+    plug :accepts, ["json"]
+    plug AutonomousOpponentV2Web.Plugs.JWTAuthPlug, required: false
+  end
 
+  # Define authenticated browser pipeline
+  pipeline :authenticated_browser do
+    plug :browser
+    plug AutonomousOpponentV2Web.Plugs.JWTAuthPlug, required: true
+  end
+  
   scope "/", AutonomousOpponentV2Web do
     pipe_through :browser
 
     get "/", PageController, :home
+  end
+  
+  # Protected dashboards
+  scope "/", AutonomousOpponentV2Web do
+    pipe_through :authenticated_browser
     
     # VSM Metrics Dashboard
     live "/metrics/dashboard", MetricsDashboardLive, :index
+    
+    # MCP Gateway Dashboard
+    live "/mcp/dashboard", MCPDashboardLive, :index
+  end
+  
+  # MCP Gateway endpoints
+  scope "/mcp", AutonomousOpponentV2Web do
+    pipe_through :api_auth_optional
+    
+    # Server-Sent Events endpoint (supports optional authentication)
+    get "/sse", MCPSSEController, :stream
   end
   
   # Prometheus metrics endpoint (no CSRF protection needed)

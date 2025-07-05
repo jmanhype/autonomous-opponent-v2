@@ -99,6 +99,26 @@ defmodule AutonomousOpponentV2Core.Core.CircuitBreaker do
   def force_close(name) do
     GenServer.call(name, :force_close)
   end
+  
+  @doc """
+  Initialize a circuit breaker by name.
+  Creates or ensures a circuit breaker process exists.
+  """
+  def init(name) do
+    # Check if the circuit breaker already exists
+    case Process.whereis(name) do
+      nil ->
+        # Start a new circuit breaker
+        case start_link(name: name) do
+          {:ok, _pid} -> :ok
+          {:error, {:already_started, _pid}} -> :ok
+          error -> error
+        end
+      _pid ->
+        # Already exists
+        :ok
+    end
+  end
 
   # Server callbacks
 

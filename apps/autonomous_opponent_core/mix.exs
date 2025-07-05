@@ -49,7 +49,15 @@ defmodule AutonomousOpponentV2Core.MixProject do
       {:mix_audit, "~> 2.1", only: [:dev, :test], runtime: false},
       # AMQP library - version 4.x supports OTP 27
       # If still incompatible, the code gracefully degrades to stub mode
-      {:amqp, "~> 4.0"}
+      {:amqp, "~> 4.0"},
+      
+      # OpenTelemetry for distributed tracing
+      {:opentelemetry, "~> 1.5"},
+      {:opentelemetry_api, "~> 1.4"},
+      {:opentelemetry_exporter, "~> 1.8"},
+      
+      # JWT authentication
+      {:joken, "~> 2.6"}
     ]
   end
 
