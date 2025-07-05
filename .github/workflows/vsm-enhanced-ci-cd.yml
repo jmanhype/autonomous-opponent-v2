@@ -10,8 +10,9 @@ on:
     types: [created]
   issues:
     types: [opened]
-  schedule:
-    - cron: '0 */6 * * *'  # S4 Intelligence gathering every 6 hours
+  # DISABLED - Uncomment to enable automatic S4 Intelligence gathering
+  # schedule:
+  #   - cron: '0 */6 * * *'  # S4 Intelligence gathering every 6 hours
   workflow_dispatch:
     inputs:
       deployment_override:

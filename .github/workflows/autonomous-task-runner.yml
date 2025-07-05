@@ -18,8 +18,9 @@ on:
         options: ['current', '1', '2', '3', 'all']
   
   # Schedule for continuous autonomous work
-  schedule:
-    - cron: '0 */6 * * *'  # Every 6 hours
+  # DISABLED - Uncomment to enable automatic runs
+  # schedule:
+  #   - cron: '0 */6 * * *'  # Every 6 hours
 
 permissions:
   contents: write
