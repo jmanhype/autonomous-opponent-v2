@@ -81,9 +81,7 @@ defmodule AutonomousOpponentV2Core.WebGateway.Transport.Router do
     EventBus.subscribe(:transport_status)
     EventBus.subscribe(:mcp_routing_events)
     
-    # Initialize circuit breakers for each transport
-    CircuitBreaker.init(:http_sse_transport)
-    CircuitBreaker.init(:websocket_transport)
+    # Circuit breakers will be initialized on-demand when first called
     
     state = %{
       routes: %{},
@@ -108,14 +106,14 @@ defmodule AutonomousOpponentV2Core.WebGateway.Transport.Router do
   
   @impl true
   def handle_call({:route, client_id, message, opts}, _from, state) do
+    # Get or create route for client
+    route = get_or_create_route(client_id, state)
+    
+    # Determine transport based on route and message characteristics
+    transport = select_transport(route, message, opts, state)
+    
     # Trace the routing operation
     result = Tracing.trace_routing(client_id, message, :auto, fn ->
-      # Get or create route for client
-      route = get_or_create_route(client_id, state)
-      
-      # Determine transport based on route and message characteristics
-      transport = select_transport(route, message, opts, state)
-      
       # Add tracing attribute for selected transport
       if transport, do: Tracing.add_attributes(%{selected_transport: transport})
       
@@ -181,6 +179,40 @@ defmodule AutonomousOpponentV2Core.WebGateway.Transport.Router do
     route = Map.get(state.routes, client_id)
     {:reply, route, state}
   end
+
+  @impl true
+  def handle_call(:get_throughput, _from, state) do
+    # Calculate messages per second based on recent activity
+    now = System.monotonic_time(:second)
+    window_start = now - 60  # 60 second window
+    
+    # Count messages in the last 60 seconds
+    recent_messages = 
+      state.message_history
+      |> Enum.filter(fn {timestamp, _} -> timestamp > window_start end)
+      |> length()
+    
+    throughput = recent_messages / 60.0
+    {:reply, throughput, state}
+  end
+
+  @impl true
+  def handle_call({:get_error_rate, transport}, _from, state) do
+    # Calculate error rate for the transport
+    transport_stats = Map.get(state.transport_stats, transport, %{
+      successes: 0,
+      failures: 0
+    })
+    
+    total = transport_stats.successes + transport_stats.failures
+    error_rate = if total > 0 do
+      (transport_stats.failures / total) * 100
+    else
+      0.0
+    end
+    
+    {:reply, {:ok, error_rate}, state}
+  end
   
   @impl true
   def handle_cast({:set_preferences, client_id, preferences}, state) do
@@ -196,7 +228,7 @@ defmodule AutonomousOpponentV2Core.WebGateway.Transport.Router do
   
   @impl true
   def handle_cast({:report_failure, client_id, transport, reason}, state) do
-    Logger.warn("Transport failure for client #{client_id} on #{transport}: #{inspect(reason)}")
+    Logger.warning("Transport failure for client #{client_id} on #{transport}: #{inspect(reason)}")
     
     routes = Map.update(
       state.routes,
@@ -213,6 +245,7 @@ defmodule AutonomousOpponentV2Core.WebGateway.Transport.Router do
     
     # Update circuit breaker
     circuit_key = :"#{transport}_transport"
+    CircuitBreaker.init(circuit_key)
     CircuitBreaker.record_failure(circuit_key)
     
     # Check if we need to trigger failover
@@ -277,7 +310,7 @@ defmodule AutonomousOpponentV2Core.WebGateway.Transport.Router do
     }
   end
   
-  defp select_transport(route, message, opts, state) do
+  defp select_transport(route, message, _opts, state) do
     # Check message size for transport selection
     message_size = estimate_message_size(message)
     prefer_websocket = message_size > 10_000  # Prefer WebSocket for large messages
@@ -325,6 +358,9 @@ defmodule AutonomousOpponentV2Core.WebGateway.Transport.Router do
   defp route_to_sse(client_id, message, opts) do
     event_type = Keyword.get(opts, :event_type, "message")
     
+    # Initialize circuit breaker on-demand if not exists
+    CircuitBreaker.init(:http_sse_transport)
+    
     CircuitBreaker.call(:http_sse_transport, fn ->
       HTTPSSE.send_event(client_id, event_type, message)
       :ok
@@ -332,6 +368,9 @@ defmodule AutonomousOpponentV2Core.WebGateway.Transport.Router do
   end
   
   defp route_to_websocket(client_id, message, opts) do
+    # Initialize circuit breaker on-demand if not exists
+    CircuitBreaker.init(:websocket_transport)
+    
     CircuitBreaker.call(:websocket_transport, fn ->
       WebSocket.send_message(client_id, message, opts)
       :ok
@@ -373,10 +412,15 @@ defmodule AutonomousOpponentV2Core.WebGateway.Transport.Router do
   end
   
   defp check_transport_health(transport) do
-    case CircuitBreaker.get_state(:"#{transport}_transport") do
-      :open -> :unhealthy
-      :half_open -> :degraded
-      :closed -> :healthy
+    circuit_name = :"#{transport}_transport"
+    # Initialize circuit breaker on-demand if not exists
+    CircuitBreaker.init(circuit_name)
+    
+    case CircuitBreaker.get_state(circuit_name) do
+      %{state: :open} -> :unhealthy
+      %{state: :half_open} -> :degraded
+      %{state: :closed} -> :healthy
+      _ -> :healthy  # Default to healthy if unknown
     end
   end
   
@@ -410,37 +454,4 @@ defmodule AutonomousOpponentV2Core.WebGateway.Transport.Router do
     GenServer.call(__MODULE__, {:get_error_rate, transport})
   end
   
-  @impl true
-  def handle_call(:get_throughput, _from, state) do
-    # Calculate messages per second based on recent activity
-    now = System.monotonic_time(:second)
-    window_start = now - 60  # 60 second window
-    
-    # Count messages in the last 60 seconds
-    recent_messages = 
-      state.message_history
-      |> Enum.filter(fn {timestamp, _} -> timestamp > window_start end)
-      |> length()
-    
-    throughput = recent_messages / 60.0
-    {:reply, throughput, state}
-  end
-  
-  @impl true
-  def handle_call({:get_error_rate, transport}, _from, state) do
-    # Calculate error rate for the transport
-    transport_stats = Map.get(state.transport_stats, transport, %{
-      successes: 0,
-      failures: 0
-    })
-    
-    total = transport_stats.successes + transport_stats.failures
-    error_rate = if total > 0 do
-      (transport_stats.failures / total) * 100
-    else
-      0.0
-    end
-    
-    {:reply, {:ok, error_rate}, state}
-  end
 end

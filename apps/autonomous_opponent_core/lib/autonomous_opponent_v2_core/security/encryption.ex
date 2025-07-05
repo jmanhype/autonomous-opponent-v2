@@ -77,7 +77,7 @@ defmodule AutonomousOpponentV2Core.Security.Encryption do
   @doc """
   Rotate encryption keys by re-encrypting with new key.
   """
-  def rotate_key(old_key, new_key) do
+  def rotate_key(_old_key, _new_key) do
     # This would be called during key rotation
     # The actual rotation happens in the vault configuration
     EventBus.publish(:encryption_key_rotated, %{

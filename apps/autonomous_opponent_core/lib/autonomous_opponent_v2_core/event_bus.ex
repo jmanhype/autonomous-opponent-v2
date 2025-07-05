@@ -44,6 +44,30 @@ defmodule AutonomousOpponentV2Core.EventBus do
   def subscriptions do
     GenServer.call(__MODULE__, :subscriptions)
   end
+  
+  @doc """
+  Make a synchronous call to a named process via EventBus
+  """
+  def call(name, request, timeout \\ 5000) do
+    try do
+      GenServer.call(name, request, timeout)
+    catch
+      :exit, {:noproc, _} -> {:error, :not_found}
+      :exit, {:timeout, _} -> {:error, :timeout}
+    end
+  end
+  
+  @doc """
+  Make a synchronous call with arguments to a named process via EventBus
+  """
+  def call(name, request, args, timeout) when is_list(args) do
+    try do
+      GenServer.call(name, {request, args}, timeout)
+    catch
+      :exit, {:noproc, _} -> {:error, :not_found}
+      :exit, {:timeout, _} -> {:error, :timeout}
+    end
+  end
 
   # Server Callbacks
 
@@ -96,7 +120,7 @@ defmodule AutonomousOpponentV2Core.EventBus do
 
     # Send event to each subscriber
     Enum.each(subscribers, fn {^event_type, pid} ->
-      send(pid, {:event, event_type, data})
+      send(pid, {:event_bus, event_type, data})
     end)
 
     # Log high-priority events

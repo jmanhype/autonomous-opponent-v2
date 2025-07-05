@@ -57,7 +57,14 @@ defmodule AutonomousOpponentV2Core.MixProject do
       {:opentelemetry_exporter, "~> 1.8"},
       
       # JWT authentication
-      {:joken, "~> 2.6"}
+      {:joken, "~> 2.6"},
+      
+      # GenStage for event processing
+      {:gen_stage, "~> 1.2"},
+      
+      # Encryption library
+      {:cloak, "~> 1.1"},
+      {:cloak_ecto, "~> 1.3"}
     ]
   end
 

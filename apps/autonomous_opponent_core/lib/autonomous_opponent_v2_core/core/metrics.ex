@@ -366,6 +366,10 @@ defmodule AutonomousOpponentV2Core.Core.Metrics do
     {:noreply, %{state | persist_timer: timer_ref}}
   end
   
+  def handle_info({:event_bus, event_name, data}, state) do
+    handle_info({:event, event_name, data}, state)
+  end
+  
   def handle_info({:event, event_name, data}, state) do
     # Handle EventBus events
     case event_name do

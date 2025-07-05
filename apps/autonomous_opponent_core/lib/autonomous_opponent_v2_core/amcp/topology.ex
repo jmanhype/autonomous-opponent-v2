@@ -297,7 +297,7 @@ defmodule AutonomousOpponentV2Core.AMCP.Topology do
       # Set QoS for fair dispatch
       AMQP.Basic.qos(channel, prefetch_count: 1)
       
-      {:ok, consumer_tag} = AMQP.Basic.consume(channel, queue_name)
+      {:ok, _consumer_tag} = AMQP.Basic.consume(channel, queue_name)
       
       # Return a function to process messages
       fn ->

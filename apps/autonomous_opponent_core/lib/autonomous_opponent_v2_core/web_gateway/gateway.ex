@@ -72,8 +72,9 @@ defmodule AutonomousOpponentV2Core.WebGateway.Gateway do
   def get_dashboard_metrics do
     try do
       # Get connection counts from registries
-      websocket_count = Registry.count(AutonomousOpponentV2Core.WebGateway.TransportRegistry, {:transport, :websocket})
-      sse_count = Registry.count(AutonomousOpponentV2Core.WebGateway.TransportRegistry, {:transport, :http_sse})
+      # Since TransportRegistry uses duplicate keys, we need to count by transport type
+      websocket_count = Registry.select(AutonomousOpponentV2Core.WebGateway.TransportRegistry, [{{:"$1", :"$2", :"$3"}, [{:==, :"$1", :websocket}], [true]}]) |> length()
+      sse_count = Registry.select(AutonomousOpponentV2Core.WebGateway.TransportRegistry, [{{:"$1", :"$2", :"$3"}, [{:==, :"$1", :http_sse}], [true]}]) |> length()
       
       # Get circuit breaker states
       websocket_cb = try do

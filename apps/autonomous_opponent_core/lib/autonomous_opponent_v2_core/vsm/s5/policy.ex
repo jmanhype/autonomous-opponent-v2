@@ -375,7 +375,7 @@ defmodule AutonomousOpponentV2Core.VSM.S5.Policy do
     VarietyChannel.transmit(:s5_to_all, policy_message)
   end
   
-  defp constraint_aligns_with_identity?(name, value, state) do
+  defp constraint_aligns_with_identity?(name, value, _state) do
     # Check if constraint change maintains identity
     case name do
       :max_resource_usage ->
@@ -422,7 +422,7 @@ defmodule AutonomousOpponentV2Core.VSM.S5.Policy do
     end
   end
   
-  defp formulate_existential_response(threat, state) do
+  defp formulate_existential_response(threat, _state) do
     # How do we respond to existential threats?
     threat_severity = assess_threat_severity(threat)
     
@@ -554,13 +554,13 @@ defmodule AutonomousOpponentV2Core.VSM.S5.Policy do
     
     # Check alignment with each value
     value_alignment = state.values
-    |> Enum.map(fn {_name, value} ->
+    |> Enum.map(fn {name, value} ->
       if violates_value?(decision, value) do
         -value.priority * 0.1  # Violations reduce alignment
       else
         case decision[:supports] do
           values when is_list(values) ->
-            if Atom.to_string(elem({_name, value}, 0)) in values do
+            if Atom.to_string(name) in values do
               0.1  # Supporting a value increases alignment
             else
               0
@@ -628,7 +628,7 @@ defmodule AutonomousOpponentV2Core.VSM.S5.Policy do
     Map.get(model, :change_rate, 0) > state.constraints.adaptation_rate
   end
   
-  defp consider_adaptation(model, state) do
+  defp consider_adaptation(model, _state) do
     %{
       required: Map.get(model, :adaptation_pressure, 0) > 0.5,
       type: :incremental,

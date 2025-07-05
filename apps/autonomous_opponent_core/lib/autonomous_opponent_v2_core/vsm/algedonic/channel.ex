@@ -110,7 +110,7 @@ defmodule AutonomousOpponentV2Core.VSM.Algedonic.Channel do
   end
   
   @impl true
-  def handle_info({:event, source, data}, state) when is_map(data) do
+  def handle_info({:event_bus, source, data}, state) do
     # Handle various event types
     cond do
       # Health events

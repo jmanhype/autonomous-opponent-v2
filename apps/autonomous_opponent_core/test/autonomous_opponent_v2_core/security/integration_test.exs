@@ -8,12 +8,7 @@ defmodule AutonomousOpponentV2Core.Security.IntegrationTest do
   
   describe "complete security workflow" do
     test "secure secret storage and retrieval with encryption" do
-      # Start encryption vault
-      {:ok, _} = start_supervised({
-        Encryption,
-        name: :test_encryption,
-        encryption_key: Encryption.generate_key()
-      })
+      # Encryption is already started by the application
       
       # Encrypt a secret
       secret_value = "sk-test-openai-key-12345"
@@ -42,7 +37,7 @@ defmodule AutonomousOpponentV2Core.Security.IntegrationTest do
       {:ok, rotation} = start_supervised({
         KeyRotation,
         name: :test_rotation_int,
-        default_grace_period: :timer.milliseconds(100)
+        default_grace_period: 100
       })
       
       # Subscribe to events
@@ -55,7 +50,7 @@ defmodule AutonomousOpponentV2Core.Security.IntegrationTest do
       
       # Schedule rotation
       :ok = GenServer.call(rotation, 
-        {:schedule_rotation, "TEST_API_KEY", :timer.hours(1), [grace_period: :timer.milliseconds(100)]})
+        {:schedule_rotation, "TEST_API_KEY", :timer.hours(1), [grace_period: 100]})
       
       # Trigger immediate rotation
       result = GenServer.call(rotation, {:rotate_now, "TEST_API_KEY", []})
@@ -78,12 +73,7 @@ defmodule AutonomousOpponentV2Core.Security.IntegrationTest do
     end
     
     test "encrypted configuration values" do
-      # Start encryption
-      {:ok, _} = start_supervised({
-        Encryption,
-        name: :test_enc_config,
-        encryption_key: Encryption.generate_key()
-      })
+      # Encryption is already started by the application
       
       # Simulate storing encrypted config
       config = %{
@@ -144,6 +134,7 @@ defmodule AutonomousOpponentV2Core.Security.IntegrationTest do
   
   describe "audit logging" do
     test "tracks all secret access" do
+      # Start a fresh instance for testing
       {:ok, secrets} = start_supervised({
         SecretsManager,
         name: :test_audit_secrets,
@@ -154,12 +145,12 @@ defmodule AutonomousOpponentV2Core.Security.IntegrationTest do
       # Set test value
       System.put_env("AUDIT_TEST_KEY", "audit_value")
       
-      # Access secret multiple times
+      # Access secret multiple times through the test instance
       GenServer.call(secrets, {:get_secret, "AUDIT_TEST_KEY", []})
       GenServer.call(secrets, {:get_secret, "AUDIT_TEST_KEY", [cache: false]})
       GenServer.call(secrets, {:get_secret, "NON_EXISTENT", []})
       
-      # Get audit log
+      # Get audit log from the test instance
       {:ok, log} = GenServer.call(secrets, {:get_audit_log, []})
       
       assert length(log) >= 3
@@ -194,7 +185,7 @@ defmodule AutonomousOpponentV2Core.Security.IntegrationTest do
       })
       
       # In a full VSM implementation, this would trigger pain signals
-      assert_receive {:event, :security_alert, %{severity: :high}}, 1000
+      assert_receive {:event_bus, :security_alert, %{severity: :high}}, 1000
     end
   end
 end

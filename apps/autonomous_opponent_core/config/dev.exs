@@ -14,7 +14,7 @@ config :ecto, debug_queries: true
 # AMQP Configuration for development
 # Set to false if RabbitMQ is not available locally
 config :autonomous_opponent_core,
-  amqp_enabled: System.get_env("AMQP_ENABLED", "true") == "true"
+  amqp_enabled: true
 
 # Override connection settings from environment if available
 if System.get_env("AMQP_URL") do

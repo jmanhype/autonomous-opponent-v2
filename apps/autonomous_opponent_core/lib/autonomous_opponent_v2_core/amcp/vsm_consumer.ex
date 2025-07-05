@@ -15,7 +15,6 @@ defmodule AutonomousOpponentV2Core.AMCP.VSMConsumer do
   
   alias AutonomousOpponentV2Core.EventBus
   alias AutonomousOpponentV2Core.AMCP.ConnectionPool
-  alias AutonomousOpponentV2Core.AMCP.Message
   
   @subsystems [:s1, :s2, :s3, :s4, :s5]
   
@@ -117,7 +116,7 @@ defmodule AutonomousOpponentV2Core.AMCP.VSMConsumer do
   
   defp start_subsystem_consumers(channel) do
     Enum.reduce(@subsystems, %{}, fn subsystem, acc ->
-      queue_name = "vsm.#{subsystem}.operations"
+      _initial_queue_name = "vsm.#{subsystem}.operations"
       
       # Handle the actual queue names
       queue_name = case subsystem do

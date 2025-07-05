@@ -298,7 +298,9 @@ defmodule AutonomousOpponentV2Core.VSM.S4.VectorStore.HNSWIndex do
       start_time = System.monotonic_time(:microsecond)
       
       ef = opts[:ef] || state.ef
-      results = search_layer(state, query_vector, state.entry_point, k, ef)
+      
+      # Perform hierarchical search from top layer to bottom
+      results = hierarchical_search(state, query_vector, k, ef)
       
       # Format results with distances and metadata
       formatted_results = 
@@ -404,7 +406,7 @@ defmodule AutonomousOpponentV2Core.VSM.S4.VectorStore.HNSWIndex do
         |> Task.async_stream(
           fn {query_vector, index} ->
             ef = opts[:ef] || state.ef
-            search_results = search_layer(state, query_vector, state.entry_point, k, ef)
+            search_results = hierarchical_search(state, query_vector, k, ef)
             
             formatted_results = 
               search_results
@@ -553,7 +555,7 @@ defmodule AutonomousOpponentV2Core.VSM.S4.VectorStore.HNSWIndex do
       end
     
     # Insert at each level from top to bottom
-    Enum.reduce(level..0, entry_points, fn lc, current_entry_points ->
+    Enum.reduce(level..0//-1, entry_points, fn lc, current_entry_points ->
       # Get M nearest neighbors at this level
       m = if lc == 0, do: state.max_m0, else: state.max_m
       
@@ -574,19 +576,88 @@ defmodule AutonomousOpponentV2Core.VSM.S4.VectorStore.HNSWIndex do
     end)
   end
   
+  # WISDOM: Hierarchical search traverses from top layer down
+  # Each layer provides coarse-to-fine approximation
+  defp hierarchical_search(state, query, k, ef) do
+    entry_level = get_node_level(state, state.entry_point)
+    
+    # If entry point is at level 0, just search that level
+    if entry_level == 0 do
+      search_layer_with_entries(state, query, [state.entry_point], k, ef, 0)
+    else
+      # Start from the top layer and work down
+      {entry_points, _} = Enum.reduce(entry_level..1//-1, {[state.entry_point], MapSet.new()}, fn level, {current_entry_points, _visited} ->
+        # Search at this level with entry points from previous level
+        candidates = search_layer_with_entries(state, query, current_entry_points, 1, ef, level)
+        
+        # Use the best candidate as entry point for next level
+        case candidates do
+          [] -> {current_entry_points, MapSet.new()}
+          [{_, best_id} | _] -> {[best_id], MapSet.new()}
+        end
+      end)
+      
+      # Final search at layer 0
+      search_layer_with_entries(state, query, entry_points, k, ef, 0)
+    end
+  end
+  
+  defp search_layer_with_entries(state, query, entry_points, k, ef, level) do
+    # Initialize WITHOUT marking entry points as visited yet
+    visited = MapSet.new()
+    
+    candidates = entry_points
+    |> Enum.map(fn ep ->
+      [{_, ep_data, _}] = :ets.lookup(state.data_table, ep)
+      {state.distance_fn.(query, ep_data), ep}
+    end)
+    
+    w = candidates
+    
+    search_loop_at_level(state, query, candidates, w, visited, ef, level)
+    |> Enum.sort()
+    |> Enum.take(k)
+  end
+  
   # WISDOM: Search traverses from top layer down
   # Each layer provides coarse-to-fine approximation
   defp search_layer(state, query, entry_point, k, ef) do
-    [{_, query_data, _}] = :ets.lookup(state.data_table, entry_point)
+    [{_, entry_data, _}] = :ets.lookup(state.data_table, entry_point)
     
-    # Start with entry point
-    visited = MapSet.new([entry_point])
-    candidates = [{state.distance_fn.(query, query_data), entry_point}]
+    # Start with entry point (NOT marked as visited yet)
+    visited = MapSet.new()
+    candidates = [{state.distance_fn.(query, entry_data), entry_point}]
     w = candidates
     
     search_loop(state, query, candidates, w, visited, ef)
     |> Enum.sort()
     |> Enum.take(k)
+  end
+  
+  defp search_loop_at_level(state, query, candidates, w, visited, ef, level) do
+    case get_nearest_unvisited(candidates, visited) do
+      nil -> 
+        w
+      
+      {curr_dist, current} ->
+        # Mark current node as visited
+        new_visited = MapSet.put(visited, current)
+        
+        # Check if we should stop searching
+        furthest = get_furthest_distance(w)
+        if curr_dist > furthest and length(w) >= ef do
+          w
+        else
+          # Get neighbors at the specified level
+          neighbors = get_neighbors(state, current, level)
+          
+          # Evaluate unvisited neighbors
+          {new_candidates, new_w, final_visited} = 
+            evaluate_neighbors(state, query, neighbors, candidates, w, new_visited, ef)
+          
+          search_loop_at_level(state, query, new_candidates, new_w, final_visited, ef, level)
+        end
+    end
   end
   
   defp search_loop(state, query, candidates, w, visited, ef) do
@@ -595,25 +666,29 @@ defmodule AutonomousOpponentV2Core.VSM.S4.VectorStore.HNSWIndex do
         w
       
       {curr_dist, current} ->
+        # Mark current node as visited
+        new_visited = MapSet.put(visited, current)
+        
         # Check if we should stop searching
-        if curr_dist > get_furthest_distance(w) do
+        furthest = get_furthest_distance(w)
+        if curr_dist > furthest and length(w) >= ef do
           w
         else
           # Get neighbors
           neighbors = get_neighbors(state, current, 0)
           
           # Evaluate unvisited neighbors
-          {new_candidates, new_w, new_visited} = 
-            evaluate_neighbors(state, query, neighbors, candidates, w, visited, ef)
+          {new_candidates, new_w, final_visited} = 
+            evaluate_neighbors(state, query, neighbors, candidates, w, new_visited, ef)
           
-          search_loop(state, query, new_candidates, new_w, new_visited, ef)
+          search_loop(state, query, new_candidates, new_w, final_visited, ef)
         end
     end
   end
   
   defp search_layer_for_insertion(state, query, entry_points, ef, level) do
     # Similar to search_layer but for specific level during insertion
-    visited = MapSet.new(entry_points)
+    visited = MapSet.new()  # Don't mark entry points as visited yet
     
     candidates = 
       entry_points
@@ -633,15 +708,18 @@ defmodule AutonomousOpponentV2Core.VSM.S4.VectorStore.HNSWIndex do
         w
       
       {curr_dist, current} ->
-        if curr_dist > get_furthest_distance(w) do
+        # Mark current node as visited
+        new_visited = MapSet.put(visited, current)
+        
+        if curr_dist > get_furthest_distance(w) and length(w) >= ef do
           w
         else
           neighbors = get_neighbors(state, current, level)
           
-          {new_candidates, new_w, new_visited} = 
-            evaluate_neighbors(state, query, neighbors, candidates, w, visited, ef)
+          {new_candidates, new_w, final_visited} = 
+            evaluate_neighbors(state, query, neighbors, candidates, w, new_visited, ef)
           
-          insertion_search_loop(state, query, new_candidates, new_w, new_visited, ef, level)
+          insertion_search_loop(state, query, new_candidates, new_w, final_visited, ef, level)
         end
     end
   end

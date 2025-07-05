@@ -269,13 +269,13 @@ defmodule AutonomousOpponentV2Core.VSM.Channels.VarietyChannel do
     [data]
   end
   
-  defp calculate_variety_volume(data) do
+  defp calculate_variety_volume(_data) do
     # Ashby's variety calculation
     # V = log2(number of possible states)
     1
   end
   
-  defp analyze_resource_needs(patterns) do
+  defp analyze_resource_needs(_patterns) do
     %{cpu: :medium, memory: :low, io: :high}
   end
   
@@ -287,11 +287,11 @@ defmodule AutonomousOpponentV2Core.VSM.Channels.VarietyChannel do
     [data]
   end
   
-  defp detect_policy_violations(data) do
+  defp detect_policy_violations(_data) do
     []
   end
   
-  defp generate_policy_recommendations(data) do
+  defp generate_policy_recommendations(_data) do
     []
   end
   

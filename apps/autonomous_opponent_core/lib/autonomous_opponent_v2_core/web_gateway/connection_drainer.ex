@@ -262,15 +262,17 @@ defmodule AutonomousOpponentV2Core.WebGateway.ConnectionDrainer do
   end
   
   defp count_active_connections do
-    websocket_count = Registry.count(
+    websocket_count = Registry.select(
       AutonomousOpponentV2Core.WebGateway.TransportRegistry,
-      {:transport, :websocket}
+      [{{:"$1", :"$2", :"$3"}, [{:==, :"$1", {:transport, :websocket}}], [true]}]
     )
+    |> length()
     
-    sse_count = Registry.count(
+    sse_count = Registry.select(
       AutonomousOpponentV2Core.WebGateway.TransportRegistry,
-      {:transport, :http_sse}
+      [{{:"$1", :"$2", :"$3"}, [{:==, :"$1", {:transport, :http_sse}}], [true]}]
     )
+    |> length()
     
     websocket_count + sse_count
   end

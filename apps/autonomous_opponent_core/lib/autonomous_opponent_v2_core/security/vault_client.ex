@@ -19,7 +19,7 @@ defmodule AutonomousOpponentV2Core.Security.VaultClient do
   use GenServer
   require Logger
   
-  alias Vaultex.Client
+  # alias Vaultex.Client
   
   defstruct [
     :config,
@@ -277,7 +277,7 @@ defmodule AutonomousOpponentV2Core.Security.VaultClient do
   
   defp perform_health_check do
     # Use Vaultex health endpoint or sys/health
-    case Vaultex.read("sys/health", :token, {}) do
+    case Vaultex.read("sys/health", :token, {"dummy_token"}) do
       {:ok, data} ->
         {:ok, data}
         

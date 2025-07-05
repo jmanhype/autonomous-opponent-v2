@@ -11,7 +11,12 @@ defmodule AutonomousOpponentV2Web.Endpoint do
     same_site: "Lax"
   ]
 
-  socket "/live", Phoenix.LiveView.Socket, websocket: [connect_info: %{session: @session_options}]
+  # Live reload socket
+  if code_reloading? do
+    socket "/phoenix/live_reload/socket", Phoenix.LiveReloader.Socket
+  end
+
+  socket "/live", Phoenix.LiveView.Socket, websocket: [connect_info: [session: @session_options]]
   
   # Web Gateway WebSocket endpoint
   socket "/web-gateway/ws", AutonomousOpponentV2Web.WebGatewaySocket,

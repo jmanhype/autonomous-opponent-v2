@@ -8,15 +8,9 @@ defmodule AutonomousOpponentV2Core.WebGateway.Transport.HTTPSSE do
   
   alias AutonomousOpponentV2Core.EventBus
   alias AutonomousOpponentV2Core.WebGateway.Gateway
-  alias AutonomousOpponentV2Core.WebGateway.Pool.ConnectionPool
-  alias AutonomousOpponentV2Core.Core.CircuitBreaker
-  
   require Logger
   
   @heartbeat_interval 30_000  # 30 seconds
-  @max_retry_attempts 5
-  @base_backoff 1_000         # 1 second
-  @max_backoff 60_000         # 60 seconds
   
   defmodule Connection do
     @moduledoc """
@@ -159,6 +153,13 @@ defmodule AutonomousOpponentV2Core.WebGateway.Transport.HTTPSSE do
   end
   
   @impl true
+  def handle_cast(:stop_accepting_connections, state) do
+    Logger.info("HTTP SSE transport stopping new connections")
+    # In a real implementation, this would update a flag checked by the controller
+    {:noreply, Map.put(state, :accepting_connections, false)}
+  end
+
+  @impl true
   def handle_cast({:send_event, client_id, event_type, data}, state) do
     case Map.get(state.client_connections, client_id) do
       nil ->
@@ -183,8 +184,8 @@ defmodule AutonomousOpponentV2Core.WebGateway.Transport.HTTPSSE do
     stats = Map.update(
       state.stats,
       :messages_sent,
-      Map.size(state.connections),
-      &(&1 + Map.size(state.connections))
+      map_size(state.connections),
+      &(&1 + map_size(state.connections))
     )
     
     {:noreply, %{state | stats: stats}}
@@ -201,7 +202,7 @@ defmodule AutonomousOpponentV2Core.WebGateway.Transport.HTTPSSE do
         put_in(state.connections[conn_id].last_heartbeat, timestamp)
       else
         # Connection might be dead, will be cleaned up by monitor
-        Logger.warn("Failed to send heartbeat to connection: #{conn_id}")
+        Logger.warning("Failed to send heartbeat to connection: #{conn_id}")
       end
     end)
     
@@ -217,7 +218,7 @@ defmodule AutonomousOpponentV2Core.WebGateway.Transport.HTTPSSE do
   @impl true
   def handle_info({:DOWN, _ref, :process, pid, _reason}, state) do
     # Find and remove the connection
-    {conn_id, connection} = Enum.find(state.connections, fn {_id, conn} ->
+    {conn_id, _connection} = Enum.find(state.connections, fn {_id, conn} ->
       conn.pid == pid
     end) || {nil, nil}
     
@@ -288,12 +289,5 @@ defmodule AutonomousOpponentV2Core.WebGateway.Transport.HTTPSSE do
   """
   def stop_accepting_connections do
     GenServer.cast(__MODULE__, :stop_accepting_connections)
-  end
-  
-  @impl true
-  def handle_cast(:stop_accepting_connections, state) do
-    Logger.info("HTTP SSE transport stopping new connections")
-    # In a real implementation, this would update a flag checked by the controller
-    {:noreply, Map.put(state, :accepting_connections, false)}
   end
 end

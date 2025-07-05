@@ -12,14 +12,16 @@ defmodule AutonomousOpponentV2Core.WebGateway.LoadBalancer.ConsistentHashTest do
     # Subscribe to ring change events
     EventBus.subscribe(:mcp_ring_change)
     
-    # Start with fresh consistent hash instance
-    {:ok, pid} = ConsistentHash.start_link(vnodes: 150)
-    
-    on_exit(fn ->
-      if Process.alive?(pid), do: GenServer.stop(pid)
-    end)
-    
-    {:ok, %{hash_pid: pid}}
+    # Use existing consistent hash instance or start new one
+    case ConsistentHash.start_link(vnodes: 150) do
+      {:ok, pid} -> 
+        on_exit(fn ->
+          if Process.alive?(pid), do: GenServer.stop(pid)
+        end)
+        {:ok, %{hash_pid: pid}}
+      {:error, {:already_started, pid}} ->
+        {:ok, %{hash_pid: pid}}
+    end
   end
   
   describe "node management" do

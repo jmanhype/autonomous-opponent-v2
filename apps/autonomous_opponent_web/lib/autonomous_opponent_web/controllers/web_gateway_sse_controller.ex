@@ -9,7 +9,6 @@ defmodule AutonomousOpponentV2Web.WebGatewaySSEController do
   
   alias AutonomousOpponentV2Core.WebGateway.Transport.HTTPSSE
   alias AutonomousOpponentV2Core.WebGateway.Gateway
-  alias AutonomousOpponentV2Core.EventBus
   
   require Logger
   

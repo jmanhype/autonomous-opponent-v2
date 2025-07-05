@@ -145,7 +145,7 @@ defmodule AutonomousOpponentV2Core.Security.KeyRotationTest do
       
       # Schedule immediate rotation
       GenServer.call(rotation, 
-        {:schedule_rotation, "AUTO_TEST", :timer.milliseconds(100), []})
+        {:schedule_rotation, "AUTO_TEST", 100, []})
       
       # Wait for rotation to trigger
       Process.sleep(200)
@@ -189,7 +189,7 @@ defmodule AutonomousOpponentV2Core.Security.KeyRotationTest do
       send(rotation, {:expire_old_key, "EXPIRE_TEST", "old-key-123"})
       
       # Should receive expiration event
-      assert_receive {:event, :key_expired, %{key: "EXPIRE_TEST"}}, 1000
+      assert_receive {:event_bus, :key_expired, %{key: "EXPIRE_TEST"}}, 1000
     end
   end
 end

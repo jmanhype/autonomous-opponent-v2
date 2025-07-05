@@ -15,7 +15,6 @@ defmodule AutonomousOpponentV2Core.WebGateway.Transport.WebSocket do
   
   @ping_interval 30_000       # 30 seconds
   @pong_timeout 10_000        # 10 seconds
-  @max_frame_size 65_536      # 64KB
   @compression_threshold 1024  # Compress messages larger than 1KB
   
   defmodule Connection do
@@ -280,6 +279,13 @@ defmodule AutonomousOpponentV2Core.WebGateway.Transport.WebSocket do
   end
   
   @impl true
+  def handle_cast(:stop_accepting_connections, state) do
+    Logger.info("WebSocket transport stopping new connections")
+    # In a real implementation, this would update a flag checked by the channel
+    {:noreply, Map.put(state, :accepting_connections, false)}
+  end
+
+  @impl true
   def handle_cast({:pong_received, conn_id}, state) do
     # Cancel timeout timer
     case Map.get(state.pending_pongs, conn_id) do
@@ -324,7 +330,7 @@ defmodule AutonomousOpponentV2Core.WebGateway.Transport.WebSocket do
   
   @impl true
   def handle_info({:pong_timeout, conn_id}, state) do
-    Logger.warn("WebSocket pong timeout for connection: #{conn_id}")
+    Logger.warning("WebSocket pong timeout for connection: #{conn_id}")
     
     # Connection is considered dead, unregister it
     handle_cast({:unregister, conn_id}, state)
@@ -425,7 +431,7 @@ defmodule AutonomousOpponentV2Core.WebGateway.Transport.WebSocket do
     end
   end
   
-  defp encode_message(message, connection, opts) do
+  defp encode_message(message, connection, _opts) do
     # Convert to JSON if needed
     json_message = if is_binary(message), do: message, else: Jason.encode!(message)
     
@@ -502,10 +508,4 @@ defmodule AutonomousOpponentV2Core.WebGateway.Transport.WebSocket do
     GenServer.cast(__MODULE__, :stop_accepting_connections)
   end
   
-  @impl true
-  def handle_cast(:stop_accepting_connections, state) do
-    Logger.info("WebSocket transport stopping new connections")
-    # In a real implementation, this would update a flag checked by the channel
-    {:noreply, Map.put(state, :accepting_connections, false)}
-  end
 end

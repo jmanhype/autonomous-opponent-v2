@@ -1,5 +1,20 @@
 import Config
 
+# Disable AMQP in tests
+config :autonomous_opponent_core, :amqp_enabled, false
+
+# Disable Vault in tests
+config :autonomous_opponent_core, :vault_enabled, false
+
+# Configure event bus for test mode
+config :autonomous_opponent_core, :event_bus_mode, :test
+
+# Disable S4 pain signals in test to prevent feedback loops
+config :autonomous_opponent_core, :disable_algedonic_signals, true
+
+# Disable repo start in tests
+config :autonomous_opponent_core, :start_repo, false
+
 # Configure your database
 # The repos should be configured with their actual module names
 
@@ -37,3 +52,7 @@ config :phoenix, :plug_init_mode, :runtime
 
 # Disable swoosh api client as it is only required for production adapters.
 config :swoosh, :api_client, false
+
+# Disable OTLP exporter in tests
+config :opentelemetry_exporter, otlp_protocol: :grpc
+config :opentelemetry, traces_exporter: :none

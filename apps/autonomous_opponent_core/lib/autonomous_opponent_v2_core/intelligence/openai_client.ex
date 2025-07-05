@@ -86,8 +86,7 @@ defmodule AutonomousOpponentV2Core.Intelligence.OpenAIClient do
         # Use circuit breaker for resilience
         CircuitBreaker.call(
           {:openai, path},
-          fn -> execute_request(method, path, params, api_key, opts) end,
-          timeout: opts[:timeout] || @timeout
+          fn -> execute_request(method, path, params, api_key, opts) end
         )
         
       {:error, :rate_limited} ->

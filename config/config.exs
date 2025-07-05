@@ -7,6 +7,10 @@ import Config
 config :autonomous_opponent_core, ecto_repos: [AutonomousOpponentV2Core.Repo]
 config :autonomous_opponent_web, ecto_repos: [AutonomousOpponentV2Web.Repo]
 
+# Configure Phoenix PubSub
+config :autonomous_opponent_web, AutonomousOpponentV2Web.PubSub,
+  adapter: Phoenix.PubSub.PG2
+
 # Sample configuration:
 #
 #     config :logger, :console,

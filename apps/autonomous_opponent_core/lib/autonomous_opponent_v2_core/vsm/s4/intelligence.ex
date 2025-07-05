@@ -22,7 +22,6 @@ defmodule AutonomousOpponentV2Core.VSM.S4.Intelligence do
   alias AutonomousOpponentV2Core.VSM.Channels.VarietyChannel
   alias AutonomousOpponentV2Core.VSM.Algedonic.Channel, as: Algedonic
   alias AutonomousOpponentV2Core.VSM.S4.Intelligence.VectorStore
-  alias AutonomousOpponentV2Core.Core.Metrics
   
   defstruct [
     :vector_store,
@@ -31,7 +30,8 @@ defmodule AutonomousOpponentV2Core.VSM.S4.Intelligence do
     :scenario_modeler,
     :intelligence_reports,
     :learning_queue,
-    :health_metrics
+    :health_metrics,
+    :pain_report_times
   ]
   
   # Intelligence thresholds
@@ -106,7 +106,8 @@ defmodule AutonomousOpponentV2Core.VSM.S4.Intelligence do
         predictions_accurate: 0,
         predictions_total: 0,
         environmental_complexity: 0.5
-      }
+      },
+      pain_report_times: %{}
     }
     
     Logger.info("S4 Intelligence online - scanning the horizon")
@@ -282,28 +283,38 @@ defmodule AutonomousOpponentV2Core.VSM.S4.Intelligence do
     health = calculate_health_score(state)
     EventBus.publish(:s4_health, %{health: health})
     
-    # Report based on intelligence quality
-    cond do
-      health < 0.3 ->
-        # Report pain with intensity calculated from health
-        intensity = max(0.86, 1.0 - health)  # Ensure > 0.85 threshold
-        Algedonic.report_pain(:s4_intelligence, :blind, intensity)
-        
-      state.health_metrics.environmental_complexity > 0.9 ->
-        Algedonic.report_pain(:s4_intelligence, :overwhelmed, 
-          state.health_metrics.environmental_complexity)
-        
-      prediction_accuracy(state) < 0.5 ->
-        Algedonic.report_pain(:s4_intelligence, :confused, 0.7)
-        
-      health > 0.9 && prediction_accuracy(state) > 0.8 ->
-        Algedonic.report_pleasure(:s4_intelligence, :prescient, health)
-        
-      true ->
-        :ok
+    # Report based on intelligence quality - but throttle to prevent feedback loops
+    new_state = if Application.get_env(:autonomous_opponent_core, :disable_algedonic_signals, false) do
+      # Skip algedonic signals in test mode
+      state
+    else
+      # Check and report pain/pleasure conditions
+      cond do
+        health < 0.3 && not recently_reported_pain?(state, :blind) ->
+          # Report pain with intensity calculated from health
+          intensity = max(0.86, 1.0 - health)  # Ensure > 0.85 threshold
+          Algedonic.report_pain(:s4_intelligence, :blind, intensity)
+          update_pain_report_time(state, :blind)
+          
+        state.health_metrics.environmental_complexity > 0.9 && not recently_reported_pain?(state, :overwhelmed) ->
+          Algedonic.report_pain(:s4_intelligence, :overwhelmed, 
+            state.health_metrics.environmental_complexity)
+          update_pain_report_time(state, :overwhelmed)
+          
+        prediction_accuracy(state) < 0.5 && not recently_reported_pain?(state, :confused) ->
+          Algedonic.report_pain(:s4_intelligence, :confused, 0.7)
+          update_pain_report_time(state, :confused)
+          
+        health > 0.9 && prediction_accuracy(state) > 0.8 ->
+          Algedonic.report_pleasure(:s4_intelligence, :prescient, health)
+          state
+          
+        true ->
+          state
+      end
     end
     
-    {:noreply, state}
+    {:noreply, new_state}
   end
   
   # Private Functions
@@ -340,12 +351,10 @@ defmodule AutonomousOpponentV2Core.VSM.S4.Intelligence do
     scan_result = perform_environmental_scan(state)
     
     # Filter to only requested scan types
-    filtered_result = %{
-      scan_result |
-      metrics: if(:resources in scan_types, do: scan_result.metrics, else: nil),
-      patterns: if(:patterns in scan_types, do: scan_result.patterns, else: []),
-      anomalies: if(:anomalies in scan_types, do: scan_result.anomalies, else: [])
-    }
+    filtered_result = scan_result
+    |> Map.put(:metrics, if(:resources in scan_types, do: scan_result.metrics, else: nil))
+    |> Map.put(:patterns, if(:patterns in scan_types, do: detect_patterns(scan_result, state), else: []))
+    |> Map.put(:anomalies, if(:anomalies in scan_types, do: scan_result.anomalies, else: []))
     
     filtered_result
   end
@@ -1276,7 +1285,7 @@ defmodule AutonomousOpponentV2Core.VSM.S4.Intelligence do
     signal_complexity = min(1.0, external_signals / 10)
     
     # Anomaly complexity component
-    anomaly_count = length(scan_result.anomalies)
+    _anomaly_count = length(scan_result.anomalies)
     anomaly_severity = scan_result.anomalies 
                        |> Enum.map(fn a -> 
                          case a.severity do
@@ -1367,5 +1376,20 @@ defmodule AutonomousOpponentV2Core.VSM.S4.Intelligence do
       :medium -> :medium
       :low -> :low
     end
+  end
+  
+  defp recently_reported_pain?(state, pain_type) do
+    # Check if we reported this pain type in the last 5 seconds
+    last_report = Map.get(state.pain_report_times, pain_type)
+    
+    case last_report do
+      nil -> false
+      timestamp ->
+        DateTime.diff(DateTime.utc_now(), timestamp) < 5
+    end
+  end
+  
+  defp update_pain_report_time(state, pain_type) do
+    %{state | pain_report_times: Map.put(state.pain_report_times, pain_type, DateTime.utc_now())}
   end
 end

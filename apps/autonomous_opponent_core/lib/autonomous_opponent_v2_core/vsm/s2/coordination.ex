@@ -101,10 +101,6 @@ defmodule AutonomousOpponentV2Core.VSM.S2.Coordination do
           {:wait, delay} ->
             # Tell S1 to wait (dampening)
             {:reply, {:wait, delay}, state}
-            
-          {:redirect, alternative} ->
-            # Suggest alternative approach
-            {:reply, {:redirect, alternative}, state}
         end
         
       :no_conflict ->
@@ -313,7 +309,7 @@ defmodule AutonomousOpponentV2Core.VSM.S2.Coordination do
     conflicts_in_window >= @oscillation_threshold
   end
   
-  defp handle_oscillation(unit1, unit2, resource, state) do
+  defp handle_oscillation(unit1, unit2, _resource, state) do
     Logger.warning("S2 dampening oscillation between #{unit1} and #{unit2}")
     
     # Apply dampening

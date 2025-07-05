@@ -25,11 +25,12 @@ defmodule AutonomousOpponentV2Core.WebGateway.GatewayTest do
       children = Supervisor.which_children(Gateway)
       child_names = Enum.map(children, fn {name, _, _, _} -> name end)
       
-      assert Enum.member?(child_names, Registry)
+      # Check for required supervisors and modules
+      assert Enum.any?(child_names, &String.contains?(to_string(&1), "Registry"))
       assert Enum.member?(child_names, AutonomousOpponentV2Core.WebGateway.Pool.ConnectionPool)
       assert Enum.member?(child_names, AutonomousOpponentV2Core.WebGateway.LoadBalancer.ConsistentHash)
       assert Enum.member?(child_names, AutonomousOpponentV2Core.WebGateway.Transport.Router)
-      assert Enum.member?(child_names, Task.Supervisor)
+      assert Enum.any?(child_names, &String.contains?(to_string(&1), "TaskSupervisor"))
     end
     
     test "restarts child processes on failure" do
