@@ -26,7 +26,7 @@ defmodule AutonomousOpponentV2Core.Application do
       AutonomousOpponentV2Core.Security.Supervisor,
       # Start Web Gateway (Task 8)
       AutonomousOpponentV2Core.WebGateway.Gateway,
-    ] ++ amqp_children() ++ vsm_children()
+    ] ++ amqp_children() ++ vsm_children() ++ mcp_children()
 
     opts = [strategy: :one_for_one, name: AutonomousOpponentV2Core.Supervisor]
     Supervisor.start_link(children, opts)
@@ -36,6 +36,15 @@ defmodule AutonomousOpponentV2Core.Application do
   defp vsm_children do
     if Application.get_env(:autonomous_opponent_core, :start_vsm, true) do
       [AutonomousOpponentV2Core.VSM.Supervisor]
+    else
+      []
+    end
+  end
+  
+  # Start MCP (Model Context Protocol) services
+  defp mcp_children do
+    if Application.get_env(:autonomous_opponent_core, :start_mcp, true) do
+      [AutonomousOpponentV2Core.MCP.Supervisor]
     else
       []
     end

@@ -29,7 +29,8 @@ config :autonomous_opponent_web, AutonomousOpponentV2Web.Endpoint,
   code_reloader: true,
   debug_errors: true,
   secret_key_base: "dev_secret_key_base_at_least_64_characters_long_for_development_only",
-  watchers: []
+  watchers: [],
+  pubsub_server: AutonomousOpponentV2Web.PubSub
 
 # Watch static and templates for browser reloading.
 config :autonomous_opponent_web, AutonomousOpponentV2Web.Endpoint,
