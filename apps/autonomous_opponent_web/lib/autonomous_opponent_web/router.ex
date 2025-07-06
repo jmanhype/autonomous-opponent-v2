@@ -14,6 +14,14 @@ defmodule AutonomousOpponentV2Web.Router do
 
   pipeline :api do
     plug :accepts, ["json"]
+    
+    # Add IP-based rate limiting
+    plug AutonomousOpponentV2Core.Core.IPRateLimiter,
+      algorithm: :sliding_window,
+      rate_limiter: :api_rate_limiter,
+      window_ms: 60_000,      # 1 minute window
+      max_requests: 60,       # 60 requests per minute
+      whitelist: ["127.0.0.1", "::1"]  # Allow localhost
   end
   
   pipeline :api_auth do

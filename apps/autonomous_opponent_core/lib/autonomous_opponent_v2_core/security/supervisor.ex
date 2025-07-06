@@ -20,19 +20,27 @@ defmodule AutonomousOpponentV2Core.Security.Supervisor do
   
   @impl true
   def init(_opts) do
-    children = [
+    base_children = [
       # Encryption vault must start first
       {AutonomousOpponentV2Core.Security.Encryption, 
         name: AutonomousOpponentV2Core.Security.Encryption,
         encryption_key: get_encryption_key()
-      },
-      
-      # Vault client (may fail if Vault not available)
-      {AutonomousOpponentV2Core.Security.VaultClient,
-        get_vault_config()
-      },
-      
-      # Secrets manager depends on Vault client
+      }
+    ]
+    
+    vault_children = if vault_enabled?() do
+      [
+        # Vault client (only if enabled)
+        {AutonomousOpponentV2Core.Security.VaultClient,
+          get_vault_config()
+        }
+      ]
+    else
+      []
+    end
+    
+    remaining_children = [
+      # Secrets manager can work without Vault
       {AutonomousOpponentV2Core.Security.SecretsManager,
         name: AutonomousOpponentV2Core.Security.SecretsManager,
         vault_enabled: vault_enabled?()
@@ -44,6 +52,8 @@ defmodule AutonomousOpponentV2Core.Security.Supervisor do
       }
     ]
     
+    children = base_children ++ vault_children ++ remaining_children
+    
     # Use rest_for_one strategy so if Vault fails, 
     # dependent services are restarted
     Supervisor.init(children, strategy: :rest_for_one)
@@ -53,7 +63,8 @@ defmodule AutonomousOpponentV2Core.Security.Supervisor do
     # Try to get from environment, generate if not present
     case System.get_env("ENCRYPTION_KEY") do
       nil ->
-        key = AutonomousOpponentV2Core.Security.Encryption.generate_key()
+        # Generate a secure key
+        key = :crypto.strong_rand_bytes(32) |> Base.encode64()
         
         # WARNING: In production, this should be persisted securely
         IO.puts("WARNING: Generated new encryption key. This should be persisted securely!")

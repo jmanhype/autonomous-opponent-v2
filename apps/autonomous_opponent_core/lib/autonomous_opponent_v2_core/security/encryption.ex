@@ -102,7 +102,8 @@ defmodule AutonomousOpponentV2Core.Security.Encryption do
     salt = salt || :crypto.strong_rand_bytes(16)
     iterations = 100_000
     
-    {:ok, key} = :pbkdf2.pbkdf2(:sha256, password, salt, iterations, 32)
+    # Use Erlang's crypto module for PBKDF2
+    key = :crypto.pbkdf2_hmac(:sha256, password, salt, iterations, 32)
     {Base.encode64(key), Base.encode64(salt)}
   end
   

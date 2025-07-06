@@ -83,13 +83,15 @@ defmodule AutonomousOpponentV2Core.Security.SecretsManager do
   def init(opts) do
     config = build_config(opts)
     
-    # Initialize Vault client if configured
+    # Vault client is started by supervisor if enabled
     vault_client = if config.vault_enabled do
-      case VaultClient.start_link(config.vault_config) do
-        {:ok, client} -> client
-        {:error, reason} ->
-          Logger.warning("Failed to initialize Vault client: #{inspect(reason)}")
+      # Check if VaultClient is running
+      case Process.whereis(VaultClient) do
+        nil ->
+          Logger.warning("Vault is enabled but VaultClient is not running")
           nil
+        pid ->
+          pid
       end
     else
       nil

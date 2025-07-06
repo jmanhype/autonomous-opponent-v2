@@ -25,8 +25,8 @@ defmodule AutonomousOpponentV2Core.Application do
       {AutonomousOpponentV2Core.Core.RateLimiter, name: AutonomousOpponentV2Core.Core.RateLimiter},
       # Start the Connection Pool Manager for external services
       AutonomousOpponentV2Core.Connections.PoolManager,
-      # Start Security services (Task 7) - TEMPORARILY DISABLED 
-      # AutonomousOpponentV2Core.Security.Supervisor,
+      # Start Security services (Task 7)
+      AutonomousOpponentV2Core.Security.Supervisor,
       # Start Web Gateway (Task 8)
       AutonomousOpponentV2Core.WebGateway.Gateway,
     ] ++ ai_children() ++ amqp_children() ++ vsm_children() ++ mcp_children()
@@ -48,8 +48,8 @@ defmodule AutonomousOpponentV2Core.Application do
       AutonomousOpponentV2Core.AMCP.Events.SemanticAnalyzer,
       # Semantic Fusion for pattern detection - RE-ENABLED
       AutonomousOpponentV2Core.AMCP.Events.SemanticFusion,
-      # Consciousness module for AI self-awareness - TEMPORARILY DISABLED
-      # AutonomousOpponentV2Core.Consciousness
+      # Consciousness module for AI self-awareness
+      AutonomousOpponentV2Core.Consciousness
     ]
   end
 
