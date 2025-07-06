@@ -71,8 +71,18 @@ defmodule AutonomousOpponentV2Core.AMCP.Events.SemanticAnalyzer do
   
   @impl true
   def init(_opts) do
-    # Subscribe to all events for semantic analysis
-    EventBus.subscribe(:all)
+    # Subscribe to specific events for semantic analysis
+    EventBus.subscribe(:user_interaction)
+    EventBus.subscribe(:system_performance)
+    EventBus.subscribe(:pattern_detected)
+    EventBus.subscribe(:consciousness_response)
+    EventBus.subscribe(:consciousness_error)
+    EventBus.subscribe(:consciousness_reflection_requested)
+    EventBus.subscribe(:consciousness_reflection_completed)
+    EventBus.subscribe(:consciousness_query)
+    EventBus.subscribe(:consciousness_state_retrieved)
+    EventBus.subscribe(:amcp_crdt_created)
+    EventBus.subscribe(:amcp_crdt_updated)
     
     # Start periodic analysis
     :timer.send_interval(@analysis_interval_ms, :perform_batch_analysis)
@@ -159,15 +169,20 @@ defmodule AutonomousOpponentV2Core.AMCP.Events.SemanticAnalyzer do
   
   @impl true
   def handle_info(:perform_batch_analysis, state) do
-    if :queue.len(state.event_buffer) > 0 do
+    buffer_length = :queue.len(state.event_buffer)
+    Logger.info("SemanticAnalyzer: Performing batch analysis, buffer size: #{buffer_length}")
+    
+    if buffer_length > 0 do
       # Extract events from buffer
       {events, new_buffer} = extract_events_from_buffer(state.event_buffer)
+      Logger.info("SemanticAnalyzer: Analyzing #{length(events)} events")
       
       # Perform semantic analysis
       new_state = perform_semantic_analysis(events, %{state | event_buffer: new_buffer})
       
       {:noreply, new_state}
     else
+      Logger.debug("SemanticAnalyzer: No events in buffer to analyze")
       {:noreply, state}
     end
   end
@@ -192,26 +207,53 @@ defmodule AutonomousOpponentV2Core.AMCP.Events.SemanticAnalyzer do
   end
   
   @impl true
-  def handle_info({:event_published, event_name, event_data}, state) do
-    # Automatically analyze events published to EventBus
-    analyze_event(event_name, event_data)
-    {:noreply, state}
+  def handle_info({:event_bus, event_name, event_data}, state) do
+    # Directly add events to buffer instead of casting back to self
+    Logger.debug("SemanticAnalyzer received event: #{event_name}")
+    
+    # Create enriched event
+    enriched_event = %{
+      name: event_name,
+      data: event_data,
+      timestamp: DateTime.utc_now(),
+      id: generate_event_id()
+    }
+    
+    # Add to buffer
+    new_buffer = add_to_buffer(state.event_buffer, enriched_event)
+    Logger.debug("SemanticAnalyzer buffer size now: #{:queue.len(new_buffer)}")
+    
+    # If buffer is full, trigger immediate analysis
+    if :queue.len(new_buffer) >= @analysis_batch_size do
+      Logger.info("SemanticAnalyzer buffer full (#{:queue.len(new_buffer)}), triggering analysis")
+      send(self(), :perform_batch_analysis)
+    end
+    
+    {:noreply, %{state | event_buffer: new_buffer}}
   end
   
   # Private Functions
   
   defp perform_semantic_analysis(events, state) do
+    Logger.info("SemanticAnalyzer: Starting LLM analysis of #{length(events)} events")
+    
     # Batch analyze events with LLM
     case analyze_events_with_llm(events) do
       {:ok, analyses} ->
+        Logger.info("SemanticAnalyzer: LLM analysis successful, got #{length(analyses)} analyses")
+        
         # Update cache and trends
         new_cache = add_analyses_to_cache(state.analysis_cache, analyses)
         new_trends = update_semantic_trends(state.semantic_trends, analyses)
         new_stats = update_analysis_stats(state.analysis_stats, length(analyses))
         
+        Logger.info("SemanticAnalyzer: Updated trends, now have #{map_size(new_trends)} trending topics")
+        
         # Send enriched events to SemanticFusion
         Enum.each(analyses, fn analysis ->
-          SemanticFusion.fuse_event(analysis.event_name, analysis)
+          # Use :name field which is what we have from the event structure
+          event_name = Map.get(analysis, :event_name, analysis.name)
+          SemanticFusion.fuse_event(event_name, analysis)
         end)
         
         %{state | 

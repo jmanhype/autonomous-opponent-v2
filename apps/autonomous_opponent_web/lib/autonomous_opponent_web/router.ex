@@ -101,6 +101,11 @@ defmodule AutonomousOpponentV2Web.Router do
     get "/patterns", ConsciousnessController, :patterns
     get "/events/analyze", ConsciousnessController, :analyze_events
     get "/memory/synthesize", ConsciousnessController, :synthesize_memory
+    
+    # Debug endpoint for seeding data (dev only)
+    if Mix.env() == :dev do
+      post "/debug/seed", ConsciousnessController, :seed_data
+    end
   end
 
   # Enables LiveDashboard only on development environment

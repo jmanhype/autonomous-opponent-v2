@@ -143,6 +143,15 @@ defmodule AutonomousOpponentV2Core.Core.RateLimiter do
     token_table = :"#{opts[:name]}_tokens"
     metrics_table = :"#{opts[:name]}_metrics"
 
+    # Check if tables already exist and delete them if so
+    if :ets.info(token_table) != :undefined do
+      :ets.delete(token_table)
+    end
+    
+    if :ets.info(metrics_table) != :undefined do
+      :ets.delete(metrics_table)
+    end
+
     :ets.new(token_table, [:named_table, :public, :set, {:write_concurrency, true}])
     :ets.new(metrics_table, [:named_table, :public, :set, {:write_concurrency, true}])
 
@@ -401,8 +410,16 @@ defmodule AutonomousOpponentV2Core.Core.RateLimiter do
 
       [{^key, current}] when current >= tokens ->
         # Sufficient tokens - consume them atomically
-        new_count = :ets.update_counter(table, key, -tokens)
-        {:ok, new_count}
+        # Use try/catch to handle race conditions where key might be deleted
+        try do
+          new_count = :ets.update_counter(table, key, -tokens)
+          {:ok, new_count}
+        rescue
+          ArgumentError ->
+            # Key was deleted, recreate it and try again
+            :ets.insert(table, {key, max_size - tokens})
+            {:ok, max_size - tokens}
+        end
 
       [{^key, _current}] ->
         # Insufficient tokens

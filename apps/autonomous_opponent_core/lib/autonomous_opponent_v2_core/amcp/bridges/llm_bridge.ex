@@ -1056,6 +1056,62 @@ defmodule AutonomousOpponentV2Core.AMCP.Bridges.LLMBridge do
     )
   end
   
+  defp try_alternative_provider(prompt, intent, opts, failed_provider) do
+    Logger.warning("🔄 Trying alternative provider after #{failed_provider} failed")
+    
+    # Define provider priority (excluding the one that just failed)
+    all_providers = [:anthropic, :google_ai, :openai, :local_llama]
+    alternative_providers = Enum.reject(all_providers, &(&1 == failed_provider))
+    
+    # Try each alternative provider
+    result = Enum.reduce_while(alternative_providers, {:error, :all_providers_failed}, fn provider, _acc ->
+      Logger.info("🔄 Attempting provider: #{provider}")
+      
+      # Check if we have API key for this provider
+      has_key = case provider do
+        :anthropic -> System.get_env("ANTHROPIC_API_KEY") != nil
+        :google_ai -> System.get_env("GOOGLE_AI_API_KEY") != nil
+        :openai -> System.get_env("OPENAI_API_KEY") != nil
+        :local_llama -> true  # Always available
+        _ -> false
+      end
+      
+      if has_key do
+        # Update opts with new provider
+        new_opts = Keyword.put(opts, :provider, provider)
+        
+        # Try the provider
+        case call_unstructured_llm(prompt, intent, new_opts) do
+          {:ok, response} ->
+            Logger.info("✅ Successfully got response from alternative provider: #{provider}")
+            SystemTelemetry.emit([:llm, :provider_switch], %{}, %{
+              from_provider: failed_provider,
+              to_provider: provider,
+              reason: :fallback
+            })
+            {:halt, {:ok, response}}
+            
+          {:error, reason} ->
+            Logger.warning("Alternative provider #{provider} also failed: #{inspect(reason)}")
+            {:cont, {:error, reason}}
+        end
+      else
+        Logger.debug("Skipping #{provider} - no API key")
+        {:cont, {:error, :no_api_key}}
+      end
+    end)
+    
+    # If all providers failed, use local fallback as last resort
+    case result do
+      {:error, _} ->
+        Logger.warning("All providers failed, using local LLM fallback")
+        use_local_fallback(prompt, intent, opts)
+        
+      success ->
+        success
+    end
+  end
+
   defp use_local_fallback(prompt, intent, opts) do
     Logger.warning("🔄 ACTIVATING LOCAL LLM FALLBACK - Intent: #{intent}")
     
@@ -1306,7 +1362,7 @@ defmodule AutonomousOpponentV2Core.AMCP.Bridges.LLMBridge do
   defp do_call_llm_api_uncached(prompt, intent, opts) do
     # Original implementation moved here
     use_structured = Keyword.get(opts, :structured, true)
-    provider = Keyword.get(opts, :provider, :openai)
+    provider = Keyword.get(opts, :provider, :anthropic)
     
     Logger.debug("do_call_llm_api_uncached called - provider: #{provider}, intent: #{intent}")
     
@@ -1340,23 +1396,34 @@ defmodule AutonomousOpponentV2Core.AMCP.Bridges.LLMBridge do
         call_unstructured_llm(prompt, intent, opts)
     end
     
-    # Check if we got a rate limit error and use fallback
+    # Check if we got a rate limit error and try alternative providers
     final_result = case result do
       {:error, :rate_limited} = error ->
         SystemTelemetry.emit([:llm, :rate_limit], %{retry_after: 0}, %{provider: provider})
         SystemTelemetry.stop_span([:llm, :request], start_metadata, %{status: :rate_limited})
-        use_local_fallback(prompt, intent, opts)
+        try_alternative_provider(prompt, intent, opts, provider)
         
       {:error, {:rate_limited, retry_after}} ->
-        Logger.warning("Rate limited for #{retry_after} seconds, using local fallback")
+        Logger.warning("Rate limited for #{retry_after} seconds, trying alternative provider")
         SystemTelemetry.emit([:llm, :rate_limit], %{retry_after: retry_after}, %{provider: provider})
         SystemTelemetry.stop_span([:llm, :request], start_metadata, %{status: :rate_limited})
-        use_local_fallback(prompt, intent, opts)
+        try_alternative_provider(prompt, intent, opts, provider)
         
       {:error, :no_api_key} ->
-        Logger.info("No API key available, using local fallback")
+        Logger.info("No API key available, trying alternative provider")
         SystemTelemetry.stop_span([:llm, :request], start_metadata, %{status: :no_api_key})
-        use_local_fallback(prompt, intent, opts)
+        try_alternative_provider(prompt, intent, opts, provider)
+        
+      # Also handle insufficient_quota errors (OpenAI specific)
+      {:error, {:api_error, 429}} ->
+        Logger.warning("API quota exceeded for #{provider}, trying alternative provider")
+        SystemTelemetry.stop_span([:llm, :request], start_metadata, %{status: :quota_exceeded})
+        try_alternative_provider(prompt, intent, opts, provider)
+        
+      {:error, {:exception, %CaseClauseError{term: {:ok, {:ok, %{status: 429}}}}}} ->
+        Logger.warning("API quota exceeded (nested) for #{provider}, trying alternative provider")
+        SystemTelemetry.stop_span([:llm, :request], start_metadata, %{status: :quota_exceeded})
+        try_alternative_provider(prompt, intent, opts, provider)
         
       # Handle double-nested response from CircuitBreaker + PoolManager
       {:ok, {:ok, response}} ->

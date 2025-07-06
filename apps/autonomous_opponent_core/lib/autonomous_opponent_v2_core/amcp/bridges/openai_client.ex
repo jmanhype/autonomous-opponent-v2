@@ -33,8 +33,24 @@ defmodule AutonomousOpponentV2Core.AMCP.Bridges.OpenAIClient do
       
       # Use connection pool
       case PoolManager.request(:openai, request, timeout: 30_000) do
+        # Handle double-nested response from CircuitBreaker + PoolManager
+        {:ok, {:ok, %{status: 200, body: response_body}}} ->
+          Jason.decode(response_body)
+          
         {:ok, %{status: 200, body: response_body}} ->
           Jason.decode(response_body)
+          
+        # Handle double-nested error responses
+        {:ok, {:ok, %{status: status, body: body}}} ->
+          Logger.error("OpenAI API error: Status #{status}, Body: #{body}")
+          
+          # Try to parse error message
+          case Jason.decode(body) do
+            {:ok, %{"error" => error}} ->
+              {:error, {:api_error, status}}
+            _ ->
+              {:error, {:api_error, status}}
+          end
           
         {:ok, %{status: status, body: body}} ->
           Logger.error("OpenAI API error: Status #{status}, Body: #{body}")
@@ -42,7 +58,7 @@ defmodule AutonomousOpponentV2Core.AMCP.Bridges.OpenAIClient do
           # Try to parse error message
           case Jason.decode(body) do
             {:ok, %{"error" => error}} ->
-              {:error, {:api_error, error["message"] || "Unknown error"}}
+              {:error, {:api_error, status}}
             _ ->
               {:error, {:api_error, status}}
           end

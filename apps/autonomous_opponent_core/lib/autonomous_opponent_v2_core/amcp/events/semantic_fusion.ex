@@ -75,8 +75,23 @@ defmodule AutonomousOpponentV2Core.AMCP.Events.SemanticFusion do
   
   @impl true
   def init(_opts) do
-    # Subscribe to all events for fusion
-    EventBus.subscribe(:all)
+    # Subscribe to specific events for fusion
+    EventBus.subscribe(:user_interaction)
+    EventBus.subscribe(:system_performance)
+    EventBus.subscribe(:pattern_detected)
+    EventBus.subscribe(:consciousness_response)
+    EventBus.subscribe(:consciousness_error)
+    EventBus.subscribe(:consciousness_reflection_requested)
+    EventBus.subscribe(:consciousness_reflection_completed)
+    EventBus.subscribe(:consciousness_query)
+    EventBus.subscribe(:consciousness_state_retrieved)
+    EventBus.subscribe(:amcp_crdt_created)
+    EventBus.subscribe(:amcp_crdt_updated)
+    EventBus.subscribe(:vsm_state_change)
+    EventBus.subscribe(:algedonic_signal)
+    EventBus.subscribe(:consciousness_update)
+    EventBus.subscribe(:s4_intelligence)
+    EventBus.subscribe(:s5_policy)
     
     # Start fusion timer
     :timer.send_interval(@fusion_interval_ms, :perform_fusion)
@@ -171,9 +186,20 @@ defmodule AutonomousOpponentV2Core.AMCP.Events.SemanticFusion do
   end
   
   @impl true
-  def handle_info({:event, event_name, event_data}, state) do
-    # Handle EventBus events
-    handle_cast({:fuse_event, event_name, event_data}, state)
+  def handle_info({:event_bus, event_name, event_data}, state) do
+    # Handle EventBus events directly
+    Logger.debug("SemanticFusion received event: #{event_name}")
+    
+    # Add event to buffer with metadata (same logic as handle_cast)
+    enriched_event = enrich_event(event_name, event_data)
+    
+    new_buffer = add_to_buffer(state.event_buffer, enriched_event)
+    new_state = %{state | event_buffer: new_buffer}
+    
+    # Update stats
+    new_stats = increment_stat(new_state.fusion_stats, :events_received)
+    
+    {:noreply, %{new_state | fusion_stats: new_stats}}
   end
   
   @impl true
@@ -1045,7 +1071,12 @@ defmodule AutonomousOpponentV2Core.AMCP.Events.SemanticFusion do
       variance = variance / length(intervals)
       
       # Lower variance = higher consistency
-      max(0, 1 - (variance / avg))
+      # Avoid division by zero
+      if avg > 0 do
+        max(0, 1 - (variance / avg))
+      else
+        1.0  # Perfect consistency if all intervals are 0
+      end
     else
       0.5
     end

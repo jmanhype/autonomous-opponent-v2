@@ -124,6 +124,16 @@ defmodule AutonomousOpponentV2Core.Intelligence.AnthropicClient do
     
     # Use connection pool
     case PoolManager.request(:anthropic, request, timeout: opts[:timeout] || @timeout) do
+      # Handle double-nested response from CircuitBreaker + PoolManager
+      {:ok, {:ok, %{status: 200, body: body}}} ->
+        case Jason.decode(body) do
+          {:ok, data} -> 
+            track_usage(data)
+            {:ok, data}
+          {:error, _} -> 
+            {:error, :invalid_response}
+        end
+        
       {:ok, %{status: 200, body: body}} ->
         case Jason.decode(body) do
           {:ok, data} -> 
@@ -133,12 +143,28 @@ defmodule AutonomousOpponentV2Core.Intelligence.AnthropicClient do
             {:error, :invalid_response}
         end
         
+      # Handle double-nested responses for error cases too
+      {:ok, {:ok, %{status: 401}}} ->
+        EventBus.publish(:api_key_invalid, %{
+          service: :anthropic,
+          timestamp: DateTime.utc_now()
+        })
+        {:error, :unauthorized}
+        
       {:ok, %{status: 401}} ->
         EventBus.publish(:api_key_invalid, %{
           service: :anthropic,
           timestamp: DateTime.utc_now()
         })
         {:error, :unauthorized}
+        
+      {:ok, {:ok, %{status: 429, headers: headers}}} ->
+        retry_after = get_retry_after(headers)
+        EventBus.publish(:anthropic_rate_limited, %{
+          retry_after: retry_after,
+          timestamp: DateTime.utc_now()
+        })
+        {:error, {:rate_limited, retry_after}}
         
       {:ok, %{status: 429, headers: headers}} ->
         retry_after = get_retry_after(headers)
@@ -147,6 +173,10 @@ defmodule AutonomousOpponentV2Core.Intelligence.AnthropicClient do
           timestamp: DateTime.utc_now()
         })
         {:error, {:rate_limited, retry_after}}
+        
+      {:ok, {:ok, %{status: status, body: body}}} ->
+        Logger.error("Anthropic API error #{status}: #{body}")
+        {:error, {:api_error, status}}
         
       {:ok, %{status: status, body: body}} ->
         Logger.error("Anthropic API error #{status}: #{body}")

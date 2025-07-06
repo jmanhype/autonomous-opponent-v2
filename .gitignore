@@ -101,3 +101,8 @@ ENV/
 ../run_with_docker.sh
 ../start_with_nohup.sh
 ../nginx-proxy.conf
+
+# Environment files
+.env
+.env.*
+!.env.example

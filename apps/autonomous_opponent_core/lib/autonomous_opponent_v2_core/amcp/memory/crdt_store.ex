@@ -857,28 +857,44 @@ defmodule AutonomousOpponentV2Core.AMCP.Memory.CRDTStore do
     # Extract relevant CRDT data based on domains
     knowledge_data = extract_knowledge_data(domains, state)
     
-    # Use LLM to synthesize insights
-    LLMBridge.call_llm_api(
-      """
-      Synthesize knowledge from this distributed memory system data:
+    # If no data, return a simple response
+    if map_size(knowledge_data) == 0 do
+      {:ok, """
+      Knowledge Synthesis Report
       
-      Knowledge Domains: #{inspect(domains)}
-      CRDT Data Summary:
-      #{format_crdt_data_for_llm(knowledge_data)}
+      No CRDT data available for synthesis at this time.
       
-      Provide synthesis covering:
-      1. Key patterns and relationships discovered
-      2. Emergent insights from the distributed data
-      3. Knowledge gaps or inconsistencies
-      4. Strategic implications
-      5. Recommended actions based on knowledge
-      6. Evolution of understanding over time
+      The distributed memory system is currently initializing. As the system operates and accumulates data, this synthesis will provide:
+      - Pattern recognition across distributed nodes
+      - Emergent insights from collective memory
+      - Strategic recommendations based on accumulated knowledge
       
-      Generate coherent knowledge synthesis from the distributed memory.
-      """,
-      :knowledge_synthesis,
-      timeout: 25_000
-    )
+      Please check back after the system has processed more interactions.
+      """}
+    else
+      # Use LLM to synthesize insights
+      LLMBridge.call_llm_api(
+        """
+        Synthesize knowledge from this distributed memory system data:
+        
+        Knowledge Domains: #{inspect(domains)}
+        CRDT Data Summary:
+        #{format_crdt_data_for_llm(knowledge_data)}
+        
+        Provide synthesis covering:
+        1. Key patterns and relationships discovered
+        2. Emergent insights from the distributed data
+        3. Knowledge gaps or inconsistencies
+        4. Strategic implications
+        5. Recommended actions based on knowledge
+        6. Evolution of understanding over time
+        
+        Generate coherent knowledge synthesis from the distributed memory.
+        """,
+        :knowledge_synthesis,
+        timeout: 25_000
+      )
+    end
   end
   
   defp generate_llm_memory_narrative(focus_area, state) do
