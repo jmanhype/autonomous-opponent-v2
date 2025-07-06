@@ -33,6 +33,7 @@ defmodule AutonomousOpponentV2.MixProject do
       {:postgrex, "~> 0.18"},
       {:jason, "~> 1.4"},
       {:plug_cowboy, "~> 2.7"},
+      {:dotenv_parser, "~> 2.0"},
       {:poolboy, "~> 1.5"},
       # {:handoff, "~> 0.1.0"}, # Commented out - requires Elixir 1.18+
       {:instructor, "~> 0.1.0"},
@@ -57,7 +58,11 @@ defmodule AutonomousOpponentV2.MixProject do
       {:cloak, "~> 1.1"},
       {:cloak_ecto, "~> 1.2"},
       {:vaultex, "~> 1.0"},
-      {:pbkdf2_elixir, "~> 2.0"}
+      {:pbkdf2_elixir, "~> 2.0"},
+      # Benchmarking
+      {:benchee, "~> 1.3", only: [:dev, :test]},
+      {:benchee_html, "~> 1.0", only: [:dev, :test]},
+      {:benchee_json, "~> 1.0", only: [:dev, :test]}
     ]
   end
 
@@ -72,7 +77,12 @@ defmodule AutonomousOpponentV2.MixProject do
         "ecto.drop -r AutonomousOpponentV2Core.Repo -r AutonomousOpponentV2Web.Repo",
         "ecto.setup"
       ],
-      test: ["ecto.create --quiet", "ecto.migrate --quiet", "test"]
+      test: ["ecto.create --quiet", "ecto.migrate --quiet", "test"],
+      "benchmark.all": ["run benchmarks/run_all.exs"],
+      "benchmark.llm": ["run benchmarks/llm_bench.exs"],
+      "benchmark.api": ["run benchmarks/api_endpoints_bench.exs"],
+      "benchmark.consciousness": ["run benchmarks/consciousness_bench.exs"],
+      "benchmark.report": ["run benchmarks/generate_report.exs"]
     ]
   end
 end

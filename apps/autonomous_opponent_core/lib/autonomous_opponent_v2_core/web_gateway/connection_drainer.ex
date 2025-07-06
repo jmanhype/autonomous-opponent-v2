@@ -239,8 +239,7 @@ defmodule AutonomousOpponentV2Core.WebGateway.ConnectionDrainer do
   
   defp notify_all_clients(event_type, data) do
     # Notify via WebSocket
-    Phoenix.PubSub.broadcast(
-      AutonomousOpponentV2.PubSub,
+    safe_pubsub_broadcast(
       "mcp:all",
       {:system_notification, event_type, data}
     )
@@ -337,5 +336,14 @@ defmodule AutonomousOpponentV2Core.WebGateway.ConnectionDrainer do
     }
     
     {:noreply, new_state}
+  end
+  
+  defp safe_pubsub_broadcast(topic, message) do
+    if Code.ensure_loaded?(Phoenix.PubSub) do
+      Phoenix.PubSub.broadcast(AutonomousOpponentV2.PubSub, topic, message)
+    else
+      Logger.debug("Phoenix.PubSub not available, skipping broadcast")
+      :ok
+    end
   end
 end

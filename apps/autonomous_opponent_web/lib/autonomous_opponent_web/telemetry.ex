@@ -1,34 +1,53 @@
 defmodule AutonomousOpponentV2Web.Telemetry do
   import Telemetry.Metrics
+  alias AutonomousOpponentV2Core.Telemetry.SystemTelemetry
 
   def metrics do
-    [
-      # Phoenix LiveView metrics
-      counter("phoenix_live_view.mount.start"),
-      counter("phoenix_live_view.mount.stop"),
-      counter("phoenix_live_view.handle_params.start"),
-      counter("phoenix_live_view.handle_params.stop"),
-      counter("phoenix_live_view.handle_event.start"),
-      counter("phoenix_live_view.handle_event.stop"),
-      counter("phoenix_live_view.handle_info.start"),
-      counter("phoenix_live_view.handle_info.stop"),
-      counter("phoenix_live_view.render.start"),
-      counter("phoenix_live_view.render.stop"),
-
-      # Phoenix Endpoint metrics
-      summary("phoenix.endpoint.stop.duration",
-        unit: {:native, :millisecond}
-      ),
-      last_value("phoenix.endpoint.stop.duration",
-        unit: {:native, :millisecond}
-      ),
-      # Database metrics
-      summary("autonomous_opponent_web.repo.query.total_time",
-        unit: {:native, :millisecond}
-      ),
-      last_value("autonomous_opponent_web.repo.query.total_time",
-        unit: {:native, :millisecond}
-      )
-    ]
+    # Delegate to the comprehensive telemetry dashboard
+    AutonomousOpponentV2Web.TelemetryDashboard.metrics()
+  end
+  
+  @doc """
+  Emit VM metrics periodically via telemetry poller.
+  """
+  def emit_vm_metrics do
+    memory = :erlang.memory()
+    
+    SystemTelemetry.emit(
+      [:vm, :memory],
+      %{
+        total: memory[:total],
+        processes: memory[:processes],
+        binary: memory[:binary],
+        ets: memory[:ets],
+        atom: memory[:atom],
+        atom_used: memory[:atom_used]
+      },
+      %{}
+    )
+    
+    system_counts = :erlang.system_info(:system_counts)
+    
+    SystemTelemetry.emit(
+      [:vm, :system_counts],
+      %{
+        process_count: system_counts[:process_count],
+        atom_count: system_counts[:atom_count],
+        port_count: system_counts[:port_count]
+      },
+      %{}
+    )
+    
+    run_queue = :erlang.statistics(:run_queue_lengths)
+    
+    SystemTelemetry.emit(
+      [:vm, :total_run_queue_lengths],
+      %{
+        total: Enum.sum(run_queue),
+        cpu: length(run_queue),
+        io: 0  # IO run queue not directly available
+      },
+      %{}
+    )
   end
 end

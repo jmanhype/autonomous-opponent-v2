@@ -32,3 +32,40 @@ else
       connection_timeout: 10_000
     ]
 end
+
+# Connection Pool Configuration for development
+# Smaller pools for local development
+config :autonomous_opponent_core, :connection_pools,
+  openai: [
+    size: 10,
+    max_idle_time: 10_000,
+    circuit_breaker: [threshold: 3, timeout: 30_000]
+  ],
+  anthropic: [
+    size: 5,
+    max_idle_time: 10_000,
+    circuit_breaker: [threshold: 3, timeout: 30_000]
+  ],
+  google_ai: [
+    size: 5,
+    max_idle_time: 10_000,
+    circuit_breaker: [threshold: 3, timeout: 30_000]
+  ],
+  local_llm: [
+    size: 5,
+    max_idle_time: 30_000,
+    circuit_breaker: [threshold: 2, timeout: 15_000]
+  ],
+  vault: [
+    size: 3,
+    max_idle_time: 30_000,
+    circuit_breaker: [threshold: 2, timeout: 15_000]
+  ],
+  default: [
+    size: 5,
+    max_idle_time: 30_000,
+    circuit_breaker: [threshold: 3, timeout: 30_000]
+  ]
+
+# Enable debug logging for connection pools in development
+config :logger, level: :debug

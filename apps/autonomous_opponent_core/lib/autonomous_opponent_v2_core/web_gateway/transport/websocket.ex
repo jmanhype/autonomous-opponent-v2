@@ -9,7 +9,8 @@ defmodule AutonomousOpponentV2Core.WebGateway.Transport.WebSocket do
   alias AutonomousOpponentV2Core.EventBus
   alias AutonomousOpponentV2Core.WebGateway.Gateway
   alias AutonomousOpponentV2Core.WebGateway.Pool.ConnectionPool
-  alias AutonomousOpponentV2Core.Core.{CircuitBreaker, RateLimiter}
+  alias AutonomousOpponentV2Core.Core.RateLimiter
+  # Removed unused alias CircuitBreaker
   
   require Logger
   

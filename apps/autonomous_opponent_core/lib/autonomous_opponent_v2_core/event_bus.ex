@@ -8,6 +8,7 @@ defmodule AutonomousOpponentV2Core.EventBus do
 
   use GenServer
   require Logger
+  alias AutonomousOpponentV2Core.Telemetry.SystemTelemetry
 
   @table_name :event_bus_subscriptions
 
@@ -21,20 +22,32 @@ defmodule AutonomousOpponentV2Core.EventBus do
   Subscribe to events of a specific type
   """
   def subscribe(event_type, pid \\ self()) do
-    GenServer.call(__MODULE__, {:subscribe, event_type, pid})
+    SystemTelemetry.measure([:event_bus, :subscribe], %{event_type: event_type}, fn ->
+      GenServer.call(__MODULE__, {:subscribe, event_type, pid})
+    end)
   end
 
   @doc """
   Unsubscribe from events of a specific type
   """
   def unsubscribe(event_type, pid \\ self()) do
-    GenServer.call(__MODULE__, {:unsubscribe, event_type, pid})
+    SystemTelemetry.measure([:event_bus, :unsubscribe], %{event_type: event_type}, fn ->
+      GenServer.call(__MODULE__, {:unsubscribe, event_type, pid})
+    end)
   end
 
   @doc """
   Publish an event to all subscribers
   """
   def publish(event_type, data) do
+    # Emit publish telemetry synchronously before the cast
+    message_size = :erlang.external_size(data)
+    SystemTelemetry.emit(
+      [:event_bus, :publish],
+      %{message_size: message_size},
+      %{topic: event_type}
+    )
+    
     GenServer.cast(__MODULE__, {:publish, event_type, data})
   end
 
@@ -77,6 +90,13 @@ defmodule AutonomousOpponentV2Core.EventBus do
     :ets.new(@table_name, [:named_table, :bag, :public, {:read_concurrency, true}])
 
     Logger.info("EventBus initialized")
+    
+    # Emit initialization telemetry
+    SystemTelemetry.emit(
+      [:event_bus, :initialized],
+      %{table_size: :ets.info(@table_name, :size)},
+      %{}
+    )
 
     {:ok, %{}}
   end
@@ -88,6 +108,14 @@ defmodule AutonomousOpponentV2Core.EventBus do
 
     # Add subscription to ETS
     :ets.insert(@table_name, {event_type, pid})
+    
+    # Emit subscription telemetry
+    subscriber_count = length(:ets.lookup(@table_name, event_type))
+    SystemTelemetry.emit(
+      [:event_bus, :subscription_added],
+      %{subscriber_count: subscriber_count},
+      %{event_type: event_type, pid: pid}
+    )
 
     Logger.debug("Process #{inspect(pid)} subscribed to #{event_type}")
 
@@ -98,6 +126,14 @@ defmodule AutonomousOpponentV2Core.EventBus do
   def handle_call({:unsubscribe, event_type, pid}, _from, state) do
     # Remove subscription from ETS
     :ets.delete_object(@table_name, {event_type, pid})
+    
+    # Emit unsubscription telemetry
+    subscriber_count = length(:ets.lookup(@table_name, event_type))
+    SystemTelemetry.emit(
+      [:event_bus, :subscription_removed],
+      %{subscriber_count: subscriber_count},
+      %{event_type: event_type, pid: pid}
+    )
 
     Logger.debug("Process #{inspect(pid)} unsubscribed from #{event_type}")
 
@@ -117,11 +153,33 @@ defmodule AutonomousOpponentV2Core.EventBus do
   def handle_cast({:publish, event_type, data}, state) do
     # Get all subscribers for this event type
     subscribers = :ets.lookup(@table_name, event_type)
+    
+    # Measure broadcast time
+    start_time = System.monotonic_time()
 
     # Send event to each subscriber
-    Enum.each(subscribers, fn {^event_type, pid} ->
-      send(pid, {:event_bus, event_type, data})
+    delivered = Enum.reduce(subscribers, 0, fn {^event_type, pid}, count ->
+      if Process.alive?(pid) do
+        send(pid, {:event_bus, event_type, data})
+        count + 1
+      else
+        # Emit dropped message telemetry
+        SystemTelemetry.emit(
+          [:event_bus, :message_dropped],
+          %{queue_size: Process.info(self(), :message_queue_len) |> elem(1)},
+          %{topic: event_type, reason: :dead_process}
+        )
+        count
+      end
     end)
+    
+    # Emit broadcast completion telemetry
+    duration = System.monotonic_time() - start_time
+    SystemTelemetry.emit(
+      [:event_bus, :broadcast],
+      %{recipient_count: delivered, duration: duration},
+      %{topic: event_type}
+    )
 
     # Log high-priority events
     case event_type do
@@ -146,11 +204,19 @@ defmodule AutonomousOpponentV2Core.EventBus do
     # Remove all subscriptions for the dead process
     subscriptions = :ets.match(@table_name, {:"$1", pid})
 
-    Enum.each(subscriptions, fn [event_type] ->
+    cleaned_count = Enum.reduce(subscriptions, 0, fn [event_type], count ->
       :ets.delete_object(@table_name, {event_type, pid})
+      count + 1
     end)
+    
+    # Emit cleanup telemetry
+    SystemTelemetry.emit(
+      [:event_bus, :subscriber_cleanup],
+      %{subscriptions_removed: cleaned_count},
+      %{pid: pid}
+    )
 
-    Logger.debug("Cleaned up subscriptions for dead process #{inspect(pid)}")
+    Logger.debug("Cleaned up #{cleaned_count} subscriptions for dead process #{inspect(pid)}")
 
     {:noreply, state}
   end

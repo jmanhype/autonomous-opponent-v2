@@ -24,6 +24,7 @@ defmodule AutonomousOpponentV2Core.AMCP.Memory.CRDTStore do
   
   alias AutonomousOpponentV2Core.EventBus
   alias AutonomousOpponentV2Core.AMCP.Memory.{GSet, PNCounter, LWWRegister, ORSet, CRDTMap}
+  alias AutonomousOpponentV2Core.AMCP.Bridges.LLMBridge
   
   defstruct [
     :node_id,
@@ -353,6 +354,33 @@ defmodule AutonomousOpponentV2Core.AMCP.Memory.CRDTStore do
       vector_clock: state.vector_clock
     })
     {:reply, stats, state}
+  end
+  
+  def handle_call({:synthesize_knowledge, domains}, _from, state) do
+    case perform_knowledge_synthesis(domains, state) do
+      {:ok, synthesis} ->
+        {:reply, {:ok, synthesis}, state}
+      {:error, reason} ->
+        {:reply, {:error, reason}, state}
+    end
+  end
+  
+  def handle_call({:generate_memory_narrative, focus_area}, _from, state) do
+    case generate_llm_memory_narrative(focus_area, state) do
+      {:ok, narrative} ->
+        {:reply, {:ok, narrative}, state}
+      {:error, reason} ->
+        {:reply, {:error, reason}, state}
+    end
+  end
+  
+  def handle_call(:analyze_memory_patterns, _from, state) do
+    case analyze_memory_with_llm(state) do
+      {:ok, analysis} ->
+        {:reply, {:ok, analysis}, state}
+      {:error, reason} ->
+        {:reply, {:error, reason}, state}
+    end
   end
   
   @impl true
@@ -800,5 +828,224 @@ defmodule AutonomousOpponentV2Core.AMCP.Memory.CRDTStore do
   
   defp merge_vector_clocks(local_clock, remote_clock) do
     Map.merge(local_clock, remote_clock, fn _k, v1, v2 -> max(v1, v2) end)
+  end
+  
+  @doc """
+  Synthesize knowledge from distributed CRDT data using LLM analysis.
+  """
+  def synthesize_knowledge(knowledge_domains \\ :all) do
+    GenServer.call(__MODULE__, {:synthesize_knowledge, knowledge_domains}, 30_000)
+  end
+  
+  @doc """
+  Generate narrative summary of memory contents.
+  """
+  def generate_memory_narrative(focus_area \\ :general) do
+    GenServer.call(__MODULE__, {:generate_memory_narrative, focus_area}, 25_000)
+  end
+  
+  @doc """
+  Perform LLM-powered analysis of memory patterns.
+  """
+  def analyze_memory_patterns do
+    GenServer.call(__MODULE__, :analyze_memory_patterns, 20_000)
+  end
+  
+  # Private Functions
+  
+  defp perform_knowledge_synthesis(domains, state) do
+    # Extract relevant CRDT data based on domains
+    knowledge_data = extract_knowledge_data(domains, state)
+    
+    # Use LLM to synthesize insights
+    LLMBridge.call_llm_api(
+      """
+      Synthesize knowledge from this distributed memory system data:
+      
+      Knowledge Domains: #{inspect(domains)}
+      CRDT Data Summary:
+      #{format_crdt_data_for_llm(knowledge_data)}
+      
+      Provide synthesis covering:
+      1. Key patterns and relationships discovered
+      2. Emergent insights from the distributed data
+      3. Knowledge gaps or inconsistencies
+      4. Strategic implications
+      5. Recommended actions based on knowledge
+      6. Evolution of understanding over time
+      
+      Generate coherent knowledge synthesis from the distributed memory.
+      """,
+      :knowledge_synthesis,
+      timeout: 25_000
+    )
+  end
+  
+  defp generate_llm_memory_narrative(focus_area, state) do
+    # Get memory overview
+    memory_overview = get_memory_overview(state)
+    
+    LLMBridge.call_llm_api(
+      """
+      Generate a narrative description of the system's distributed memory:
+      
+      Focus Area: #{focus_area}
+      Memory Overview: #{memory_overview}
+      
+      Total CRDTs: #{map_size(state.crdts)}
+      Node ID: #{state.node_id}
+      Sync Peers: #{length(state.sync_peers)}
+      
+      Create a narrative that explains:
+      1. What the system remembers and knows
+      2. How knowledge is distributed and synchronized
+      3. The evolution of understanding over time
+      4. Key insights stored in memory
+      5. The relationship between different memory domains
+      
+      Write as the system describing its own memory and knowledge.
+      """,
+      :memory_narrative,
+      timeout: 20_000
+    )
+  end
+  
+  defp analyze_memory_with_llm(state) do
+    # Extract memory patterns for analysis
+    memory_patterns = extract_memory_patterns(state)
+    
+    LLMBridge.call_llm_api(
+      """
+      Analyze patterns in this distributed memory system:
+      
+      Memory Patterns: #{inspect(memory_patterns, limit: 5)}
+      System Stats: #{inspect(state.stats, limit: 3)}
+      Active CRDTs: #{map_size(state.crdts)}
+      
+      Analyze:
+      1. Memory usage patterns and efficiency
+      2. Knowledge distribution across nodes
+      3. Synchronization patterns and consistency
+      4. Data growth and evolution trends
+      5. Potential optimizations or improvements
+      6. Health and integrity of distributed memory
+      
+      Provide technical analysis and recommendations.
+      """,
+      :memory_analysis,
+      timeout: 18_000
+    )
+  end
+  
+  defp extract_knowledge_data(domains, state) do
+    case domains do
+      :all ->
+        state.crdts
+        |> Enum.take(10)  # Limit for LLM context
+        |> Enum.map(fn {id, crdt} -> {id, summarize_crdt(crdt)} end)
+        |> Map.new()
+        
+      specific_domains when is_list(specific_domains) ->
+        state.crdts
+        |> Enum.filter(fn {id, _} -> 
+          Enum.any?(specific_domains, &String.contains?(id, to_string(&1)))
+        end)
+        |> Enum.take(10)
+        |> Enum.map(fn {id, crdt} -> {id, summarize_crdt(crdt)} end)
+        |> Map.new()
+        
+      single_domain ->
+        state.crdts
+        |> Enum.filter(fn {id, _} -> String.contains?(id, to_string(single_domain)) end)
+        |> Enum.take(10)
+        |> Enum.map(fn {id, crdt} -> {id, summarize_crdt(crdt)} end)
+        |> Map.new()
+    end
+  end
+  
+  defp format_crdt_data_for_llm(knowledge_data) do
+    knowledge_data
+    |> Enum.map(fn {id, summary} ->
+      "#{id}: #{inspect(summary, limit: 3)}"
+    end)
+    |> Enum.join("\n")
+  end
+  
+  defp summarize_crdt(crdt_instance) do
+    cond do
+      is_struct(crdt_instance, GSet) ->
+        %{type: :g_set, size: MapSet.size(crdt_instance.set)}
+        
+      is_struct(crdt_instance, PNCounter) ->
+        %{type: :pn_counter, value: PNCounter.value(crdt_instance)}
+        
+      is_struct(crdt_instance, LWWRegister) ->
+        %{type: :lww_register, value: LWWRegister.value(crdt_instance)}
+        
+      is_struct(crdt_instance, ORSet) ->
+        %{type: :or_set, size: ORSet.size(crdt_instance)}
+        
+      is_struct(crdt_instance, CRDTMap) ->
+        %{type: :crdt_map, keys: Map.keys(crdt_instance.entries) |> Enum.take(5)}
+        
+      true ->
+        %{type: :unknown, data: inspect(crdt_instance, limit: 2)}
+    end
+  end
+  
+  defp get_memory_overview(state) do
+    crdt_summary = state.crdts
+    |> Enum.group_by(fn {_id, crdt} -> summarize_crdt(crdt).type end)
+    |> Enum.map(fn {type, crdts} -> {type, length(crdts)} end)
+    |> Map.new()
+    
+    %{
+      total_crdts: map_size(state.crdts),
+      crdt_types: crdt_summary,
+      sync_peers: length(state.sync_peers),
+      node_id: state.node_id
+    }
+  end
+  
+  defp extract_memory_patterns(state) do
+    %{
+      crdt_distribution: get_crdt_type_distribution(state),
+      memory_usage: get_memory_usage_stats(state),
+      sync_activity: get_sync_activity_patterns(state),
+      data_evolution: get_data_evolution_trends(state)
+    }
+  end
+  
+  defp get_crdt_type_distribution(state) do
+    state.crdts
+    |> Enum.group_by(fn {_id, crdt} -> summarize_crdt(crdt).type end)
+    |> Enum.map(fn {type, crdts} -> {type, length(crdts)} end)
+    |> Map.new()
+  end
+  
+  defp get_memory_usage_stats(state) do
+    %{
+      total_crdts: map_size(state.crdts),
+      vector_clock_size: map_size(state.vector_clock),
+      merge_queue_size: length(state.merge_queue)
+    }
+  end
+  
+  defp get_sync_activity_patterns(state) do
+    %{
+      active_peers: length(state.sync_peers),
+      pending_merges: length(state.merge_queue),
+      stats: state.stats
+    }
+  end
+  
+  defp get_data_evolution_trends(_state) do
+    # This would track how data changes over time
+    # For now, provide basic trend indicators
+    %{
+      growth_rate: :steady,
+      consistency_level: :high,
+      sync_frequency: :normal
+    }
   end
 end

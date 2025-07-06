@@ -45,6 +45,7 @@ defmodule AutonomousOpponentV2Core.MixProject do
       {:telemetry_metrics, "~> 0.6"},
       {:telemetry_poller, "~> 1.0"},
       {:httpoison, "~> 1.8"},
+      {:finch, "~> 0.18"},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:dialyxir, "~> 1.4", only: [:dev], runtime: false},
       {:mix_audit, "~> 2.1", only: [:dev, :test], runtime: false},

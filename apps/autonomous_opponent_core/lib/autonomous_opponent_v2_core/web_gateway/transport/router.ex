@@ -13,7 +13,7 @@ defmodule AutonomousOpponentV2Core.WebGateway.Transport.Router do
   alias AutonomousOpponentV2Core.WebGateway.Gateway
   alias AutonomousOpponentV2Core.WebGateway.Transport.{HTTPSSE, WebSocket}
   alias AutonomousOpponentV2Core.WebGateway.LoadBalancer.ConsistentHash
-  alias AutonomousOpponentV2Core.Core.CircuitBreaker
+  # Removed unused alias CircuitBreaker
   alias AutonomousOpponentV2Core.WebGateway.Tracing
   
   require Logger
@@ -414,9 +414,9 @@ defmodule AutonomousOpponentV2Core.WebGateway.Transport.Router do
   defp check_transport_health(transport) do
     circuit_name = :"#{transport}_transport"
     # Initialize circuit breaker on-demand if not exists
-    CircuitBreaker.init(circuit_name)
+    AutonomousOpponentV2Core.Core.CircuitBreaker.initialize(circuit_name)
     
-    case CircuitBreaker.get_state(circuit_name) do
+    case AutonomousOpponentV2Core.Core.CircuitBreaker.get_state(circuit_name) do
       %{state: :open} -> :unhealthy
       %{state: :half_open} -> :degraded
       %{state: :closed} -> :healthy

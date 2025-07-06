@@ -15,7 +15,7 @@ defmodule AutonomousOpponentV2Core.MCP.Client do
   require Logger
   
   alias AutonomousOpponentV2Core.{EventBus, MCP.Message}
-  alias AutonomousOpponentV2Core.VSM.S1Operations
+  # Removed unused alias S1Operations
   
   defstruct [
     :server_config,

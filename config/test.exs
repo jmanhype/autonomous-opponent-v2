@@ -56,3 +56,11 @@ config :swoosh, :api_client, false
 # Disable OTLP exporter in tests
 config :opentelemetry_exporter, otlp_protocol: :grpc
 config :opentelemetry, traces_exporter: :none
+
+# Disable LLM cache in tests
+config :autonomous_opponent_core,
+  llm_cache_enabled: false,
+  llm_cache_config: [
+    warm_on_start: false,
+    persist_interval: :infinity
+  ]

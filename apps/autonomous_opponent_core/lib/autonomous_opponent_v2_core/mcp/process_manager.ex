@@ -50,7 +50,6 @@ defmodule AutonomousOpponentV2Core.MCP.ProcessManager do
   # Configuration
   @health_check_interval 30_000  # 30 seconds
   @max_restart_count 3
-  @restart_window 300_000  # 5 minutes
   
   # Public API
   

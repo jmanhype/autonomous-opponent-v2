@@ -22,6 +22,7 @@ defmodule AutonomousOpponentV2Core.VSM.S4.Intelligence do
   alias AutonomousOpponentV2Core.VSM.Channels.VarietyChannel
   alias AutonomousOpponentV2Core.VSM.Algedonic.Channel, as: Algedonic
   alias AutonomousOpponentV2Core.VSM.S4.Intelligence.VectorStore
+  alias AutonomousOpponentV2Core.AMCP.Bridges.LLMBridge
   
   defstruct [
     :vector_store,
@@ -373,14 +374,22 @@ defmodule AutonomousOpponentV2Core.VSM.S4.Intelligence do
   end
   
   defp detect_patterns(scan_result, state) do
-    # Apply pattern detection algorithms
-    state.pattern_detector.algorithms
+    # Apply traditional pattern detection algorithms
+    traditional_patterns = state.pattern_detector.algorithms
     |> Enum.flat_map(fn algorithm ->
       detect_patterns_with_algorithm(algorithm, scan_result)
     end)
     |> Enum.filter(fn pattern ->
       pattern.confidence > 0.5
     end)
+    
+    # Enhance with LLM-based pattern recognition
+    llm_patterns = detect_patterns_with_llm(scan_result, traditional_patterns)
+    
+    # Combine traditional and LLM patterns
+    (traditional_patterns ++ llm_patterns)
+    |> Enum.uniq_by(fn pattern -> {pattern.type, pattern.subtype} end)
+    |> Enum.sort_by(& &1.confidence, :desc)
   end
   
   defp detect_patterns_with_algorithm(algorithm, scan_result) do
@@ -705,12 +714,20 @@ defmodule AutonomousOpponentV2Core.VSM.S4.Intelligence do
   end
   
   defp model_futures(parameters, similar_patterns, state) do
-    # Monte Carlo simulation of possible futures
-    1..state.scenario_modeler.monte_carlo_runs
+    # Traditional Monte Carlo simulation
+    traditional_scenarios = 1..state.scenario_modeler.monte_carlo_runs
     |> Enum.map(fn _run ->
       simulate_scenario(parameters, similar_patterns, state)
     end)
     |> aggregate_scenarios()
+    
+    # Enhance with LLM-powered scenario modeling
+    llm_scenarios = model_futures_with_llm(parameters, similar_patterns, state)
+    
+    # Combine and deduplicate scenarios
+    (traditional_scenarios ++ llm_scenarios)
+    |> Enum.uniq_by(& &1.scenario)
+    |> Enum.sort_by(& &1.probability, :desc)
   end
   
   defp simulate_scenario(parameters, similar_patterns, state) do
@@ -872,14 +889,25 @@ defmodule AutonomousOpponentV2Core.VSM.S4.Intelligence do
     end)
   end
   
-  defp generate_intelligence_report(model, patterns, _state) do
-    %{
+  defp generate_intelligence_report(model, patterns, state) do
+    # Generate base report
+    base_report = %{
       timestamp: DateTime.utc_now(),
       environmental_model: model,
       patterns: patterns,
       assessment: assess_situation(model, patterns),
       recommendations: generate_tactical_recommendations(model, patterns)
     }
+    
+    # Enhance with LLM-generated strategic analysis
+    enhanced_report = case generate_llm_intelligence_analysis(base_report, state) do
+      {:ok, llm_analysis} -> 
+        Map.put(base_report, :llm_analysis, llm_analysis)
+      {:error, _reason} -> 
+        base_report
+    end
+    
+    enhanced_report
   end
   
   defp send_intelligence_to_s5(report) do
@@ -1391,5 +1419,156 @@ defmodule AutonomousOpponentV2Core.VSM.S4.Intelligence do
   
   defp update_pain_report_time(state, pain_type) do
     %{state | pain_report_times: Map.put(state.pain_report_times, pain_type, DateTime.utc_now())}
+  end
+  
+  # LLM Integration Helper Functions for S4 Intelligence
+  
+  defp detect_patterns_with_llm(scan_result, traditional_patterns) do
+    # Use LLM to identify additional patterns that traditional algorithms might miss
+    case LLMBridge.call_llm_api(
+      """
+      Analyze this scan data for additional patterns:
+      
+      Scan Data: #{inspect(scan_result, limit: 5)}
+      Traditional Patterns Found: #{inspect(traditional_patterns, limit: 3)}
+      
+      Look for:
+      1. Emergent patterns not captured by traditional analysis
+      2. Complex correlation patterns
+      3. Behavioral anomalies
+      4. Temporal sequence patterns
+      5. Meta-patterns (patterns about patterns)
+      
+      Return patterns in format: type|subtype|confidence|description
+      One pattern per line.
+      """,
+      :analysis,
+      timeout: 15_000
+    ) do
+      {:ok, response} ->
+        parse_llm_patterns(response)
+      {:error, reason} ->
+        Logger.debug("LLM pattern detection failed: #{inspect(reason)}")
+        []
+    end
+  end
+  
+  defp parse_llm_patterns(response) do
+    response
+    |> String.split("\n")
+    |> Enum.filter(&String.contains?(&1, "|"))
+    |> Enum.map(&parse_pattern_line/1)
+    |> Enum.filter(& &1 != nil)
+  end
+  
+  defp parse_pattern_line(line) do
+    case String.split(line, "|") do
+      [type, subtype, confidence_str, description] ->
+        case Float.parse(confidence_str) do
+          {confidence, _} when confidence > 0.3 ->
+            %{
+              type: String.to_atom(String.downcase(type)),
+              subtype: String.to_atom(String.downcase(subtype)),
+              confidence: confidence,
+              description: String.trim(description),
+              source: :llm_analysis
+            }
+          _ -> nil
+        end
+      _ -> nil
+    end
+  end
+  
+  defp model_futures_with_llm(parameters, similar_patterns, state) do
+    # Use LLM for strategic scenario modeling
+    case LLMBridge.call_llm_api(
+      """
+      Model future scenarios based on these parameters:
+      
+      Current Parameters: #{inspect(parameters)}
+      Similar Historical Patterns: #{inspect(similar_patterns, limit: 2)}
+      Environmental Complexity: #{state.environmental_model.complexity}
+      
+      Generate 3-5 realistic scenarios covering:
+      1. Most likely outcome (60-80% probability)
+      2. Optimistic scenario (20-30% probability) 
+      3. Pessimistic scenario (10-20% probability)
+      4. Black swan event (1-5% probability)
+      
+      For each scenario, provide:
+      - Probability (0.0-1.0)
+      - Impact (low/medium/high)
+      - Timeline (immediate/short_term/long_term)
+      - Key factors
+      - Recommended actions
+      
+      Format: probability|impact|timeline|description|actions
+      """,
+      :synthesis,
+      timeout: 20_000
+    ) do
+      {:ok, response} ->
+        parse_llm_scenarios(response)
+      {:error, reason} ->
+        Logger.debug("LLM scenario modeling failed: #{inspect(reason)}")
+        []
+    end
+  end
+  
+  defp parse_llm_scenarios(response) do
+    response
+    |> String.split("\n")
+    |> Enum.filter(&String.contains?(&1, "|"))
+    |> Enum.map(&parse_scenario_line/1)
+    |> Enum.filter(& &1 != nil)
+  end
+  
+  defp parse_scenario_line(line) do
+    case String.split(line, "|") do
+      [prob_str, impact, timeline, description, actions] ->
+        case Float.parse(prob_str) do
+          {probability, _} when probability > 0.0 ->
+            %{
+              scenario: String.trim(description),
+              probability: probability,
+              impact: String.to_atom(String.downcase(impact)),
+              time_horizon: String.to_atom(String.downcase(timeline)),
+              confidence: 0.7,  # LLM-generated scenarios get medium confidence
+              similar_patterns: 0,
+              risk_factors: [],
+              opportunities: [],
+              recommended_actions: String.split(actions, ",") |> Enum.map(&String.trim/1),
+              source: :llm_modeling
+            }
+          _ -> nil
+        end
+      _ -> nil
+    end
+  end
+  
+  defp generate_llm_intelligence_analysis(base_report, state) do
+    # Use LLM to generate comprehensive intelligence analysis
+    LLMBridge.call_llm_api(
+      """
+      Provide strategic intelligence analysis based on this S4 Intelligence report:
+      
+      Environmental Model: #{inspect(base_report.environmental_model, limit: 3)}
+      Detected Patterns: #{inspect(base_report.patterns, limit: 3)}
+      Assessment: #{inspect(base_report.assessment)}
+      Current Health: #{inspect(state.health_metrics)}
+      
+      Generate analysis covering:
+      1. Strategic implications of detected patterns
+      2. Environmental adaptation requirements
+      3. Threat and opportunity assessment
+      4. Resource allocation recommendations
+      5. Long-term strategic outlook
+      6. Key decision points
+      
+      Provide actionable intelligence for S5 Policy decisions.
+      """,
+      :synthesis,
+      timeout: 25_000
+    )
   end
 end

@@ -9,7 +9,7 @@ defmodule AutonomousOpponentV2Core.WebGateway.Gateway do
   require Logger
   
   alias AutonomousOpponentV2Core.EventBus
-  alias AutonomousOpponentV2Core.Core.CircuitBreaker
+  # Removed unused alias CircuitBreaker
   
   @doc """
   Starts the Web Gateway supervisor.
@@ -78,14 +78,14 @@ defmodule AutonomousOpponentV2Core.WebGateway.Gateway do
       
       # Get circuit breaker states
       websocket_cb = try do
-        cb_info = CircuitBreaker.get_state(:websocket_transport)
+        cb_info = AutonomousOpponentV2Core.Core.CircuitBreaker.get_state(:websocket_transport)
         cb_info[:state] || :closed
       catch
         :exit, _ -> :closed
       end
       
       sse_cb = try do
-        cb_info = CircuitBreaker.get_state(:http_sse_transport)
+        cb_info = AutonomousOpponentV2Core.Core.CircuitBreaker.get_state(:http_sse_transport)
         cb_info[:state] || :closed
       catch
         :exit, _ -> :closed
@@ -120,7 +120,7 @@ defmodule AutonomousOpponentV2Core.WebGateway.Gateway do
       }
       
       # Publish to PubSub for LiveView
-      Phoenix.PubSub.broadcast(AutonomousOpponentV2.PubSub, "mcp:metrics", {:mcp_metrics_update, metrics})
+      safe_pubsub_broadcast("mcp:metrics", {:mcp_metrics_update, metrics})
       
       {:ok, metrics}
     rescue
@@ -231,6 +231,18 @@ defmodule AutonomousOpponentV2Core.WebGateway.Gateway do
       {:error, reason} ->
         Logger.error("Failed to start connection draining: #{inspect(reason)}")
         {:error, reason}
+    end
+  end
+  
+  # Private helper functions
+  
+  defp safe_pubsub_broadcast(topic, message) do
+    if Code.ensure_loaded?(Phoenix.PubSub) do
+      Phoenix.PubSub.broadcast(AutonomousOpponentV2.PubSub, topic, message)
+    else
+      # Log but don't fail
+      Logger.debug("Phoenix.PubSub not available, skipping broadcast")
+      :ok
     end
   end
   

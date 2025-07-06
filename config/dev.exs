@@ -30,7 +30,8 @@ config :autonomous_opponent_web, AutonomousOpponentV2Web.Endpoint,
   debug_errors: true,
   secret_key_base: "dev_secret_key_base_at_least_64_characters_long_for_development_only",
   watchers: [],
-  pubsub_server: AutonomousOpponentV2Web.PubSub
+  pubsub_server: AutonomousOpponentV2Web.PubSub,
+  live_view: [signing_salt: "GE-IAourMD0akgZE"]
 
 # Watch static and templates for browser reloading.
 config :autonomous_opponent_web, AutonomousOpponentV2Web.Endpoint,
@@ -56,3 +57,36 @@ config :phoenix, :plug_init_mode, :runtime
 
 # Disable swoosh api client as it is only required for production adapters.
 config :swoosh, :api_client, false
+
+# Enable proper rate limiting in development for real-world testing
+config :autonomous_opponent_core, skip_rate_limiting: false
+
+# LLM Response Cache Configuration
+config :autonomous_opponent_core,
+  # Enable/disable LLM response caching
+  llm_cache_enabled: true,
+  
+  # Cache settings
+  llm_cache_config: [
+    # Maximum number of cached responses (default: 1000)
+    max_size: 1000,
+    
+    # Default TTL in milliseconds (1 hour)
+    ttl: 3_600_000,
+    
+    # Warm cache from disk on startup
+    warm_on_start: true,
+    
+    # Persist cache to disk every 5 minutes
+    persist_interval: 300_000
+  ]
+
+# LLM Mock Mode Configuration - DISABLED FOR REAL FUNCTIONALITY
+config :autonomous_opponent_core,
+  # Enable mock mode for instant development responses (no API delays!)
+  # Set to true for ultra-fast development, false for real LLM calls
+  llm_mock_mode: false,
+  
+  # Mock response delay in milliseconds (simulate thinking)
+  # Set to 0 for instant responses, or add small delay for realism
+  llm_mock_delay: 0

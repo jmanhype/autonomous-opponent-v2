@@ -111,12 +111,12 @@ defmodule AutonomousOpponentV2Core.Core.CircuitBreaker do
   Initialize a circuit breaker by name.
   Creates or ensures a circuit breaker process exists.
   """
-  def init(opts) when is_list(opts) do
+  def initialize(opts) when is_list(opts) do
     name = Keyword.get(opts, :name, __MODULE__)
-    init(name)
+    initialize(name)
   end
 
-  def init(name) when is_atom(name) do
+  def initialize(name) when is_atom(name) do
     # Check if the circuit breaker already exists
     case Process.whereis(name) do
       nil ->
@@ -150,7 +150,7 @@ defmodule AutonomousOpponentV2Core.Core.CircuitBreaker do
   @impl true
   def init(opts) do
     # Create ETS table for metrics
-    table_name = :"#{opts[:name]}_metrics"
+    table_name = :"circuit_breaker_#{opts[:name]}_metrics"
     :ets.new(table_name, [:named_table, :public, :set, {:write_concurrency, true}])
 
     # Initialize metrics
@@ -172,15 +172,15 @@ defmodule AutonomousOpponentV2Core.Core.CircuitBreaker do
       metrics_table: table_name
     }
 
-    # Publish initialization event
-    EventBus.publish(:circuit_breaker_initialized, %{
-      name: state.name,
-      config: %{
-        failure_threshold: state.failure_threshold,
-        recovery_time_ms: state.recovery_time_ms,
-        timeout_ms: state.timeout_ms
-      }
-    })
+    # Skip EventBus publish during initialization to avoid startup issues
+    # EventBus.publish(:circuit_breaker_initialized, %{
+    #   name: state.name,
+    #   config: %{
+    #     failure_threshold: state.failure_threshold,
+    #     recovery_time_ms: state.recovery_time_ms,
+    #     timeout_ms: state.timeout_ms
+    #   }
+    # })
 
     {:ok, state}
   end

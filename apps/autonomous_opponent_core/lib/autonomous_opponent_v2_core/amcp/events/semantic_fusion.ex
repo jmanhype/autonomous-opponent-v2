@@ -18,7 +18,7 @@ defmodule AutonomousOpponentV2Core.AMCP.Events.SemanticFusion do
   require Logger
   
   alias AutonomousOpponentV2Core.EventBus
-  alias AutonomousOpponentV2Core.AMCP.Memory.CRDTStore
+  # Removed unused alias CRDTStore
   alias AutonomousOpponentV2Core.AMCP.Bridges.LLMBridge
   
   defstruct [
@@ -136,7 +136,13 @@ defmodule AutonomousOpponentV2Core.AMCP.Events.SemanticFusion do
     end)
     |> Enum.map(fn {_, pattern_data} -> pattern_data end)
     
-    {:reply, {:ok, recent_patterns}, state}
+    # Enhance patterns with LLM explanations
+    enhanced_patterns = case enhance_patterns_with_llm(recent_patterns) do
+      {:ok, enhanced} -> enhanced
+      {:error, _reason} -> recent_patterns  # Fallback to original patterns
+    end
+    
+    {:reply, {:ok, enhanced_patterns}, state}
   end
   
   @impl true
@@ -414,7 +420,7 @@ defmodule AutonomousOpponentV2Core.AMCP.Events.SemanticFusion do
       # If cache is full, remove oldest pattern first
       cache_to_use = if map_size(cache) >= @max_pattern_cache_size do
         # Find and remove oldest pattern
-        oldest_id = cache
+        cache
         |> Enum.min_by(fn {_id, p} -> p.detected_at end, fn -> nil end)
         |> case do
           {id, _} -> Map.delete(cache, id)
@@ -648,7 +654,7 @@ defmodule AutonomousOpponentV2Core.AMCP.Events.SemanticFusion do
   
   defp detect_multi_event_correlations(time_windows) do
     # Find groups of 3+ events that frequently occur together
-    frequent_groups = time_windows
+    time_windows
     |> Enum.map(fn window ->
       window.events |> Enum.map(& &1.name) |> Enum.uniq() |> Enum.sort()
     end)
@@ -787,7 +793,7 @@ defmodule AutonomousOpponentV2Core.AMCP.Events.SemanticFusion do
         autocorrelations = calculate_autocorrelations(time_series, 1..10)
         
         # Find significant peaks (indicating periodicity)
-        periodic_lags = autocorrelations
+        _periodic_lags = autocorrelations
         |> Enum.filter(fn {_lag, correlation} -> correlation > 0.5 end)
         |> Enum.map(fn {lag, correlation} ->
           %{
@@ -1321,5 +1327,97 @@ defmodule AutonomousOpponentV2Core.AMCP.Events.SemanticFusion do
     events
     |> Enum.filter(fn e -> e.name == :circuit_break end)
     |> Enum.map(fn e -> e.data end)
+  end
+  
+  defp enhance_patterns_with_llm(patterns) do
+    if length(patterns) == 0 do
+      {:ok, []}
+    else
+      # Limit patterns for LLM context
+      patterns_for_analysis = Enum.take(patterns, 10)
+      
+      pattern_context = patterns_for_analysis
+      |> Enum.map(fn pattern ->
+        "#{pattern.type}: #{inspect(pattern.pattern, limit: 2)} (confidence: #{Float.round(pattern.confidence, 2)})"
+      end)
+      |> Enum.join("\n")
+      
+      case LLMBridge.call_llm_api(
+        """
+        Analyze these detected patterns from the cybernetic event stream:
+        
+        #{pattern_context}
+        
+        For each pattern, provide insights covering:
+        1. What this pattern indicates about system behavior
+        2. Potential causes or contributing factors
+        3. Implications for system health and performance
+        4. Recommended actions or observations
+        5. Relationship to other patterns (if any)
+        
+        Format response as:
+        PATTERN_TYPE|significance|causes|implications|recommendations|relationships
+        
+        Only analyze the patterns listed above.
+        """,
+        :analysis,
+        timeout: 20_000
+      ) do
+        {:ok, response} ->
+          enhanced = add_llm_insights_to_patterns(patterns_for_analysis, response)
+          # Add back any patterns that weren't analyzed
+          all_enhanced = enhanced ++ Enum.drop(patterns, 10)
+          {:ok, all_enhanced}
+          
+        {:error, reason} ->
+          Logger.debug("Pattern LLM enhancement failed: #{inspect(reason)}")
+          {:error, reason}
+      end
+    end
+  end
+  
+  defp add_llm_insights_to_patterns(patterns, llm_response) do
+    insights = parse_pattern_insights(llm_response)
+    
+    Enum.map(patterns, fn pattern ->
+      insight = Enum.find(insights, fn i -> 
+        String.downcase(to_string(i.pattern_type)) == String.downcase(to_string(pattern.type))
+      end)
+      
+      if insight do
+        Map.merge(pattern, %{
+          llm_significance: insight.significance,
+          llm_causes: insight.causes,
+          llm_implications: insight.implications,
+          llm_recommendations: insight.recommendations,
+          llm_relationships: insight.relationships
+        })
+      else
+        pattern
+      end
+    end)
+  end
+  
+  defp parse_pattern_insights(response) do
+    response
+    |> String.split("\n")
+    |> Enum.filter(&String.contains?(&1, "|"))
+    |> Enum.map(&parse_insight_line/1)
+    |> Enum.filter(& &1 != nil)
+  end
+  
+  defp parse_insight_line(line) do
+    case String.split(line, "|") do
+      [pattern_type, significance, causes, implications, recommendations, relationships] ->
+        %{
+          pattern_type: String.to_atom(String.downcase(String.trim(pattern_type))),
+          significance: String.trim(significance),
+          causes: String.trim(causes),
+          implications: String.trim(implications),
+          recommendations: String.trim(recommendations),
+          relationships: String.trim(relationships)
+        }
+      _ -> nil
+    end
   end
 end

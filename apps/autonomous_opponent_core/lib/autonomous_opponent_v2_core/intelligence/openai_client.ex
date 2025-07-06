@@ -7,6 +7,7 @@ defmodule AutonomousOpponentV2Core.Intelligence.OpenAIClient do
   - Support for key rotation during runtime
   - Circuit breaker for API failures
   - Rate limiting to prevent quota exhaustion
+  - Connection pooling via PoolManager
   
   ## Usage
   
@@ -20,14 +21,12 @@ defmodule AutonomousOpponentV2Core.Intelligence.OpenAIClient do
   require Logger
   
   alias AutonomousOpponentV2Core.Security.SecretsManager
-  alias AutonomousOpponentV2Core.Core.CircuitBreaker
   alias AutonomousOpponentV2Core.Core.RateLimiter
   alias AutonomousOpponentV2Core.EventBus
+  alias AutonomousOpponentV2Core.Connections.PoolManager
   
   @base_url "https://api.openai.com/v1"
   @timeout 30_000
-  @rate_limit_name :openai_api_rate_limiter
-  @circuit_breaker_name :openai_circuit_breaker
   
   # Client API
   
@@ -70,30 +69,44 @@ defmodule AutonomousOpponentV2Core.Intelligence.OpenAIClient do
   # Private Functions
   
   defp with_api_key(fun) do
-    case SecretsManager.get_secret("OPENAI_API_KEY") do
-      {:ok, api_key} ->
-        fun.(api_key)
-        
-      {:error, reason} ->
-        Logger.error("Failed to retrieve OpenAI API key: #{inspect(reason)}")
-        {:error, :api_key_unavailable}
+    # Try environment variable first, then fall back to SecretsManager
+    api_key = System.get_env("OPENAI_API_KEY") || 
+              Application.get_env(:autonomous_opponent_core, :openai_api_key)
+    
+    if api_key && api_key != "" do
+      fun.(api_key)
+    else
+      # Try SecretsManager as fallback
+      case SecretsManager.get_secret("OPENAI_API_KEY") do
+        {:ok, api_key} ->
+          fun.(api_key)
+          
+        {:error, reason} ->
+          Logger.error("Failed to retrieve OpenAI API key: #{inspect(reason)}")
+          {:error, :api_key_unavailable}
+      end
     end
   end
   
   defp request(method, path, params, api_key, opts) do
+    # Check if rate limiting is disabled (for development/testing)
+    skip_rate_limit = Application.get_env(:autonomous_opponent_core, :skip_rate_limiting, false)
+    
     # Initialize rate limiter and circuit breaker if needed
     with :ok <- ensure_rate_limiter(),
          :ok <- ensure_circuit_breaker() do
-      # Apply rate limiting
-      case RateLimiter.consume(@rate_limit_name, 1) do
-        {:ok, _tokens_remaining} ->
-          # Apply circuit breaker
-          CircuitBreaker.call(@circuit_breaker_name, fn ->
+      # Apply rate limiting unless disabled
+      if skip_rate_limit do
+        # Skip rate limiting in development
+        execute_request(method, path, params, api_key, opts)
+      else
+        case RateLimiter.consume(AutonomousOpponentV2Core.Core.RateLimiter, 1) do
+          {:ok, _tokens_remaining} ->
             execute_request(method, path, params, api_key, opts)
-          end)
-        
-        {:error, :rate_limited} ->
-          {:error, :rate_limited}
+          
+          {:error, :rate_limited} ->
+            {:error, :rate_limited}
+        end
       end
     else
       {:error, reason} -> {:error, reason}
@@ -101,62 +114,33 @@ defmodule AutonomousOpponentV2Core.Intelligence.OpenAIClient do
   end
   
   defp ensure_rate_limiter do
-    # Check if rate limiter is running, start if needed
-    case Process.whereis(@rate_limit_name) do
-      nil ->
-        # Start rate limiter with appropriate config
-        case RateLimiter.start_link(
-          name: @rate_limit_name,
-          bucket_size: 100,
-          refill_rate: 50,
-          refill_interval_ms: 1000
-        ) do
-          {:ok, _pid} -> :ok
-          {:error, {:already_started, _pid}} -> :ok
-          error -> error
-        end
-      _pid ->
-        :ok
-    end
+    # Use the global RateLimiter that's already started in the application
+    # The global RateLimiter is named AutonomousOpponentV2Core.Core.RateLimiter
+    :ok
   end
   
   defp ensure_circuit_breaker do
-    case Process.whereis(@circuit_breaker_name) do
-      nil ->
-        # Start circuit breaker with appropriate config
-        case CircuitBreaker.start_link(
-          name: @circuit_breaker_name,
-          failure_threshold: 5,
-          recovery_time_ms: 60_000,
-          timeout_ms: 30_000
-        ) do
-          {:ok, _pid} -> :ok
-          {:error, {:already_started, _pid}} -> :ok
-          error -> error
-        end
-      _pid ->
-        :ok
-    end
+    # Circuit breaker is initialized on-demand
+    :ok
   end
   
   defp execute_request(method, path, params, api_key, opts) do
     url = @base_url <> path
     
     headers = [
-      {"Authorization", "Bearer #{api_key}"},
-      {"Content-Type", "application/json"},
-      {"OpenAI-Organization", opts[:organization] || ""}
+      {"authorization", "Bearer #{api_key}"},
+      {"content-type", "application/json"},
+      {"openai-organization", opts[:organization] || ""}
     ]
     
-    body = if method == :get, do: "", else: Jason.encode!(params)
+    body = if method == :get, do: nil, else: Jason.encode!(params)
     
-    options = [
-      timeout: opts[:timeout] || @timeout,
-      recv_timeout: opts[:timeout] || @timeout
-    ]
+    # Build Finch request
+    request = Finch.build(method, url, headers, body)
     
-    case HTTPoison.request(method, url, body, headers, options) do
-      {:ok, %{status_code: 200, body: body}} ->
+    # Use connection pool
+    case PoolManager.request(:openai, request, timeout: opts[:timeout] || @timeout) do
+      {:ok, %{status: 200, body: body}} ->
         case Jason.decode(body) do
           {:ok, data} -> 
             track_usage(data)
@@ -165,7 +149,7 @@ defmodule AutonomousOpponentV2Core.Intelligence.OpenAIClient do
             {:error, :invalid_response}
         end
         
-      {:ok, %{status_code: 401}} ->
+      {:ok, %{status: 401}} ->
         # API key might be invalid or rotated
         EventBus.publish(:api_key_invalid, %{
           service: :openai,
@@ -173,7 +157,7 @@ defmodule AutonomousOpponentV2Core.Intelligence.OpenAIClient do
         })
         {:error, :unauthorized}
         
-      {:ok, %{status_code: 429, headers: headers}} ->
+      {:ok, %{status: 429, headers: headers}} ->
         # Rate limited by OpenAI
         retry_after = get_retry_after(headers)
         EventBus.publish(:openai_rate_limited, %{
@@ -182,9 +166,13 @@ defmodule AutonomousOpponentV2Core.Intelligence.OpenAIClient do
         })
         {:error, {:rate_limited, retry_after}}
         
-      {:ok, %{status_code: status, body: body}} ->
+      {:ok, %{status: status, body: body}} ->
         Logger.error("OpenAI API error #{status}: #{body}")
         {:error, {:api_error, status}}
+        
+      {:error, :circuit_open} ->
+        Logger.error("OpenAI circuit breaker is open")
+        {:error, :service_unavailable}
         
       {:error, reason} ->
         Logger.error("OpenAI request failed: #{inspect(reason)}")
@@ -206,7 +194,7 @@ defmodule AutonomousOpponentV2Core.Intelligence.OpenAIClient do
   end
   
   defp get_retry_after(headers) do
-    case List.keyfind(headers, "Retry-After", 0) do
+    case List.keyfind(headers, "retry-after", 0) do
       {_, value} -> String.to_integer(value)
       nil -> 60  # Default to 60 seconds
     end

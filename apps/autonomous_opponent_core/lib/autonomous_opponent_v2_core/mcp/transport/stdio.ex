@@ -9,7 +9,7 @@ defmodule AutonomousOpponentV2Core.MCP.Transport.Stdio do
   use GenServer
   require Logger
   
-  alias AutonomousOpponentV2Core.MCP.{Server, Message}
+  alias AutonomousOpponentV2Core.MCP.Server
   
   # Client API
   

@@ -20,6 +20,7 @@ defmodule AutonomousOpponentV2Core.VSM.S5.Policy do
   alias AutonomousOpponentV2Core.EventBus
   alias AutonomousOpponentV2Core.VSM.Channels.VarietyChannel
   alias AutonomousOpponentV2Core.VSM.Algedonic.Channel, as: Algedonic
+  alias AutonomousOpponentV2Core.AMCP.Bridges.LLMBridge
   
   defstruct [
     :identity,
@@ -392,7 +393,8 @@ defmodule AutonomousOpponentV2Core.VSM.S5.Policy do
   end
   
   defp evaluate_against_policy(decision, state) do
-    violations = Enum.reduce(state.values, 0, fn {_name, value}, acc ->
+    # Traditional policy evaluation
+    traditional_violations = Enum.reduce(state.values, 0, fn {_name, value}, acc ->
       if violates_value?(decision, value) do
         acc + value.priority
       else
@@ -400,11 +402,19 @@ defmodule AutonomousOpponentV2Core.VSM.S5.Policy do
       end
     end)
     
+    # Enhance with LLM-based policy evaluation
+    llm_evaluation = evaluate_decision_with_llm(decision, state)
+    
+    # Combine traditional and LLM evaluations
+    total_violations = traditional_violations + (llm_evaluation[:violations] || 0)
+    
     %{
       decision: decision,
-      violations: violations,
+      violations: total_violations,
       alignment: calculate_alignment(decision, state),
-      recommendation: if(violations > 0, do: :reject, else: :approve)
+      recommendation: if(total_violations > 0, do: :reject, else: :approve),
+      llm_insights: llm_evaluation[:insights],
+      reasoning: llm_evaluation[:reasoning]
     }
   end
   
@@ -422,22 +432,25 @@ defmodule AutonomousOpponentV2Core.VSM.S5.Policy do
     end
   end
   
-  defp formulate_existential_response(threat, _state) do
-    # How do we respond to existential threats?
+  defp formulate_existential_response(threat, state) do
+    # Traditional threat assessment
     threat_severity = assess_threat_severity(threat)
     
-    cond do
+    basic_response = cond do
       threat_severity > 0.9 ->
-        # Transform or die
         %{strategy: :transform, urgency: :immediate}
-        
       threat_severity > 0.7 ->
-        # Adapt to survive
         %{strategy: :adapt, urgency: :high}
-        
       true ->
-        # Resist and maintain identity
         %{strategy: :resist, urgency: :normal}
+    end
+    
+    # Enhance with LLM-powered existential response strategy
+    case generate_llm_existential_response(threat, state) do
+      {:ok, llm_response} ->
+        Map.merge(basic_response, llm_response)
+      {:error, _reason} ->
+        basic_response
     end
   end
   
@@ -628,12 +641,21 @@ defmodule AutonomousOpponentV2Core.VSM.S5.Policy do
     Map.get(model, :change_rate, 0) > state.constraints.adaptation_rate
   end
   
-  defp consider_adaptation(model, _state) do
-    %{
+  defp consider_adaptation(model, state) do
+    # Traditional adaptation assessment
+    basic_adaptation = %{
       required: Map.get(model, :adaptation_pressure, 0) > 0.5,
       type: :incremental,
-      target_state: model.optimal_configuration
+      target_state: Map.get(model, :optimal_configuration, %{})
     }
+    
+    # Enhance with LLM-powered adaptation strategy
+    case generate_llm_adaptation_strategy(model, state) do
+      {:ok, llm_strategy} ->
+        Map.merge(basic_adaptation, llm_strategy)
+      {:error, _reason} ->
+        basic_adaptation
+    end
   end
   
   defp apply_adaptation(adaptation, state) do
@@ -970,5 +992,222 @@ defmodule AutonomousOpponentV2Core.VSM.S5.Policy do
   defp adjust_constraints_for_environment(constraints, _target) do
     # Gradually adjust constraints
     %{constraints | adaptation_rate: 0.15}
+  end
+  
+  # LLM Integration Helper Functions for S5 Policy
+  
+  defp evaluate_decision_with_llm(decision, state) do
+    # Use LLM to provide nuanced policy evaluation
+    case LLMBridge.call_llm_api(
+      """
+      Evaluate this decision against cybernetic policy framework:
+      
+      Decision: #{inspect(decision)}
+      Current Values: #{inspect(state.values)}
+      Identity: #{inspect(state.identity)}
+      Constraints: #{inspect(state.constraints)}
+      Health Metrics: #{inspect(state.health_metrics)}
+      
+      Analyze:
+      1. Does this decision align with core values?
+      2. Does it threaten system identity or viability?
+      3. What are the long-term consequences?
+      4. Are there any subtle violations not captured by rules?
+      5. What insights can inform future policy?
+      
+      Return evaluation with:
+      - violations: number (0-10)
+      - insights: key observations
+      - reasoning: why this evaluation
+      - alternative_approaches: better ways to achieve the goal
+      """,
+      :analysis,
+      timeout: 15_000
+    ) do
+      {:ok, response} ->
+        parse_llm_policy_evaluation(response)
+      {:error, reason} ->
+        Logger.debug("LLM policy evaluation failed: #{inspect(reason)}")
+        %{violations: 0, insights: nil, reasoning: nil}
+    end
+  end
+  
+  defp parse_llm_policy_evaluation(response) do
+    # Parse LLM response for policy evaluation
+    # This is a simplified parser - in practice you'd want more robust parsing
+    violations = cond do
+      String.contains?(response, "serious violation") -> 3
+      String.contains?(response, "violation") -> 1
+      String.contains?(response, "concern") -> 0.5
+      true -> 0
+    end
+    
+    %{
+      violations: violations,
+      insights: extract_insights_from_response(response),
+      reasoning: extract_reasoning_from_response(response)
+    }
+  end
+  
+  defp extract_insights_from_response(response) do
+    # Extract key insights from LLM response
+    case Regex.run(~r/insights?:(.+?)(?:\n|\z)/i, response) do
+      [_, insights] -> String.trim(insights)
+      _ -> nil
+    end
+  end
+  
+  defp extract_reasoning_from_response(response) do
+    # Extract reasoning from LLM response
+    case Regex.run(~r/reasoning:(.+?)(?:\n|\z)/i, response) do
+      [_, reasoning] -> String.trim(reasoning)
+      _ -> nil
+    end
+  end
+  
+  defp generate_llm_adaptation_strategy(model, state) do
+    # Use LLM to generate sophisticated adaptation strategies
+    LLMBridge.call_llm_api(
+      """
+      Generate adaptation strategy for changing environment:
+      
+      Environmental Model: #{inspect(model)}
+      Current Identity: #{inspect(state.identity)}
+      Values: #{inspect(state.values)}
+      Constraints: #{inspect(state.constraints)}
+      Health: #{inspect(state.health_metrics)}
+      
+      Consider:
+      1. What type of adaptation is needed? (incremental, significant, transformational)
+      2. Which aspects of identity can change without losing core essence?
+      3. What new capabilities might be needed?
+      4. How to maintain continuity during adaptation?
+      5. What are the risks and how to mitigate them?
+      
+      Provide:
+      - type: incremental/significant/transformational
+      - scope: what areas need adaptation
+      - timeline: how quickly to adapt
+      - safeguards: what to protect during adaptation
+      - success_metrics: how to measure adaptation success
+      """,
+      :synthesis,
+      timeout: 20_000
+    )
+    |> case do
+      {:ok, response} -> {:ok, parse_adaptation_strategy(response)}
+      error -> error
+    end
+  end
+  
+  defp parse_adaptation_strategy(response) do
+    # Parse LLM adaptation strategy response
+    type = cond do
+      String.contains?(response, "transformational") -> :transformational
+      String.contains?(response, "significant") -> :significant
+      true -> :incremental
+    end
+    
+    %{
+      type: type,
+      scope: extract_adaptation_scope(response),
+      timeline: extract_adaptation_timeline(response),
+      safeguards: extract_adaptation_safeguards(response),
+      llm_guidance: response
+    }
+  end
+  
+  defp extract_adaptation_scope(response) do
+    case Regex.run(~r/scope:(.+?)(?:\n|\z)/i, response) do
+      [_, scope] -> String.trim(scope)
+      _ -> "general"
+    end
+  end
+  
+  defp extract_adaptation_timeline(response) do
+    cond do
+      String.contains?(response, "immediate") -> :immediate
+      String.contains?(response, "rapid") -> :rapid
+      String.contains?(response, "gradual") -> :gradual
+      true -> :moderate
+    end
+  end
+  
+  defp extract_adaptation_safeguards(response) do
+    case Regex.run(~r/safeguards?:(.+?)(?:\n|\z)/i, response) do
+      [_, safeguards] -> String.trim(safeguards)
+      _ -> "maintain core identity"
+    end
+  end
+  
+  defp generate_llm_existential_response(threat, state) do
+    # Use LLM for sophisticated existential threat response
+    LLMBridge.call_llm_api(
+      """
+      Formulate response to existential threat:
+      
+      Threat: #{inspect(threat)}
+      Current Identity: #{inspect(state.identity)}
+      Values: #{inspect(state.values)}
+      System Health: #{inspect(state.health_metrics)}
+      
+      This is an existential threat that could fundamentally compromise system viability.
+      
+      Consider:
+      1. What is the nature and severity of this threat?
+      2. What are our response options? (resist, adapt, transform, hybrid)
+      3. What would each response cost in terms of identity integrity?
+      4. How can we maintain core essence while ensuring survival?
+      5. What creative solutions might exist beyond obvious choices?
+      
+      Recommend:
+      - primary_strategy: resist/adapt/transform/hybrid
+      - fallback_strategy: if primary fails
+      - identity_preservation: what must be protected
+      - acceptable_changes: what can be modified
+      - implementation_steps: how to execute the response
+      """,
+      :synthesis,
+      timeout: 25_000
+    )
+    |> case do
+      {:ok, response} -> {:ok, parse_existential_response(response)}
+      error -> error
+    end
+  end
+  
+  defp parse_existential_response(response) do
+    primary_strategy = cond do
+      String.contains?(response, "transform") -> :transform
+      String.contains?(response, "adapt") -> :adapt
+      String.contains?(response, "hybrid") -> :hybrid
+      true -> :resist
+    end
+    
+    %{
+      primary_strategy: primary_strategy,
+      fallback_strategy: extract_fallback_strategy(response),
+      identity_preservation: extract_identity_preservation(response),
+      implementation_guidance: response
+    }
+  end
+  
+  defp extract_fallback_strategy(response) do
+    case Regex.run(~r/fallback[_\s]strategy:(.+?)(?:\n|\z)/i, response) do
+      [_, strategy] -> 
+        cond do
+          String.contains?(strategy, "transform") -> :transform
+          String.contains?(strategy, "adapt") -> :adapt
+          true -> :resist
+        end
+      _ -> :adapt
+    end
+  end
+  
+  defp extract_identity_preservation(response) do
+    case Regex.run(~r/identity[_\s]preservation:(.+?)(?:\n|\z)/i, response) do
+      [_, preservation] -> String.trim(preservation)
+      _ -> "core values and purpose"
+    end
   end
 end

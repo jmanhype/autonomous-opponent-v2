@@ -18,5 +18,25 @@ config :swoosh, api_client: Swoosh.ApiClient.Finch, finch_name: AutonomousOppone
 # Do not print debug messages in production
 config :logger, level: :info
 
+# LLM Response Cache Configuration for Production
+config :autonomous_opponent_core,
+  # Enable LLM response caching in production
+  llm_cache_enabled: true,
+  
+  # Production cache settings
+  llm_cache_config: [
+    # Larger cache size for production
+    max_size: 5000,
+    
+    # Default TTL: 2 hours
+    ttl: 7_200_000,
+    
+    # Warm cache from disk on startup
+    warm_on_start: true,
+    
+    # Persist cache to disk every 10 minutes
+    persist_interval: 600_000
+  ]
+
 # Runtime production configuration, including reading
 # of environment variables, is done on config/runtime.exs.

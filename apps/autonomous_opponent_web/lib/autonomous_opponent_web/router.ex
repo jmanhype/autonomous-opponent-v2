@@ -41,6 +41,8 @@ defmodule AutonomousOpponentV2Web.Router do
     pipe_through :browser
 
     get "/", PageController, :home
+    live "/consciousness", ConsciousnessLive, :index
+    live "/chat", ChatLive, :index
   end
   
   # Protected dashboards
@@ -78,6 +80,19 @@ defmodule AutonomousOpponentV2Web.Router do
   # any modules with the `AutonomousOpponentV2Web` namespace.
   scope "/api", AutonomousOpponentV2Web do
     pipe_through :api
+    
+    # Test endpoint
+    post "/test", ConsciousnessController, :test
+    
+    # AI Consciousness API endpoints
+    post "/consciousness/chat", ConsciousnessController, :chat
+    post "/consciousness/test", ConsciousnessController, :test
+    get "/consciousness/state", ConsciousnessController, :state
+    get "/consciousness/dialog", ConsciousnessController, :inner_dialog
+    post "/consciousness/reflect", ConsciousnessController, :reflect
+    get "/patterns", ConsciousnessController, :patterns
+    get "/events/analyze", ConsciousnessController, :analyze_events
+    get "/memory/synthesize", ConsciousnessController, :synthesize_memory
   end
 
   # Enables LiveDashboard only on development environment
@@ -87,7 +102,10 @@ defmodule AutonomousOpponentV2Web.Router do
       pipe_through [:browser]
 
       live_dashboard("/",
-        metrics: {AutonomousOpponentV2Web.Telemetry, :metrics}
+        metrics: AutonomousOpponentV2Web.Telemetry,
+        additional_pages: [
+          consciousness: {AutonomousOpponentV2Web.ConsciousnessPage, []}
+        ]
       )
     end
   end

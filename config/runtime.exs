@@ -7,6 +7,22 @@ import Config
 # any compile-time configuration in here, as it won't be applied.
 # The block below contains prod specific runtime configuration.
 
+# Load environment variables from .env file if it exists and we're in dev
+if config_env() == :dev and File.exists?(".env") do
+  # Manual parsing since DotenvParser may not be available at runtime
+  File.read!(".env")
+  |> String.split("\n")
+  |> Enum.reject(&(String.starts_with?(&1, "#") or String.trim(&1) == ""))
+  |> Enum.each(fn line ->
+    case String.split(line, "=", parts: 2) do
+      [key, value] ->
+        System.put_env(String.trim(key), String.trim(value))
+      _ ->
+        :ok
+    end
+  end)
+end
+
 # Task 7: Security Hardening - Configure secure environment handling
 config :autonomous_opponent_core, :security,
   vault_enabled: System.get_env("VAULT_ENABLED") == "true",
@@ -15,6 +31,8 @@ config :autonomous_opponent_core, :security,
   encryption_key: System.get_env("ENCRYPTION_KEY"),
   allowed_env_keys: [
     "OPENAI_API_KEY",
+    "ANTHROPIC_API_KEY",
+    "GOOGLE_AI_API_KEY",
     "DATABASE_URL", 
     "SECRET_KEY_BASE",
     "GUARDIAN_SECRET",

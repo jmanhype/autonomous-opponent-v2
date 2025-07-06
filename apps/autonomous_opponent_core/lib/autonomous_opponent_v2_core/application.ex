@@ -6,6 +6,9 @@ defmodule AutonomousOpponentV2Core.Application do
 
   @impl true
   def start(_type, _args) do
+    # Initialize telemetry handlers first
+    AutonomousOpponentV2Core.Telemetry.SystemTelemetry.setup()
+    
     # Ensure AMQP application is started before we check for it
     ensure_amqp_started()
     
@@ -20,46 +23,64 @@ defmodule AutonomousOpponentV2Core.Application do
       {AutonomousOpponentV2Core.EventBus, name: AutonomousOpponentV2Core.EventBus},
       # CircuitBreaker is initialized on-demand
       {AutonomousOpponentV2Core.Core.RateLimiter, name: AutonomousOpponentV2Core.Core.RateLimiter},
-      # Start the Telemetry supervisor
-      # AutonomousOpponentV2Core.Telemetry,
-      # Start Security services (Task 7)
-      AutonomousOpponentV2Core.Security.Supervisor,
+      # Start the Connection Pool Manager for external services
+      AutonomousOpponentV2Core.Connections.PoolManager,
+      # Start Security services (Task 7) - TEMPORARILY DISABLED 
+      # AutonomousOpponentV2Core.Security.Supervisor,
       # Start Web Gateway (Task 8)
       AutonomousOpponentV2Core.WebGateway.Gateway,
-    ] ++ amqp_children() ++ vsm_children() ++ mcp_children()
+    ] ++ ai_children() ++ amqp_children() ++ vsm_children() ++ mcp_children()
 
     opts = [strategy: :one_for_one, name: AutonomousOpponentV2Core.Supervisor]
     Supervisor.start_link(children, opts)
   end
 
-  # Start VSM in all environments including test
-  defp vsm_children do
-    if Application.get_env(:autonomous_opponent_core, :start_vsm, true) do
-      [AutonomousOpponentV2Core.VSM.Supervisor]
-    else
-      []
-    end
-  end
-  
-  # Start MCP (Model Context Protocol) services
-  defp mcp_children do
-    if Application.get_env(:autonomous_opponent_core, :start_mcp, true) do
-      [AutonomousOpponentV2Core.MCP.Supervisor]
-    else
-      []
-    end
+  # Start AI services (gradually re-enabling to test stability)
+  defp ai_children do
+    [
+      # CRDT Memory Store
+      AutonomousOpponentV2Core.AMCP.Memory.CRDTStore,
+      # LLM Response Cache (must start before LLMBridge)
+      AutonomousOpponentV2Core.AMCP.Bridges.LLMCache,
+      # LLM Bridge for multi-provider AI integration - RE-ENABLED
+      AutonomousOpponentV2Core.AMCP.Bridges.LLMBridge,
+      # Semantic Analyzer for event analysis - RE-ENABLED
+      AutonomousOpponentV2Core.AMCP.Events.SemanticAnalyzer,
+      # Semantic Fusion for pattern detection - RE-ENABLED
+      AutonomousOpponentV2Core.AMCP.Events.SemanticFusion,
+      # Consciousness module for AI self-awareness - TEMPORARILY DISABLED
+      # AutonomousOpponentV2Core.Consciousness
+    ]
   end
 
-  # Start AMQP services if enabled
-  defp amqp_children do
-    if amqp_enabled?() do
-      [
-        # AMQP Supervisor manages all AMCP components
-        AutonomousOpponentV2Core.AMCP.Supervisor
-      ]
-    else
+  # Start VSM in all environments including test - TEMPORARILY DISABLED
+  defp vsm_children do
+    # if Application.get_env(:autonomous_opponent_core, :start_vsm, true) do
+    #   [AutonomousOpponentV2Core.VSM.Supervisor]
+    # else
       []
-    end
+    # end
+  end
+  
+  # Start MCP (Model Context Protocol) services - TEMPORARILY DISABLED
+  defp mcp_children do
+    # if Application.get_env(:autonomous_opponent_core, :start_mcp, true) do
+    #   [AutonomousOpponentV2Core.MCP.Supervisor]
+    # else
+      []
+    # end
+  end
+
+  # Start AMQP services if enabled - TEMPORARILY DISABLED
+  defp amqp_children do
+    # if amqp_enabled?() do
+    #   [
+    #     # AMQP Supervisor manages all AMCP components
+    #     AutonomousOpponentV2Core.AMCP.Supervisor
+    #   ]
+    # else
+      []
+    # end
   end
   
   defp ensure_amqp_started do

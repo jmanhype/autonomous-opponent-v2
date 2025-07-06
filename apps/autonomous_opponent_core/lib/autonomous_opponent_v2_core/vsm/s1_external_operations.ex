@@ -24,8 +24,11 @@ defmodule AutonomousOpponentV2Core.VSM.S1ExternalOperations do
   use GenServer
   require Logger
   
-  alias AutonomousOpponentV2Core.{EventBus, MCP.ProcessManager, MCP.ConfigManager}
-  alias AutonomousOpponentV2Core.VSM.{S2Coordination, Channels.VarietyChannel}
+  alias AutonomousOpponentV2Core.{EventBus, MCP.ProcessManager}
+  # Removed unused alias MCP.ConfigManager
+  alias AutonomousOpponentV2Core.VSM.Channels.VarietyChannel
+  alias AutonomousOpponentV2Core.Telemetry.SystemTelemetry
+  # Removed unused alias S2Coordination
   
   defstruct [
     :config_manager,
@@ -74,7 +77,9 @@ defmodule AutonomousOpponentV2Core.VSM.S1ExternalOperations do
   Absorbs external capabilities from a specific server.
   """
   def absorb_server_capabilities(server_name) do
-    GenServer.cast(__MODULE__, {:absorb_capabilities, server_name})
+    SystemTelemetry.measure([:vsm, :s1, :operation], %{operation: :absorb_capabilities}, fn ->
+      GenServer.cast(__MODULE__, {:absorb_capabilities, server_name})
+    end)
   end
   
   @doc """
@@ -109,11 +114,7 @@ defmodule AutonomousOpponentV2Core.VSM.S1ExternalOperations do
     process_manager = Process.whereis(MCP.ProcessManager)
     
     # Start variety channel to S2
-    {:ok, coordination_channel} = VarietyChannel.start_link(
-      source: :s1_external,
-      destination: :s2_coordination,
-      flow_rate: @absorption_rate_initial
-    )
+    {:ok, coordination_channel} = VarietyChannel.start_link(channel_type: :s1_to_s2)
     
     state = %__MODULE__{
       config_manager: config_manager,
@@ -203,6 +204,16 @@ defmodule AutonomousOpponentV2Core.VSM.S1ExternalOperations do
       {:ok, capability} ->
         case execute_external_capability(capability, server_name, params) do
           {:ok, result} ->
+            # Emit successful operation telemetry
+            SystemTelemetry.emit(
+              [:vsm, :s1, :operation, :stop],
+              %{
+                duration: 0,  # Would need start time for real duration
+                output_variety: 1
+              },
+              %{operation: :execute_capability, server_name: server_name, capability: capability_name}
+            )
+            
             # Update capability usage statistics
             updated_state = update_capability_usage(state, server_name, capability_name, :success)
             
@@ -220,6 +231,13 @@ defmodule AutonomousOpponentV2Core.VSM.S1ExternalOperations do
             {:reply, {:ok, result}, new_state}
             
           {:error, reason} ->
+            # Emit failed operation telemetry
+            SystemTelemetry.emit(
+              [:vsm, :s1, :operation, :exception],
+              %{duration: 0},
+              %{operation: :execute_capability, error: reason, server_name: server_name, capability: capability_name}
+            )
+            
             # Update capability usage statistics
             updated_state = update_capability_usage(state, server_name, capability_name, :failure)
             
@@ -329,14 +347,14 @@ defmodule AutonomousOpponentV2Core.VSM.S1ExternalOperations do
   
   # Private Functions
   
-  defp get_server_capabilities(server_name, state) do
+  defp get_server_capabilities(server_name, _state) do
     case ProcessManager.get_server_status(server_name) do
       {:ok, %{status: :healthy, pid: pid}} ->
         # Get capabilities from the MCP client
         with {:ok, tools} <- MCP.Client.list_tools(pid),
              {:ok, resources} <- MCP.Client.list_resources(pid) do
           
-          capabilities = []
+          # Remove unused capabilities assignment
           
           # Convert tools to capabilities
           tool_capabilities = Enum.map(tools || [], fn tool ->
@@ -386,7 +404,14 @@ defmodule AutonomousOpponentV2Core.VSM.S1ExternalOperations do
   defp process_capabilities(server_name, raw_capabilities) do
     Logger.debug("Processing #{length(raw_capabilities)} capabilities from #{server_name}")
     
-    raw_capabilities
+    # Emit telemetry for capability processing
+    SystemTelemetry.emit(
+      [:vsm, :s1, :capabilities_processing],
+      %{raw_count: length(raw_capabilities)},
+      %{server_name: server_name}
+    )
+    
+    processed = raw_capabilities
     |> Enum.map(fn capability ->
       # Apply cybernetic processing
       capability
@@ -395,6 +420,19 @@ defmodule AutonomousOpponentV2Core.VSM.S1ExternalOperations do
       |> add_cybernetic_metadata(server_name)
     end)
     |> Enum.filter(& &1.effectiveness >= @capability_effectiveness_threshold)
+    
+    # Emit variety absorbed telemetry
+    SystemTelemetry.emit(
+      [:vsm, :s1, :variety_absorbed],
+      %{
+        input_variety: length(raw_capabilities),
+        absorbed_variety: length(processed),
+        efficiency: if(length(raw_capabilities) > 0, do: length(processed) / length(raw_capabilities), else: 0.0)
+      },
+      %{server_name: server_name}
+    )
+    
+    processed
   end
   
   defp apply_variety_filter(capability) do
@@ -441,6 +479,16 @@ defmodule AutonomousOpponentV2Core.VSM.S1ExternalOperations do
   end
   
   defp execute_external_capability(capability, server_name, params) do
+    # Start telemetry span
+    start_metadata = SystemTelemetry.start_span(
+      [:vsm, :s1, :operation],
+      %{
+        operation: :execute_external_capability,
+        input_variety: 1,
+        capability_type: capability.type
+      }
+    )
+    
     case ProcessManager.get_server_status(server_name) do
       {:ok, %{status: :healthy, pid: pid}} ->
         case capability.type do
@@ -504,6 +552,12 @@ defmodule AutonomousOpponentV2Core.VSM.S1ExternalOperations do
     
     # Trim buffer if it exceeds maximum size
     trimmed_buffer = if length(new_buffer) > @max_variety_buffer do
+      # Emit buffer overflow telemetry
+      SystemTelemetry.emit(
+        [:vsm, :s1, :variety_buffer_overflow],
+        %{buffer_size: length(new_buffer), max_size: @max_variety_buffer},
+        %{items_dropped: length(new_buffer) - @max_variety_buffer}
+      )
       Enum.take(new_buffer, @max_variety_buffer)
     else
       new_buffer

@@ -80,6 +80,70 @@ config :opentelemetry_exporter,
   otlp_endpoint: System.get_env("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4318"),
   otlp_headers: [{"x-api-key", System.get_env("OTEL_API_KEY", "")}]
 
+# Connection Pool Configuration
+config :autonomous_opponent_core, :connection_pools,
+  openai: [
+    size: 50,
+    max_idle_time: 5_000,
+    hosts: ["https://api.openai.com"],
+    health_check_url: "https://api.openai.com/v1/models",
+    circuit_breaker: [
+      threshold: 10,
+      timeout: 60_000,
+      half_open_max: 5
+    ],
+    conn_opts: [
+      transport_opts: [
+        timeout: 30_000,
+        tcp: [:inet6, nodelay: true]
+      ]
+    ]
+  ],
+  anthropic: [
+    size: 30,
+    max_idle_time: 5_000,
+    hosts: ["https://api.anthropic.com"],
+    circuit_breaker: [
+      threshold: 5,
+      timeout: 30_000
+    ]
+  ],
+  google_ai: [
+    size: 30,
+    max_idle_time: 5_000,
+    hosts: ["https://generativelanguage.googleapis.com"],
+    circuit_breaker: [
+      threshold: 5,
+      timeout: 30_000
+    ]
+  ],
+  local_llm: [
+    size: 20,
+    max_idle_time: 10_000,
+    hosts: ["http://localhost:11434"],
+    circuit_breaker: [
+      threshold: 3,
+      timeout: 15_000
+    ]
+  ],
+  vault: [
+    size: 10,
+    max_idle_time: 10_000,
+    hosts: ["http://localhost:8200"],
+    circuit_breaker: [
+      threshold: 5,
+      timeout: 30_000
+    ]
+  ],
+  default: [
+    size: 15,
+    max_idle_time: 10_000,
+    circuit_breaker: [
+      threshold: 5,
+      timeout: 30_000
+    ]
+  ]
+
 # Import environment specific config. This must remain at the bottom
 # of this file so it overrides the configuration defined above.
 import_config "#{config_env()}.exs"

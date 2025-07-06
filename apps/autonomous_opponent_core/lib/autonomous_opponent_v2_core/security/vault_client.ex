@@ -19,7 +19,7 @@ defmodule AutonomousOpponentV2Core.Security.VaultClient do
   use GenServer
   require Logger
   
-  # alias Vaultex.Client
+  alias AutonomousOpponentV2Core.Connections.PoolManager
   
   defstruct [
     :config,
@@ -121,7 +121,7 @@ defmodule AutonomousOpponentV2Core.Security.VaultClient do
     if state.is_healthy do
       path = build_path(state.config, key)
       
-      case Vaultex.read(path, :token, {state.config.token}) do
+      case vault_request(:get, path, nil, state.config) do
         {:ok, %{"data" => data}} ->
           # Handle KV v2 format
           value = get_in(data, ["data", "value"]) || get_in(data, ["value"])
@@ -161,13 +161,13 @@ defmodule AutonomousOpponentV2Core.Security.VaultClient do
         %{"value" => value}
       end
       
-      case Vaultex.write(path, data, :token, {state.config.token}) do
+      case vault_request(:post, path, data, state.config) do
         {:ok, _} ->
           Logger.debug("Secret written to Vault: #{key}")
           {:reply, :ok, state}
           
-        error ->
-          Logger.error("Vault write error: #{inspect(error)}")
+        {:error, reason} = error ->
+          Logger.error("Vault write error: #{inspect(reason)}")
           {:reply, {:error, :vault_write_failed}, state}
       end
     else
@@ -180,13 +180,13 @@ defmodule AutonomousOpponentV2Core.Security.VaultClient do
     if state.is_healthy do
       path = build_path(state.config, key)
       
-      case Vaultex.delete(path, :token, {state.config.token}) do
+      case vault_request(:delete, path, nil, state.config) do
         {:ok, _} ->
           Logger.debug("Secret deleted from Vault: #{key}")
           {:reply, :ok, state}
           
-        error ->
-          Logger.error("Vault delete error: #{inspect(error)}")
+        {:error, reason} = error ->
+          Logger.error("Vault delete error: #{inspect(reason)}")
           {:reply, {:error, :vault_delete_failed}, state}
       end
     else
@@ -199,15 +199,15 @@ defmodule AutonomousOpponentV2Core.Security.VaultClient do
     if state.is_healthy do
       path = build_list_path(state.config)
       
-      case Vaultex.list(path, :token, {state.config.token}) do
+      case vault_request(:get, path <> "?list=true", nil, state.config) do
         {:ok, %{"data" => %{"keys" => keys}}} ->
           {:reply, {:ok, keys}, state}
           
         {:ok, %{"keys" => keys}} ->
           {:reply, {:ok, keys}, state}
           
-        error ->
-          Logger.error("Vault list error: #{inspect(error)}")
+        {:error, reason} = error ->
+          Logger.error("Vault list error: #{inspect(reason)}")
           {:reply, {:error, :vault_list_failed}, state}
       end
     else
@@ -239,7 +239,7 @@ defmodule AutonomousOpponentV2Core.Security.VaultClient do
     if state.is_healthy and kv_v2?(state.config) do
       metadata_path = build_metadata_path(state.config, key)
       
-      case Vaultex.read(metadata_path, :token, {state.config.token}) do
+      case vault_request(:get, metadata_path, nil, state.config) do
         {:ok, %{"data" => metadata}} ->
           {:reply, {:ok, metadata}, state}
           
@@ -276,20 +276,26 @@ defmodule AutonomousOpponentV2Core.Security.VaultClient do
   # Private Functions
   
   defp perform_health_check do
-    # Use Vaultex health endpoint or sys/health
-    case Vaultex.read("sys/health", :token, {"dummy_token"}) do
-      {:ok, data} ->
-        {:ok, data}
+    vault_addr = Application.get_env(:vaultex, :vault_addr, "http://localhost:8200")
+    
+    # Build health check request
+    request = Finch.build(:get, "#{vault_addr}/v1/sys/health")
+    
+    # Use connection pool for health check
+    case PoolManager.request(:vault, request, timeout: 5_000) do
+      {:ok, %{status: code}} when code in 200..299 ->
+        {:ok, %{status: :healthy}}
+        
+      {:ok, %{status: 429}} ->
+        # Vault is in standby mode, but reachable
+        {:ok, %{status: :standby}}
+        
+      {:ok, %{status: 503}} ->
+        # Vault is sealed
+        {:error, :vault_sealed}
         
       {:error, reason} ->
-        # Try alternative health check
-        case HTTPoison.get(Application.get_env(:vaultex, :vault_addr) <> "/v1/sys/health") do
-          {:ok, %{status_code: code}} when code in 200..299 ->
-            {:ok, %{status: :healthy}}
-            
-          _ ->
-            {:error, reason}
-        end
+        {:error, reason}
     end
   rescue
     e ->
@@ -332,6 +338,54 @@ defmodule AutonomousOpponentV2Core.Security.VaultClient do
   defp kv_v2?(config) do
     # Default to KV v2 unless explicitly set to v1
     config[:kv_version] != 1
+  end
+  
+  defp vault_request(method, path, body, config) do
+    vault_addr = config.host || "http://localhost:8200"
+    url = "#{vault_addr}/v1/#{path}"
+    
+    headers = [
+      {"x-vault-token", config.token},
+      {"content-type", "application/json"}
+    ]
+    
+    # Add namespace header if configured
+    headers = if config[:vault_namespace] do
+      [{"x-vault-namespace", config[:vault_namespace]} | headers]
+    else
+      headers
+    end
+    
+    body = if body, do: Jason.encode!(body), else: nil
+    
+    # Build Finch request
+    request = Finch.build(method, url, headers, body)
+    
+    # Use connection pool
+    case PoolManager.request(:vault, request, timeout: 10_000) do
+      {:ok, %{status: 200, body: response_body}} ->
+        case Jason.decode(response_body) do
+          {:ok, data} -> {:ok, data}
+          {:error, _} -> {:error, :invalid_response}
+        end
+        
+      {:ok, %{status: 204}} ->
+        # No content (successful delete)
+        {:ok, %{}}
+        
+      {:ok, %{status: 404}} ->
+        {:error, ["Key not found"]}
+        
+      {:ok, %{status: status, body: body}} ->
+        Logger.error("Vault API error #{status}: #{body}")
+        {:error, {:api_error, status}}
+        
+      {:error, :circuit_open} ->
+        {:error, :vault_unavailable}
+        
+      {:error, reason} ->
+        {:error, reason}
+    end
   end
   
   defp build_metadata(opts) do
