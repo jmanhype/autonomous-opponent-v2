@@ -249,7 +249,9 @@ defmodule AutonomousOpponentV2Core.AMCP.Bridges.LLMCache do
 
   @impl true
   def handle_info(:persist, state) do
-    GenServer.call(self(), :persist)
+    # Persist cache directly without self-call to avoid deadlock
+    save_to_disk(state.cache_dir)
+    
     if state.persist_interval != :infinity do
       schedule_persist(state.persist_interval)
     end
