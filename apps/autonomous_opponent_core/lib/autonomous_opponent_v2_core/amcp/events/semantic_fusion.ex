@@ -186,6 +186,13 @@ defmodule AutonomousOpponentV2Core.AMCP.Events.SemanticFusion do
   end
   
   @impl true
+  # Handle new HLC event format from EventBus
+  def handle_info({:event_bus_hlc, event}, state) do
+    # Extract event data and forward to existing handler
+    handle_info({:event_bus, event.type, event.data}, state)
+  end
+
+  @impl true
   def handle_info({:event_bus, event_name, event_data}, state) do
     # Handle EventBus events directly
     Logger.debug("SemanticFusion received event: #{event_name}")
@@ -552,7 +559,7 @@ defmodule AutonomousOpponentV2Core.AMCP.Events.SemanticFusion do
           correlated_events: [event1, event2],
           correlation_coefficient: stats.correlation,
           co_occurrence_count: stats.count,
-          time_lag: stats.avg_time_lag
+          time_lag: Map.get(stats, :avg_time_lag, 0)
         },
         detected_at: DateTime.utc_now(),
         confidence: calculate_correlation_confidence(stats)
@@ -618,10 +625,10 @@ defmodule AutonomousOpponentV2Core.AMCP.Events.SemanticFusion do
         Map.update(acc2, {event1, event2}, 
           %{count: 1, time_lags: [time_lag], correlation: 0.0},
           fn stats ->
-            %{stats | 
+            Map.merge(stats, %{
               count: stats.count + 1,
               time_lags: [time_lag | stats.time_lags]
-            }
+            })
           end
         )
       end)
@@ -671,10 +678,10 @@ defmodule AutonomousOpponentV2Core.AMCP.Events.SemanticFusion do
       # Simple correlation: co-occurrence frequency / total windows
       correlation = stats.count / max(1, total_windows)
       
-      {{event1, event2}, %{stats | 
+      {{event1, event2}, Map.merge(stats, %{
         correlation: correlation,
         avg_time_lag: avg_time_lag
-      }}
+      })}
     end)
   end
   

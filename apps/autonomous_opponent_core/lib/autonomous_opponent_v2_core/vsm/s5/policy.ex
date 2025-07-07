@@ -29,7 +29,13 @@ defmodule AutonomousOpponentV2Core.VSM.S5.Policy do
     :policy_rules,
     :environmental_model,
     :adaptation_strategy,
-    :health_metrics
+    :health_metrics,
+    :active_policies,
+    :policy_history,
+    :enforcement_stats,
+    :violation_log,
+    :governance_decisions,
+    :ethos_state
   ]
   
   # Policy thresholds
@@ -62,34 +68,68 @@ defmodule AutonomousOpponentV2Core.VSM.S5.Policy do
   
   @impl true
   def init(opts) do
-    # Subscribe to intelligence and algedonic signals
+    # Subscribe to all system events for policy monitoring
+    EventBus.subscribe(:s1_operations)
+    EventBus.subscribe(:s2_coordination)
+    EventBus.subscribe(:s3_control)
     EventBus.subscribe(:s4_intelligence)
     EventBus.subscribe(:emergency_algedonic)
     EventBus.subscribe(:algedonic_intervention)
+    EventBus.subscribe(:system_metrics)
+    EventBus.subscribe(:resource_allocation)
+    EventBus.subscribe(:decision_made)
     
-    # Start monitoring
+    # Start monitoring loops
     Process.send_after(self(), :evaluate_identity, 10_000)
     Process.send_after(self(), :report_health, 1000)
+    Process.send_after(self(), :enforce_policies, 2000)
+    Process.send_after(self(), :analyze_violations, 5000)
     
     state = %__MODULE__{
       identity: define_core_identity(opts),
       values: define_core_values(),
       constraints: init_policy_constraints(),
       policy_rules: init_policy_rules(),
-      environmental_model: %{},
+      environmental_model: %{
+        last_update: DateTime.utc_now(),
+        complexity: 0.5,
+        change_rate: 0.1,
+        threat_level: 0.1,
+        opportunity_level: 0.3
+      },
       adaptation_strategy: :conservative,
       health_metrics: %{
         identity_coherence: 1.0,
         value_violations: 0,
         policy_updates: 0,
-        existential_threats_handled: 0
+        existential_threats_handled: 0,
+        decisions_evaluated: 0,
+        policies_enforced: 0,
+        successful_governance: 0
+      },
+      active_policies: init_active_policies(),
+      policy_history: [],
+      enforcement_stats: %{
+        total_enforcements: 0,
+        successful: 0,
+        failed: 0,
+        overridden: 0,
+        by_subsystem: %{}
+      },
+      violation_log: [],
+      governance_decisions: [],
+      ethos_state: %{
+        alignment: 1.0,
+        integrity: 1.0,
+        consistency: 1.0,
+        last_assessment: DateTime.utc_now()
       }
     }
     
     # Broadcast initial constraints to all subsystems after a delay
     Process.send_after(self(), :broadcast_initial_constraints, 1000)
     
-    Logger.info("S5 Policy online - I think, therefore we are")
+    Logger.info("S5 Policy online - Governance system fully operational")
     
     {:ok, state}
   end
@@ -180,6 +220,13 @@ defmodule AutonomousOpponentV2Core.VSM.S5.Policy do
   end
   
   @impl true
+  # Handle new HLC event format from EventBus
+  def handle_info({:event_bus_hlc, event}, state) do
+    # Extract event data and forward to existing handler
+    handle_info({:event, event.type, event.data}, state)
+  end
+
+  @impl true
   def handle_info({:event, :s4_intelligence, intelligence_report}, state) do
     # Update environmental model from S4
     new_environmental_model = update_environmental_model(
@@ -255,12 +302,26 @@ defmodule AutonomousOpponentV2Core.VSM.S5.Policy do
     Process.send_after(self(), :report_health, 1000)
     
     health = calculate_health_score(state)
-    EventBus.publish(:s5_health, %{health: health})
+    
+    # Publish detailed health report
+    health_report = %{
+      overall_health: health,
+      identity_coherence: state.health_metrics.identity_coherence,
+      ethos_alignment: state.ethos_state.alignment,
+      governance_effectiveness: calculate_governance_effectiveness(state),
+      policy_compliance: calculate_policy_compliance(state),
+      violation_rate: calculate_violation_rate(state),
+      adaptation_stress: calculate_adaptation_stress(state),
+      timestamp: DateTime.utc_now()
+    }
+    
+    EventBus.publish(:s5_health, health_report)
     
     # S5's health is the system's existential health
     cond do
       health < 0.3 ->
         Algedonic.report_pain(:s5_policy, :existential_health, 1.0 - health)
+        initiate_emergency_governance(state)
         
       state.health_metrics.identity_coherence < 0.7 ->
         Algedonic.report_pain(:s5_policy, :identity_crisis, 
@@ -292,6 +353,164 @@ defmodule AutonomousOpponentV2Core.VSM.S5.Policy do
       reconcile_emergency_actions(state)
     else
       {:noreply, state}
+    end
+  end
+  
+  @impl true
+  def handle_info(:enforce_policies, state) do
+    Process.send_after(self(), :enforce_policies, 2000)
+    
+    # Actively enforce policies across all subsystems
+    new_state = state.active_policies
+    |> Enum.reduce(state, fn policy, acc_state ->
+      enforce_single_policy(policy, acc_state)
+    end)
+    
+    # Update enforcement statistics
+    new_metrics = Map.update!(new_state.health_metrics, :policies_enforced, &(&1 + 1))
+    
+    {:noreply, %{new_state | health_metrics: new_metrics}}
+  end
+  
+  @impl true
+  def handle_info(:analyze_violations, state) do
+    Process.send_after(self(), :analyze_violations, 5000)
+    
+    # Analyze recent violations for patterns
+    recent_violations = Enum.filter(state.violation_log, fn violation ->
+      DateTime.diff(DateTime.utc_now(), violation.timestamp) < 300  # Last 5 minutes
+    end)
+    
+    if length(recent_violations) > 5 do
+      # Too many violations - need intervention
+      pattern = analyze_violation_patterns(recent_violations)
+      
+      governance_decision = %{
+        type: :violation_response,
+        pattern: pattern,
+        action: determine_violation_response(pattern, state),
+        timestamp: DateTime.utc_now()
+      }
+      
+      # Execute governance decision
+      new_state = execute_governance_decision(governance_decision, state)
+      
+      # Record decision
+      new_decisions = [governance_decision | new_state.governance_decisions] |> Enum.take(100)
+      
+      {:noreply, %{new_state | governance_decisions: new_decisions}}
+    else
+      {:noreply, state}
+    end
+  end
+  
+  # Handle system event monitoring
+  @impl true
+  def handle_info({:event, :s1_operations, event_data}, state) do
+    # Monitor S1 operations for policy compliance
+    new_state = evaluate_operational_compliance(event_data, state)
+    {:noreply, new_state}
+  end
+  
+  @impl true
+  def handle_info({:event, :s2_coordination, event_data}, state) do
+    # Monitor S2 coordination for anti-oscillation effectiveness
+    new_state = evaluate_coordination_health(event_data, state)
+    {:noreply, new_state}
+  end
+  
+  @impl true
+  def handle_info({:event, :s3_control, event_data}, state) do
+    # Monitor S3 control decisions
+    new_state = evaluate_control_decisions(event_data, state)
+    {:noreply, new_state}
+  end
+  
+  @impl true
+  def handle_info({:event, :system_metrics, metrics}, state) do
+    # Update environmental model with system metrics
+    new_environmental_model = Map.merge(state.environmental_model, %{
+      last_update: DateTime.utc_now(),
+      system_load: Map.get(metrics, :load, 0.5),
+      performance: Map.get(metrics, :performance, 0.7),
+      resource_usage: Map.get(metrics, :resource_usage, %{})
+    })
+    
+    {:noreply, %{state | environmental_model: new_environmental_model}}
+  end
+  
+  @impl true
+  def handle_info({:event, :resource_allocation, allocation}, state) do
+    # Validate resource allocation against policies
+    if violates_resource_policies?(allocation, state) do
+      log_violation(:resource_allocation, allocation, state)
+    else
+      update_enforcement_stats(:success, :resource_allocation, state)
+    end
+  end
+  
+  @impl true
+  def handle_info({:event, :decision_made, decision}, state) do
+    # Evaluate all decisions against policy framework
+    evaluation = evaluate_against_policy(decision, state)
+    
+    # Update metrics
+    new_metrics = Map.update!(state.health_metrics, :decisions_evaluated, &(&1 + 1))
+    
+    # Log if violation detected
+    new_state = if evaluation.violations > 0 do
+      log_violation(:decision, decision, %{state | health_metrics: new_metrics})
+    else
+      %{state | health_metrics: new_metrics}
+    end
+    
+    # Publish evaluation result
+    EventBus.publish(:policy_evaluation, evaluation)
+    
+    {:noreply, new_state}
+  end
+  
+  @impl true
+  def handle_info({:event, :s4_intelligence, event_data}, state) do
+    # Handle intelligence from S4 for environmental awareness
+    Logger.info("S5 received intelligence from S4")
+    
+    # Update environmental model
+    new_environmental_model = update_environmental_model(event_data, state.environmental_model)
+    
+    # Determine if policy adaptation needed
+    new_state = %{state | environmental_model: new_environmental_model}
+    
+    if requires_policy_adaptation?(new_environmental_model, state) do
+      adapt_policies_to_environment(new_state)
+    else
+      {:noreply, new_state}
+    end
+  end
+  
+  @impl true
+  def handle_info({:event, :s5_policy, variety_data}, state) do
+    # Handle variety from S4 via variety channel
+    Logger.debug("S5 received variety data: #{inspect(variety_data.variety_type)}")
+    
+    case variety_data.variety_type do
+      :intelligence ->
+        # Process intelligence variety from S4
+        new_state = process_intelligence_variety(variety_data, state)
+        
+        # Broadcast updated policies if needed
+        if variety_data[:recommended_adjustments] && length(variety_data.recommended_adjustments) > 0 do
+          broadcast_policy_updates(new_state)
+        end
+        
+        {:noreply, new_state}
+        
+      :policy ->
+        # This is our own policy broadcast echoing back - ignore
+        {:noreply, state}
+        
+      _ ->
+        {:noreply, state}
     end
   end
   
@@ -455,32 +674,146 @@ defmodule AutonomousOpponentV2Core.VSM.S5.Policy do
   end
   
   defp calculate_identity_coherence(state) do
-    # How much are we still "ourselves"?
+    # Calculate real identity coherence based on multiple factors
     base_coherence = 1.0
     
-    # Deduct for value violations
-    violation_penalty = min(0.5, state.health_metrics.value_violations * 0.1)
+    # Factor 1: Value violations impact (up to 40% reduction)
+    violation_ratio = state.health_metrics.value_violations / 
+                     max(1, state.health_metrics.decisions_evaluated)
+    violation_penalty = min(0.4, violation_ratio * 2)
     
-    # Deduct for excessive adaptations
-    adaptation_penalty = min(0.3, state.health_metrics.policy_updates * 0.01)
+    # Factor 2: Policy update frequency (up to 20% reduction)
+    updates_per_hour = state.health_metrics.policy_updates / 
+                      max(1, DateTime.diff(DateTime.utc_now(), state.ethos_state.last_assessment, :hour))
+    adaptation_penalty = min(0.2, updates_per_hour * 0.05)
     
-    max(0.0, base_coherence - violation_penalty - adaptation_penalty)
+    # Factor 3: Ethos alignment (up to 30% reduction)
+    ethos_penalty = (1.0 - state.ethos_state.alignment) * 0.3
+    
+    # Factor 4: Enforcement effectiveness (up to 10% reduction)
+    enforcement_effectiveness = calculate_governance_effectiveness(state)
+    enforcement_penalty = (1.0 - enforcement_effectiveness) * 0.1
+    
+    # Factor 5: Environmental divergence
+    env_change_rate = Map.get(state.environmental_model, :change_rate, 0.1)
+    env_penalty = min(0.1, env_change_rate - state.constraints.adaptation_rate)
+    
+    # Calculate final coherence
+    coherence = base_coherence - violation_penalty - adaptation_penalty - 
+                ethos_penalty - enforcement_penalty - env_penalty
+    
+    # Ensure minimum coherence
+    max(0.0, coherence)
   end
   
   defp calculate_health_score(state) do
-    # S5 health is about identity and purpose
+    # Calculate comprehensive S5 health score based on real metrics
     metrics = state.health_metrics
+    stats = state.enforcement_stats
     
-    # Weighted health calculation
-    identity_weight = 0.5
-    operational_weight = 0.3
-    threat_weight = 0.2
+    # Component weights
+    weights = %{
+      identity: 0.25,      # Identity coherence is critical
+      ethos: 0.20,         # Ethos alignment matters
+      governance: 0.20,    # Governance effectiveness
+      compliance: 0.15,    # Policy compliance rate
+      operational: 0.10,   # Operational health
+      adaptability: 0.10   # System adaptability
+    }
     
-    identity_score = metrics.identity_coherence * identity_weight
-    operational_score = (1.0 - min(1.0, metrics.value_violations / 10)) * operational_weight
-    threat_score = (1.0 - min(1.0, metrics.existential_threats_handled / 5)) * threat_weight
+    # Calculate component scores
+    scores = %{
+      # Identity coherence (already calculated)
+      identity: metrics.identity_coherence,
+      
+      # Ethos health (average of alignment, integrity, consistency)
+      ethos: (state.ethos_state.alignment + 
+              state.ethos_state.integrity + 
+              state.ethos_state.consistency) / 3.0,
+      
+      # Governance effectiveness
+      governance: calculate_governance_effectiveness(state),
+      
+      # Policy compliance rate
+      compliance: calculate_policy_compliance(state),
+      
+      # Operational health (inverse of violation rate)
+      operational: max(0.0, 1.0 - calculate_violation_rate(state)),
+      
+      # Adaptability (ability to handle environmental changes)
+      adaptability: calculate_adaptability_score(state)
+    }
     
-    identity_score + operational_score + threat_score
+    # Calculate weighted health score
+    health = Enum.reduce(scores, 0.0, fn {component, score}, acc ->
+      acc + (score * Map.get(weights, component, 0))
+    end)
+    
+    # Apply penalties for critical conditions
+    health_with_penalties = apply_health_penalties(health, state)
+    
+    # Ensure score is between 0 and 1
+    max(0.0, min(1.0, health_with_penalties))
+  end
+  
+  defp calculate_adaptability_score(state) do
+    # Measure system's ability to adapt without losing identity
+    env_change_rate = Map.get(state.environmental_model, :change_rate, 0.1)
+    adaptation_rate = Map.get(state.constraints, :adaptation_rate, 0.1)
+    
+    if env_change_rate == 0 do
+      1.0  # No environmental change, perfect adaptability
+    else
+      # Score based on how well adaptation rate matches environmental change
+      ratio = adaptation_rate / env_change_rate
+      
+      cond do
+        ratio > 1.5 -> 0.8  # Over-adapting
+        ratio > 1.0 -> 1.0  # Adapting well
+        ratio > 0.5 -> 0.7  # Under-adapting slightly
+        true -> 0.3         # Severely under-adapting
+      end
+    end
+  end
+  
+  defp apply_health_penalties(base_health, state) do
+    # Apply penalties for critical conditions
+    penalties = []
+    
+    # Critical identity drift
+    penalties = if state.health_metrics.identity_coherence < 0.5 do
+      [{:identity_crisis, 0.2} | penalties]
+    else
+      penalties
+    end
+    
+    # Too many recent violations
+    recent_violations = Enum.count(state.violation_log, fn v ->
+      DateTime.diff(DateTime.utc_now(), v.timestamp) < 60
+    end)
+    
+    penalties = if recent_violations > 10 do
+      [{:violation_overload, 0.15} | penalties]
+    else
+      penalties
+    end
+    
+    # Enforcement failures
+    if state.enforcement_stats.total_enforcements > 0 do
+      failure_rate = state.enforcement_stats.failed / state.enforcement_stats.total_enforcements
+      penalties = if failure_rate > 0.3 do
+        [{:enforcement_failure, 0.1} | penalties]
+      else
+        penalties
+      end
+    end
+    
+    # Apply all penalties
+    total_penalty = Enum.reduce(penalties, 0.0, fn {_reason, penalty}, acc ->
+      acc + penalty
+    end)
+    
+    base_health - total_penalty
   end
   
   defp broadcast_constraint_update(name, value) do
@@ -1208,6 +1541,739 @@ defmodule AutonomousOpponentV2Core.VSM.S5.Policy do
     case Regex.run(~r/identity[_\s]preservation:(.+?)(?:\n|\z)/i, response) do
       [_, preservation] -> String.trim(preservation)
       _ -> "core values and purpose"
+    end
+  end
+  
+  # New real implementation functions
+  
+  defp init_active_policies do
+    # Initialize with real enforceable policies
+    [
+      %{
+        id: :resource_conservation,
+        name: "Resource Conservation Policy",
+        type: :constraint,
+        target: :all_subsystems,
+        rule: fn allocation -> 
+          total = Map.values(allocation) |> Enum.sum()
+          total <= 0.8  # Max 80% resource usage
+        end,
+        enforcement: :strict,
+        priority: 1
+      },
+      %{
+        id: :response_time,
+        name: "Response Time Policy",
+        type: :performance,
+        target: :s1_operations,
+        rule: fn metrics -> 
+          Map.get(metrics, :response_time, 1000) <= 100
+        end,
+        enforcement: :monitored,
+        priority: 2
+      },
+      %{
+        id: :error_rate,
+        name: "Error Rate Policy",
+        type: :quality,
+        target: :all_subsystems,
+        rule: fn metrics ->
+          Map.get(metrics, :error_rate, 0.0) < 0.01
+        end,
+        enforcement: :strict,
+        priority: 1
+      },
+      %{
+        id: :variety_management,
+        name: "Variety Management Policy",
+        type: :capacity,
+        target: [:s1_operations, :s3_control],
+        rule: fn state ->
+          Map.get(state, :variety_processed, 0) <= 10_000
+        end,
+        enforcement: :adaptive,
+        priority: 2
+      },
+      %{
+        id: :coordination_stability,
+        name: "Coordination Stability Policy",
+        type: :stability,
+        target: :s2_coordination,
+        rule: fn metrics ->
+          Map.get(metrics, :oscillation_detected, false) == false
+        end,
+        enforcement: :immediate,
+        priority: 1
+      }
+    ]
+  end
+  
+  defp enforce_single_policy(policy, state) do
+    # Get current state for the policy's target
+    target_state = gather_target_state(policy.target, state)
+    
+    # Check if policy is being followed
+    policy_result = try do
+      policy.rule.(target_state)
+    rescue
+      _ -> true  # Default to compliant if evaluation fails
+    end
+    
+    if policy_result do
+      # Policy is being followed
+      update_enforcement_stats(:success, policy.id, state)
+    else
+      # Policy violation detected
+      handle_policy_violation(policy, target_state, state)
+    end
+  end
+  
+  defp gather_target_state(target, state) when is_atom(target) do
+    # Gather state for specific subsystem
+    case target do
+      :all_subsystems -> state.environmental_model
+      :s1_operations -> Map.get(state.environmental_model, :s1_state, %{})
+      :s2_coordination -> Map.get(state.environmental_model, :s2_state, %{})
+      :s3_control -> Map.get(state.environmental_model, :s3_state, %{})
+      _ -> %{}
+    end
+  end
+  
+  defp gather_target_state(targets, state) when is_list(targets) do
+    # Gather combined state for multiple targets
+    Enum.reduce(targets, %{}, fn target, acc ->
+      Map.merge(acc, gather_target_state(target, state))
+    end)
+  end
+  
+  defp handle_policy_violation(policy, target_state, state) do
+    violation = %{
+      policy_id: policy.id,
+      policy_name: policy.name,
+      type: policy.type,
+      target: policy.target,
+      state_at_violation: target_state,
+      timestamp: DateTime.utc_now(),
+      severity: calculate_violation_severity(policy, target_state)
+    }
+    
+    # Log the violation
+    new_state = log_violation(:policy, violation, state)
+    
+    # Take enforcement action based on policy type
+    case policy.enforcement do
+      :strict ->
+        # Immediate enforcement
+        enforce_policy_immediately(policy, new_state)
+        
+      :immediate ->
+        # Emergency intervention
+        trigger_emergency_intervention(policy, violation, new_state)
+        
+      :monitored ->
+        # Just track, intervention if pattern emerges
+        new_state
+        
+      :adaptive ->
+        # Adjust constraints gradually
+        adapt_constraints_for_policy(policy, new_state)
+    end
+  end
+  
+  defp calculate_violation_severity(policy, state) do
+    base_severity = case policy.priority do
+      1 -> 0.8  # High priority violations are severe
+      2 -> 0.5  # Medium priority
+      _ -> 0.3  # Low priority
+    end
+    
+    # Adjust based on how badly the policy was violated
+    # This is simplified - real implementation would calculate actual deviation
+    base_severity
+  end
+  
+  defp enforce_policy_immediately(policy, state) do
+    # Send direct enforcement command
+    enforcement_command = %{
+      type: :policy_enforcement,
+      policy_id: policy.id,
+      action: :restore_compliance,
+      constraints: extract_policy_constraints(policy),
+      timestamp: DateTime.utc_now()
+    }
+    
+    EventBus.publish(policy.target, {:s5_policy_enforcement, enforcement_command})
+    
+    # Update enforcement stats
+    update_enforcement_stats(:enforced, policy.id, state)
+  end
+  
+  defp trigger_emergency_intervention(policy, violation, state) do
+    Logger.warning("S5 triggering emergency intervention for policy: #{policy.name}")
+    
+    # Use algedonic channel for immediate response
+    Algedonic.emergency_scream(:s5_policy, 
+      "POLICY VIOLATION: #{policy.name} - #{inspect(violation)}")
+    
+    # Force immediate compliance
+    emergency_command = %{
+      type: :emergency_policy_enforcement,
+      policy_id: policy.id,
+      violation: violation,
+      required_action: :immediate_compliance,
+      override_authority: :s5_governance
+    }
+    
+    EventBus.publish(:all_subsystems, {:s5_emergency_enforcement, emergency_command})
+    
+    state
+  end
+  
+  defp adapt_constraints_for_policy(policy, state) do
+    # Gradually adjust constraints to bring system back into compliance
+    adjustment = calculate_constraint_adjustment(policy, state)
+    
+    new_constraints = Map.merge(state.constraints, adjustment)
+    
+    # Broadcast adjusted constraints
+    Enum.each(adjustment, fn {name, value} ->
+      broadcast_constraint_update(name, value)
+    end)
+    
+    %{state | constraints: new_constraints}
+  end
+  
+  defp extract_policy_constraints(policy) do
+    # Extract actionable constraints from policy
+    case policy.id do
+      :resource_conservation -> %{max_resource_usage: 0.8}
+      :response_time -> %{max_response_time: 100}
+      :error_rate -> %{max_error_rate: 0.01}
+      :variety_management -> %{variety_limit: 10_000}
+      _ -> %{}
+    end
+  end
+  
+  defp calculate_constraint_adjustment(policy, state) do
+    # Calculate how to adjust constraints based on policy violation
+    case policy.id do
+      :resource_conservation ->
+        current = Map.get(state.constraints, :max_resource_usage, 0.8)
+        %{max_resource_usage: max(0.7, current - 0.05)}  # Reduce by 5%
+        
+      :variety_management ->
+        current = Map.get(state.constraints, :variety_limit, 10_000)
+        %{variety_limit: max(5000, current - 500)}  # Reduce capacity
+        
+      _ ->
+        %{}
+    end
+  end
+  
+  defp log_violation(type, data, state) do
+    violation_entry = %{
+      type: type,
+      data: data,
+      timestamp: DateTime.utc_now(),
+      identity_coherence: state.health_metrics.identity_coherence,
+      ethos_state: state.ethos_state.alignment
+    }
+    
+    # Add to violation log (keep last 1000)
+    new_log = [violation_entry | state.violation_log] |> Enum.take(1000)
+    
+    # Update violation count
+    new_metrics = Map.update!(state.health_metrics, :value_violations, &(&1 + 1))
+    
+    # Update ethos if violations are impacting integrity
+    new_ethos = update_ethos_for_violation(state.ethos_state, violation_entry)
+    
+    %{state | 
+      violation_log: new_log,
+      health_metrics: new_metrics,
+      ethos_state: new_ethos
+    }
+  end
+  
+  defp update_ethos_for_violation(ethos, violation) do
+    # Violations reduce ethos integrity
+    integrity_impact = case violation.type do
+      :policy -> 0.02       # Policy violations hurt integrity
+      :decision -> 0.01     # Bad decisions hurt less
+      :resource_allocation -> 0.03  # Resource violations are serious
+      _ -> 0.01
+    end
+    
+    %{ethos |
+      integrity: max(0.0, ethos.integrity - integrity_impact),
+      last_assessment: DateTime.utc_now()
+    }
+  end
+  
+  defp update_enforcement_stats(result, target, state) do
+    stats = state.enforcement_stats
+    
+    # Update total count
+    new_total = stats.total_enforcements + 1
+    
+    # Update result count
+    new_stats = case result do
+      :success -> %{stats | successful: stats.successful + 1}
+      :enforced -> %{stats | successful: stats.successful + 1}
+      :failed -> %{stats | failed: stats.failed + 1}
+      :overridden -> %{stats | overridden: stats.overridden + 1}
+    end
+    
+    # Update per-subsystem stats
+    subsystem_stats = Map.update(
+      new_stats.by_subsystem,
+      target,
+      %{total: 1, successful: if(result in [:success, :enforced], do: 1, else: 0)},
+      fn current ->
+        %{current |
+          total: current.total + 1,
+          successful: current.successful + if(result in [:success, :enforced], do: 1, else: 0)
+        }
+      end
+    )
+    
+    final_stats = %{new_stats |
+      total_enforcements: new_total,
+      by_subsystem: subsystem_stats
+    }
+    
+    %{state | enforcement_stats: final_stats}
+  end
+  
+  defp analyze_violation_patterns(violations) do
+    # Group violations by type and policy
+    by_type = Enum.group_by(violations, & &1.type)
+    by_policy = violations
+    |> Enum.filter(& &1[:policy_id])
+    |> Enum.group_by(& &1.policy_id)
+    
+    # Find most common violation
+    most_common_type = by_type
+    |> Enum.max_by(fn {_type, list} -> length(list) end, fn -> {:unknown, []} end)
+    |> elem(0)
+    
+    most_violated_policy = by_policy
+    |> Enum.max_by(fn {_policy, list} -> length(list) end, fn -> {:unknown, []} end)
+    |> elem(0)
+    
+    %{
+      total_violations: length(violations),
+      by_type: Map.new(by_type, fn {type, list} -> {type, length(list)} end),
+      most_common_type: most_common_type,
+      most_violated_policy: most_violated_policy,
+      time_span: calculate_time_span(violations),
+      severity_trend: calculate_severity_trend(violations)
+    }
+  end
+  
+  defp calculate_time_span(violations) do
+    if Enum.empty?(violations) do
+      0
+    else
+      oldest = violations |> Enum.map(& &1.timestamp) |> Enum.min()
+      newest = violations |> Enum.map(& &1.timestamp) |> Enum.max()
+      DateTime.diff(newest, oldest)
+    end
+  end
+  
+  defp calculate_severity_trend(violations) do
+    # Check if violations are getting more or less severe
+    severities = violations
+    |> Enum.map(& Map.get(&1, :severity, 0.5))
+    |> Enum.with_index()
+    
+    if length(severities) < 2 do
+      :stable
+    else
+      # Simple trend: compare first half to second half average
+      mid = div(length(severities), 2)
+      {first_half, second_half} = Enum.split(severities, mid)
+      
+      first_avg = first_half |> Enum.map(&elem(&1, 0)) |> Enum.sum() |> Kernel./(length(first_half))
+      second_avg = second_half |> Enum.map(&elem(&1, 0)) |> Enum.sum() |> Kernel./(length(second_half))
+      
+      cond do
+        second_avg > first_avg + 0.1 -> :worsening
+        second_avg < first_avg - 0.1 -> :improving
+        true -> :stable
+      end
+    end
+  end
+  
+  defp determine_violation_response(pattern, state) do
+    cond do
+      pattern.severity_trend == :worsening ->
+        # Things are getting worse - need stronger intervention
+        %{
+          type: :escalated_enforcement,
+          targets: identify_problem_subsystems(pattern, state),
+          measures: :strict_compliance,
+          duration: :until_improvement
+        }
+        
+      pattern.most_violated_policy != :unknown ->
+        # Specific policy being repeatedly violated
+        %{
+          type: :targeted_enforcement,
+          policy: pattern.most_violated_policy,
+          measures: :reinforce_specific_policy,
+          adjustments: calculate_policy_adjustments(pattern.most_violated_policy, state)
+        }
+        
+      pattern.total_violations > 10 ->
+        # General compliance problem
+        %{
+          type: :system_wide_enforcement,
+          measures: :tighten_all_policies,
+          emergency_level: :medium
+        }
+        
+      true ->
+        # Standard response
+        %{
+          type: :standard_enforcement,
+          measures: :monitor_closely
+        }
+    end
+  end
+  
+  defp identify_problem_subsystems(pattern, state) do
+    # Identify which subsystems are causing the most violations
+    state.enforcement_stats.by_subsystem
+    |> Enum.filter(fn {_subsystem, stats} ->
+      success_rate = stats.successful / max(1, stats.total)
+      success_rate < 0.8  # Less than 80% success rate
+    end)
+    |> Enum.map(&elem(&1, 0))
+  end
+  
+  defp calculate_policy_adjustments(policy_id, state) do
+    # Calculate specific adjustments for a repeatedly violated policy
+    current_constraint = case policy_id do
+      :resource_conservation -> Map.get(state.constraints, :max_resource_usage, 0.8)
+      :response_time -> Map.get(state.constraints, :min_response_time, 100)
+      :error_rate -> Map.get(state.constraints, :error_tolerance, 0.01)
+      :variety_management -> Map.get(state.constraints, :variety_limit, 10_000)
+      _ -> nil
+    end
+    
+    if current_constraint do
+      # Make constraint 10% stricter
+      case policy_id do
+        :resource_conservation -> %{max_resource_usage: current_constraint * 0.9}
+        :response_time -> %{min_response_time: current_constraint * 1.1}
+        :error_rate -> %{error_tolerance: current_constraint * 0.9}
+        :variety_management -> %{variety_limit: current_constraint * 0.9}
+        _ -> %{}
+      end
+    else
+      %{}
+    end
+  end
+  
+  defp execute_governance_decision(decision, state) do
+    Logger.info("S5 executing governance decision: #{decision.type}")
+    
+    case decision.action.type do
+      :escalated_enforcement ->
+        # Send escalated enforcement to problem subsystems
+        Enum.each(decision.action.targets, fn target ->
+          EventBus.publish(target, {:s5_escalated_enforcement, decision.action})
+        end)
+        
+        # Tighten monitoring
+        state
+        
+      :targeted_enforcement ->
+        # Reinforce specific policy
+        policy = Enum.find(state.active_policies, & &1.id == decision.action.policy)
+        if policy do
+          enforce_policy_immediately(policy, state)
+        else
+          state
+        end
+        
+      :system_wide_enforcement ->
+        # Tighten all policies
+        EventBus.publish(:all_subsystems, {:s5_system_wide_enforcement, decision.action})
+        
+        # Reduce all tolerances by 10%
+        new_constraints = state.constraints
+        |> Enum.map(fn {k, v} when is_number(v) -> {k, v * 0.9}; kv -> kv end)
+        |> Map.new()
+        
+        %{state | constraints: new_constraints}
+        
+      _ ->
+        state
+    end
+  end
+  
+  defp evaluate_operational_compliance(event_data, state) do
+    # Check S1 operations against policies
+    if Map.has_key?(event_data, :metrics) do
+      metrics = event_data.metrics
+      
+      # Check response time
+      if Map.get(metrics, :response_time, 0) > state.constraints.min_response_time do
+        log_violation(:s1_operations, %{
+          metric: :response_time,
+          value: metrics.response_time,
+          limit: state.constraints.min_response_time
+        }, state)
+      else
+        state
+      end
+    else
+      state
+    end
+  end
+  
+  defp evaluate_coordination_health(event_data, state) do
+    # Monitor S2 coordination effectiveness
+    if Map.get(event_data, :oscillation_detected, false) do
+      log_violation(:s2_coordination, %{
+        issue: :oscillation,
+        severity: Map.get(event_data, :oscillation_severity, 0.5)
+      }, state)
+    else
+      state
+    end
+  end
+  
+  defp evaluate_control_decisions(event_data, state) do
+    # Evaluate S3 control decisions
+    if Map.has_key?(event_data, :decision) do
+      decision = event_data.decision
+      
+      # Check if decision respects constraints
+      if violates_control_policies?(decision, state) do
+        log_violation(:s3_control, decision, state)
+      else
+        update_enforcement_stats(:success, :s3_control, state)
+      end
+    else
+      state
+    end
+  end
+  
+  defp violates_control_policies?(decision, state) do
+    # Check control decision against policies
+    case decision[:type] do
+      :resource_allocation ->
+        total = decision[:resources] |> Map.values() |> Enum.sum()
+        total > state.constraints.max_resource_usage
+        
+      :optimization ->
+        # Check if optimization respects identity
+        Map.get(decision, :identity_impact, 0) > @identity_drift_threshold
+        
+      _ ->
+        false
+    end
+  end
+  
+  defp violates_resource_policies?(allocation, state) do
+    # Check resource allocation against policies
+    total_allocated = allocation
+    |> Map.get(:resources, %{})
+    |> Map.values()
+    |> Enum.sum()
+    
+    total_allocated > state.constraints.max_resource_usage
+  end
+  
+  defp calculate_governance_effectiveness(state) do
+    stats = state.enforcement_stats
+    
+    if stats.total_enforcements == 0 do
+      1.0  # No enforcements yet, assume effective
+    else
+      # Success rate weighted by recency
+      success_rate = stats.successful / stats.total_enforcements
+      
+      # Adjust for recent violations
+      recent_violations = Enum.count(state.violation_log, fn v ->
+        DateTime.diff(DateTime.utc_now(), v.timestamp) < 60  # Last minute
+      end)
+      
+      violation_penalty = min(0.5, recent_violations * 0.1)
+      
+      max(0.0, success_rate - violation_penalty)
+    end
+  end
+  
+  defp calculate_policy_compliance(state) do
+    # Calculate overall policy compliance rate
+    if state.health_metrics.decisions_evaluated == 0 do
+      1.0
+    else
+      violations = state.health_metrics.value_violations
+      evaluated = state.health_metrics.decisions_evaluated
+      
+      max(0.0, 1.0 - (violations / evaluated))
+    end
+  end
+  
+  defp calculate_violation_rate(state) do
+    # Violations per minute
+    recent_violations = Enum.count(state.violation_log, fn v ->
+      DateTime.diff(DateTime.utc_now(), v.timestamp) < 60
+    end)
+    
+    recent_violations / 60.0  # Rate per second
+  end
+  
+  defp calculate_adaptation_stress(state) do
+    # How much stress is the system under from adaptations
+    adaptation_rate = Map.get(state.constraints, :adaptation_rate, 0.1)
+    current_adaptations = state.health_metrics.policy_updates
+    
+    # Stress increases with adaptation frequency
+    base_stress = min(1.0, current_adaptations * 0.01)
+    
+    # Adjust for identity coherence
+    identity_stress = 1.0 - state.health_metrics.identity_coherence
+    
+    (base_stress + identity_stress) / 2.0
+  end
+  
+  defp initiate_emergency_governance(state) do
+    Logger.error("S5 initiating emergency governance - system health critical")
+    
+    # Emergency governance measures
+    emergency_policies = [
+      %{
+        id: :emergency_conservation,
+        name: "Emergency Resource Conservation",
+        type: :emergency,
+        target: :all_subsystems,
+        rule: fn _state -> true end,  # Always enforce
+        enforcement: :immediate,
+        priority: 0  # Highest priority
+      }
+    ]
+    
+    # Add emergency policies
+    new_policies = emergency_policies ++ state.active_policies
+    
+    # Broadcast emergency governance
+    EventBus.publish(:all_subsystems, {:s5_emergency_governance, %{
+      reason: :critical_health,
+      measures: :strict_conservation,
+      duration: :until_recovery
+    }})
+    
+    %{state | active_policies: new_policies}
+  end
+  
+  defp update_environmental_model(event_data, current_model) do
+    # Update model with new intelligence
+    Map.merge(current_model, %{
+      last_update: DateTime.utc_now(),
+      complexity: Map.get(event_data, :environmental_complexity, current_model.complexity),
+      change_rate: Map.get(event_data, :change_rate, current_model.change_rate),
+      threat_level: Map.get(event_data, :threat_level, current_model.threat_level),
+      opportunity_level: Map.get(event_data, :opportunity_level, current_model.opportunity_level),
+      external_pressures: Map.get(event_data, :external_pressures, [])
+    })
+  end
+  
+  defp requires_policy_adaptation?(environmental_model, state) do
+    # Check if environment has changed enough to warrant adaptation
+    environmental_model.change_rate > 0.3 ||
+    environmental_model.threat_level > 0.7 ||
+    environmental_model.complexity > 0.8
+  end
+  
+  defp adapt_policies_to_environment(state) do
+    # Adapt policies based on environmental pressures
+    adapted_constraints = adapt_constraints_to_environment(state.constraints, state.environmental_model)
+    
+    # Update adaptation strategy
+    new_strategy = determine_adaptation_strategy(state.environmental_model)
+    
+    new_state = %{state | 
+      constraints: adapted_constraints,
+      adaptation_strategy: new_strategy
+    }
+    
+    # Broadcast new constraints
+    broadcast_policy_constraints(new_state)
+    
+    {:noreply, new_state}
+  end
+  
+  defp process_intelligence_variety(variety_data, state) do
+    # Process intelligence from S4
+    
+    # Update environmental model if present
+    new_environmental_model = if variety_data[:environmental_model] do
+      update_environmental_model(variety_data.environmental_model, state.environmental_model)
+    else
+      state.environmental_model
+    end
+    
+    # Process policy violations if detected
+    new_state = if variety_data[:policy_violations] && length(variety_data.policy_violations) > 0 do
+      Enum.reduce(variety_data.policy_violations, state, fn violation, acc ->
+        log_violation(:intelligence_detected, violation, acc)
+      end)
+    else
+      state
+    end
+    
+    %{new_state | environmental_model: new_environmental_model}
+  end
+  
+  defp broadcast_policy_updates(state) do
+    # Broadcast updated policies to all subsystems
+    Logger.info("S5 broadcasting policy updates to all subsystems")
+    
+    # Use variety channel for policy distribution
+    VarietyChannel.transmit(:s5_to_all, %{
+      constraints: state.constraints,
+      values: extract_operational_values(state.values),
+      enforcement: :mandatory,
+      adaptation_strategy: state.adaptation_strategy,
+      timestamp: DateTime.utc_now()
+    })
+    
+    # Also use direct EventBus for critical updates
+    EventBus.publish(:all_subsystems, {:s5_policy_update, %{
+      constraints: state.constraints,
+      priority: :high
+    }})
+  end
+  
+  defp adapt_constraints_to_environment(constraints, environmental_model) do
+    # Dynamically adjust constraints based on environment
+    
+    # In high-threat environments, be more conservative
+    threat_factor = 1.0 - environmental_model.threat_level * 0.3
+    
+    # In complex environments, reduce variety limits
+    complexity_factor = 1.0 - environmental_model.complexity * 0.2
+    
+    %{constraints |
+      max_resource_usage: constraints.max_resource_usage * threat_factor,
+      variety_limit: round(constraints.variety_limit * complexity_factor),
+      adaptation_rate: if(environmental_model.change_rate > 0.5, do: 0.2, else: 0.1)
+    }
+  end
+  
+  defp determine_adaptation_strategy(environmental_model) do
+    cond do
+      environmental_model.threat_level > 0.8 -> :defensive
+      environmental_model.opportunity_level > 0.7 -> :expansive
+      environmental_model.change_rate > 0.6 -> :agile
+      environmental_model.complexity > 0.7 -> :conservative
+      true -> :balanced
     end
   end
 end

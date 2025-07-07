@@ -207,6 +207,13 @@ defmodule AutonomousOpponentV2Core.AMCP.Events.SemanticAnalyzer do
   end
   
   @impl true
+  # Handle new HLC event format from EventBus
+  def handle_info({:event_bus_hlc, event}, state) do
+    # Extract event data and forward to existing handler
+    handle_info({:event_bus, event.type, event.data}, state)
+  end
+
+  @impl true
   def handle_info({:event_bus, event_name, event_data}, state) do
     # Directly add events to buffer instead of casting back to self
     Logger.debug("SemanticAnalyzer received event: #{event_name}")

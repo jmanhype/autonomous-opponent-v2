@@ -14,6 +14,7 @@ defmodule AutonomousOpponentV2Core.VSM.Channels.VarietyChannel do
   use GenServer
   require Logger
   alias AutonomousOpponentV2Core.EventBus
+  alias AutonomousOpponentV2Core.VSM.Clock
   
   # Channel types define variety transformation rules
   @channel_types %{
@@ -134,12 +135,21 @@ defmodule AutonomousOpponentV2Core.VSM.Channels.VarietyChannel do
   def handle_call({:transmit, variety_data}, _from, state) do
     start_time = System.monotonic_time()
     
-    # Check capacity
+    # Atomic capacity check and increment to prevent race conditions
     if state.current_flow < state.capacity do
-      # Transform variety according to channel rules
-      transformed = apply_transformation(variety_data, state.transformation_fn)
+      new_flow = state.current_flow + 1
       
-      # Emit to target
+      # Create HLC event for variety transmission ordering
+      {:ok, transmission_event} = Clock.create_event(:variety_channel, :variety_transmission, %{
+        channel: state.channel_type,
+        data: variety_data,
+        flow_sequence: new_flow
+      })
+      
+      # Transform variety according to channel rules with HLC timestamp
+      transformed = apply_transformation(variety_data, state.transformation_fn, transmission_event)
+      
+      # Emit to target with causally-ordered data
       config = Map.fetch!(@channel_types, state.channel_type)
       EventBus.publish(config.target, transformed)
       
@@ -148,11 +158,21 @@ defmodule AutonomousOpponentV2Core.VSM.Channels.VarietyChannel do
       new_metrics = update_metrics(state.metrics, :success, latency)
       
       {:reply, :ok, %{state | 
-        current_flow: state.current_flow + 1,
+        current_flow: new_flow,  # Use atomically incremented value
         metrics: new_metrics
       }}
     else
-      # Capacity exceeded - attenuate
+      # Capacity exceeded - attenuate with HLC timestamp for debugging
+      {:ok, drop_event} = Clock.create_event(:variety_channel, :variety_dropped, %{
+        channel: state.channel_type,
+        reason: :capacity_exceeded,
+        current_flow: state.current_flow,
+        capacity: state.capacity
+      })
+      
+      Logger.warning("Variety channel capacity exceeded", 
+        channel: state.channel_type, event_id: drop_event.id)
+      
       new_metrics = update_metrics(state.metrics, :dropped, 0)
       {:reply, {:error, :capacity_exceeded}, %{state | metrics: new_metrics}}
     end
@@ -196,60 +216,97 @@ defmodule AutonomousOpponentV2Core.VSM.Channels.VarietyChannel do
     :"vsm_channel_#{channel_type}"
   end
   
-  defp apply_transformation(data, :aggregate_variety) do
+  defp apply_transformation(data, :aggregate_variety, event) do
     # S1 → S2: Aggregate operational variety into coordination patterns
     %{
       variety_type: :operational,
       patterns: extract_patterns(data),
       volume: calculate_variety_volume(data),
-      timestamp: DateTime.utc_now()
+      hlc_timestamp: event.timestamp,
+      transmission_id: event.id
     }
   end
   
+  # Legacy function for backward compatibility
+  defp apply_transformation(data, transformation_type) do
+    {:ok, event} = Clock.create_event(:variety_channel, :variety_transformation, %{type: transformation_type})
+    apply_transformation(data, transformation_type, event)
+  end
+  
+  # Fallback 2-arg variants that create HLC events
   defp apply_transformation(data, :coordinate_to_control) do
+    {:ok, event} = Clock.create_event(:variety_channel, :variety_transformation, %{type: :coordinate_to_control})
+    apply_transformation(data, :coordinate_to_control, event)
+  end
+  
+  defp apply_transformation(data, :audit_to_learning) do
+    {:ok, event} = Clock.create_event(:variety_channel, :variety_transformation, %{type: :audit_to_learning})
+    apply_transformation(data, :audit_to_learning, event)
+  end
+  
+  defp apply_transformation(data, :intelligence_to_policy) do
+    {:ok, event} = Clock.create_event(:variety_channel, :variety_transformation, %{type: :intelligence_to_policy})
+    apply_transformation(data, :intelligence_to_policy, event)
+  end
+  
+  defp apply_transformation(data, :control_commands) do
+    {:ok, event} = Clock.create_event(:variety_channel, :variety_transformation, %{type: :control_commands})
+    apply_transformation(data, :control_commands, event)
+  end
+  
+  defp apply_transformation(data, :policy_constraints) do
+    {:ok, event} = Clock.create_event(:variety_channel, :variety_transformation, %{type: :policy_constraints})
+    apply_transformation(data, :policy_constraints, event)
+  end
+  
+  defp apply_transformation(data, :coordinate_to_control, event) do
     # S2 → S3: Convert coordination into control decisions
     %{
       variety_type: :coordinated,
       resource_requirements: data.patterns |> analyze_resource_needs(),
       intervention_needed: detect_intervention_need(data),
-      timestamp: DateTime.utc_now()
+      hlc_timestamp: event.timestamp,
+      transmission_id: event.id
     }
   end
   
-  defp apply_transformation(data, :audit_to_learning) do
+  defp apply_transformation(data, :audit_to_learning, event) do
     # S3 → S4: Transform audit data into learning material
     %{
       variety_type: :audit,
       decisions_made: data,
       outcomes: nil,  # To be filled by S4
       patterns_to_learn: extract_learning_patterns(data),
-      timestamp: DateTime.utc_now()
+      hlc_timestamp: event.timestamp,
+      transmission_id: event.id
     }
   end
   
-  defp apply_transformation(data, :intelligence_to_policy) do
+  defp apply_transformation(data, :intelligence_to_policy, event) do
     # S4 → S5: Convert intelligence into policy recommendations
     %{
       variety_type: :intelligence,
       environmental_model: data,
       policy_violations: detect_policy_violations(data),
       recommended_adjustments: generate_policy_recommendations(data),
-      timestamp: DateTime.utc_now()
+      hlc_timestamp: event.timestamp,
+      transmission_id: event.id
     }
   end
   
-  defp apply_transformation(data, :control_commands) do
+  defp apply_transformation(data, :control_commands, event) do
     # S3 → S1: Direct control commands (CLOSES THE LOOP!)
     %{
       variety_type: :control,
       commands: data.commands,
       priority: :high,
       bypass_buffers: data[:emergency] || false,
-      timestamp: DateTime.utc_now()
+      hlc_timestamp: event.timestamp,
+      transmission_id: event.id
     }
   end
   
-  defp apply_transformation(data, :policy_constraints) do
+  defp apply_transformation(data, :policy_constraints, event) do
     # S5 → All: Policy constraints that shape all subsystems
     %{
       variety_type: :policy,
@@ -259,7 +316,8 @@ defmodule AutonomousOpponentV2Core.VSM.Channels.VarietyChannel do
       environmental_model: Map.get(data, :environmental_model),
       policy_violations: Map.get(data, :policy_violations, []),
       recommended_adjustments: Map.get(data, :recommended_adjustments, []),
-      timestamp: DateTime.utc_now()
+      hlc_timestamp: event.timestamp,
+      transmission_id: event.id
     }
   end
   

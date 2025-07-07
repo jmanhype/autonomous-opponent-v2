@@ -23,6 +23,7 @@ defmodule AutonomousOpponentV2Core.AMCP.Memory.CRDTStore do
   require Logger
   
   alias AutonomousOpponentV2Core.EventBus
+  alias AutonomousOpponentV2Core.VSM.Clock
   alias AutonomousOpponentV2Core.AMCP.Memory.{GSet, PNCounter, LWWRegister, ORSet, CRDTMap}
   alias AutonomousOpponentV2Core.AMCP.Bridges.LLMBridge
   
@@ -154,11 +155,19 @@ defmodule AutonomousOpponentV2Core.AMCP.Memory.CRDTStore do
   """
   def add_context_relationship(context_id, from_concept, to_concept, relationship_type) do
     crdt_id = "context_graph:#{context_id}"
+    # Use HLC timestamp for deterministic ordering
+    {:ok, hlc_event} = Clock.create_event(:crdt_store, :relationship_added, %{
+      from: from_concept,
+      to: to_concept,
+      type: relationship_type
+    })
+    
     relationship = %{
       from: from_concept,
       to: to_concept,
       type: relationship_type,
-      timestamp: DateTime.utc_now()
+      hlc_timestamp: hlc_event.timestamp,
+      event_id: hlc_event.id
     }
     update_crdt(crdt_id, :put, {"relationships", generate_relationship_id(), relationship})
   end
@@ -402,6 +411,13 @@ defmodule AutonomousOpponentV2Core.AMCP.Memory.CRDTStore do
   end
   
   @impl true
+  # Handle new HLC event format from EventBus
+  def handle_info({:event_bus_hlc, event}, state) do
+    # Extract event data and forward to existing handler
+    handle_info({:event, event.type, event.data}, state)
+  end
+
+  @impl true
   def handle_info({:event, event_name, data}, state) do
     # Handle context and belief events automatically
     new_state = case event_name do
@@ -428,7 +444,10 @@ defmodule AutonomousOpponentV2Core.AMCP.Memory.CRDTStore do
       updates: 0,
       merges: 0,
       syncs: 0,
-      created_at: DateTime.utc_now()
+      created_at: case Clock.now() do
+        {:ok, timestamp} -> timestamp.physical
+        _ -> System.system_time(:millisecond)
+      end
     }
   end
   
@@ -579,7 +598,10 @@ defmodule AutonomousOpponentV2Core.AMCP.Memory.CRDTStore do
         node_id: state.node_id,
         vector_clock: state.vector_clock,
         crdt_summaries: create_crdt_summaries(state.crdts),
-        timestamp: DateTime.utc_now()
+        hlc_timestamp: case Clock.now() do
+          {:ok, timestamp} -> timestamp.physical
+          _ -> System.system_time(:millisecond)
+        end
       }
       
       # Send to all peers

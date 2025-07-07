@@ -366,6 +366,12 @@ defmodule AutonomousOpponentV2Core.Core.Metrics do
     {:noreply, %{state | persist_timer: timer_ref}}
   end
   
+  # Handle new HLC event format from EventBus
+  def handle_info({:event_bus_hlc, event}, state) do
+    # Extract event data and forward to existing handler
+    handle_info({:event, event.type, event.data}, state)
+  end
+  
   def handle_info({:event_bus, event_name, data}, state) do
     handle_info({:event, event_name, data}, state)
   end
@@ -374,13 +380,19 @@ defmodule AutonomousOpponentV2Core.Core.Metrics do
     # Handle EventBus events
     case event_name do
       :algedonic_pain ->
-        intensity = case data.severity do
-          :high -> 10
-          :medium -> 5
-          :low -> 2
-          _ -> 5
+        # Handle both severity and intensity fields
+        intensity = cond do
+          Map.has_key?(data, :intensity) -> data.intensity * 10
+          Map.has_key?(data, :severity) ->
+            case data.severity do
+              :high -> 10
+              :medium -> 5
+              :low -> 2
+              _ -> 5
+            end
+          true -> 5
         end
-        algedonic_signal(state.name, :pain, intensity, data.source)
+        algedonic_signal(state.name, :pain, intensity, Map.get(data, :source, :unknown))
         
       :algedonic_pleasure ->
         # Handle both old and new format

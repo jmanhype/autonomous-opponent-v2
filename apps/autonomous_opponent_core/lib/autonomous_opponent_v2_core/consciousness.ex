@@ -339,6 +339,12 @@ defmodule AutonomousOpponentV2Core.Consciousness do
     end
   end
   
+  # Handle new HLC event format from EventBus
+  def handle_info({:event_bus_hlc, event}, state) do
+    # Extract event data and forward to existing handler
+    handle_info({:event_published, event.type, event.data}, state)
+  end
+
   def handle_info({:event_published, event_name, event_data}, state) do
     # React to significant system events
     if is_consciousness_relevant_event?(event_name) do

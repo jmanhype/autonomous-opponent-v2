@@ -388,6 +388,12 @@ defmodule AutonomousOpponentV2Core.AMCP.Bridges.LLMBridge do
     {:noreply, %{state | initialization_complete: true}}
   end
   
+  # Handle new HLC event format from EventBus
+  def handle_info({:event_bus_hlc, event}, state) do
+    # Extract event data and forward to existing handler
+    handle_info({:event, event.type, event.data}, state)
+  end
+
   def handle_info({:event, :vsm_state_change, data}, state) do
     # Auto-generate explanations for significant VSM changes
     if is_significant_change?(data) do

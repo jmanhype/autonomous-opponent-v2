@@ -24,7 +24,10 @@ defmodule AutonomousOpponentV2Core.VSM.S2.Coordination do
     :resource_pools,
     :coordination_rules,
     :conflict_history,
-    :health_metrics
+    :health_metrics,
+    :resource_allocations,
+    :phase_controller,
+    :serialization_queue
   ]
   
   # Oscillation detection parameters
@@ -76,8 +79,12 @@ defmodule AutonomousOpponentV2Core.VSM.S2.Coordination do
       health_metrics: %{
         conflicts_resolved: 0,
         oscillations_dampened: 0,
-        coordination_efficiency: 1.0
-      }
+        coordination_efficiency: 1.0,
+        last_efficiency_calc: System.monotonic_time(:millisecond)
+      },
+      resource_allocations: %{},  # Track actual allocations per unit
+      phase_controller: init_phase_controller(),
+      serialization_queue: :queue.new()
     }
     
     Logger.info("S2 Coordination online - maintaining harmony")
@@ -140,14 +147,23 @@ defmodule AutonomousOpponentV2Core.VSM.S2.Coordination do
     |> Enum.take(100)  # Keep last 100 conflicts
     
     # Check if this indicates oscillation
+    new_state = %{state | conflict_history: new_history}
+    
     if detecting_oscillation?(new_history) do
       Logger.warning("S2 detected oscillation between #{unit1} and #{unit2}")
-      handle_oscillation(unit1, unit2, resource, state)
+      handle_oscillation(unit1, unit2, resource, new_state)
     else
-      {:noreply, %{state | conflict_history: new_history}}
+      {:noreply, new_state}
     end
   end
   
+  @impl true
+  # Handle new HLC event format from EventBus
+  def handle_info({:event_bus_hlc, event}, state) do
+    # Extract event data and forward to existing handler
+    handle_info({:event, event.type, event.data}, state)
+  end
+
   @impl true
   def handle_info({:event, :s1_operations, s1_report}, state) do
     # Update S1 unit state
@@ -187,6 +203,31 @@ defmodule AutonomousOpponentV2Core.VSM.S2.Coordination do
   end
   
   @impl true
+  def handle_info({:event, :s2_coordination, variety_data}, state) do
+    # Handle variety from S1 via variety channel
+    Logger.debug("S2 received variety data: #{inspect(variety_data.variety_type)}")
+    
+    case variety_data.variety_type do
+      :operational ->
+        # Process operational variety from S1
+        new_state = process_operational_variety(variety_data, state)
+        
+        # Forward coordinated view to S3
+        VarietyChannel.transmit(:s2_to_s3, %{
+          patterns: variety_data.patterns,
+          resource_requirements: analyze_resource_needs(variety_data),
+          intervention_needed: variety_data.volume > 1000,
+          timestamp: DateTime.utc_now()
+        })
+        
+        {:noreply, new_state}
+        
+      _ ->
+        {:noreply, state}
+    end
+  end
+  
+  @impl true
   def handle_info(:detect_oscillations, state) do
     Process.send_after(self(), :detect_oscillations, 1000)
     
@@ -210,7 +251,13 @@ defmodule AutonomousOpponentV2Core.VSM.S2.Coordination do
     Process.send_after(self(), :report_health, 1000)
     
     health = calculate_health_score(state)
-    EventBus.publish(:s2_health, %{health: health})
+    EventBus.publish(:s2_health, %{
+      health: health,
+      resource_utilization: calculate_resource_utilization(state),
+      active_conflicts: length(state.conflict_history),
+      dampening_active: MapSet.size(state.damping_controller.affected_units) > 0,
+      coordination_efficiency: state.health_metrics.coordination_efficiency
+    })
     
     # Check pain thresholds
     cond do
@@ -231,30 +278,68 @@ defmodule AutonomousOpponentV2Core.VSM.S2.Coordination do
     {:noreply, state}
   end
   
+  @impl true
+  def handle_info({:update_efficiency, new_efficiency}, state) do
+    {:noreply, put_in(state.health_metrics.coordination_efficiency, new_efficiency)}
+  end
+  
   # Private Functions
   
   defp init_oscillation_detector do
     %{
-      patterns: [],
+      patterns: %{},  # unit_pair => [timestamps]
       detection_window: @oscillation_window,
-      threshold: @oscillation_threshold
+      threshold: @oscillation_threshold,
+      active_oscillations: %{},  # unit_pair => %{frequency, amplitude, phase}
+      pattern_history: []  # Historical patterns for learning
     }
   end
   
   defp init_damping_controller do
     %{
-      damping_active: false,
+      damping_active: %{},  # unit => damping_info
       damping_factor: @damping_factor,
-      affected_units: []
+      affected_units: MapSet.new(),
+      time_division_slots: %{},  # unit => assigned_slot
+      phase_shifts: %{}  # unit => phase_offset
     }
   end
   
   defp init_resource_pools do
+    # Get actual system resources
+    memory_info = :erlang.memory()
+    schedulers = :erlang.system_info(:schedulers_online)
+    
     %{
-      cpu: %{total: 100, allocated: 0},
-      memory: %{total: 100, allocated: 0},
-      io: %{total: 100, allocated: 0},
-      network: %{total: 100, allocated: 0}
+      cpu: %{
+        total: schedulers * 100,  # 100% per scheduler
+        allocated: 0,
+        reservations: %{}  # unit => amount
+      },
+      memory: %{
+        total: memory_info[:total],
+        allocated: 0,
+        reservations: %{}
+      },
+      io: %{
+        total: 1000,  # IO operations per second
+        allocated: 0,
+        reservations: %{}
+      },
+      network: %{
+        total: 10_000,  # Network operations per second  
+        allocated: 0,
+        reservations: %{}
+      }
+    }
+  end
+  
+  defp init_phase_controller do
+    %{
+      phases: %{},  # unit => current_phase (0.0 to 1.0)
+      phase_velocity: %{},  # unit => radians/sec
+      synchronization_groups: [],  # Groups of units that should be in phase
+      desync_groups: []  # Groups that should be out of phase
     }
   end
   
@@ -297,16 +382,45 @@ defmodule AutonomousOpponentV2Core.VSM.S2.Coordination do
   end
   
   defp detecting_oscillation?(conflict_history) do
-    recent_conflicts = Enum.take(conflict_history, 10)
+    recent_conflicts = Enum.take(conflict_history, 20)
     
     # Count conflicts in window
     window_start = System.monotonic_time(:millisecond) - @oscillation_window
     
-    conflicts_in_window = recent_conflicts
+    # Group by unit pairs to detect repeated conflicts
+    conflict_pairs = recent_conflicts
     |> Enum.filter(&(&1.timestamp > window_start))
-    |> length()
+    |> Enum.group_by(fn conflict -> 
+      conflict.units |> Enum.sort() |> Enum.join("-")
+    end)
     
-    conflicts_in_window >= @oscillation_threshold
+    # Check if any pair has threshold conflicts
+    Enum.any?(conflict_pairs, fn {_pair, conflicts} ->
+      length(conflicts) >= @oscillation_threshold &&
+      has_oscillation_pattern?(conflicts)
+    end)
+  end
+  
+  defp has_oscillation_pattern?(conflicts) do
+    # Check if conflicts show a regular pattern (oscillation)
+    timestamps = Enum.map(conflicts, & &1.timestamp)
+    
+    case timestamps do
+      [_] -> false
+      [t1, t2] -> true  # Two conflicts could be start of oscillation
+      timestamps ->
+        # Calculate intervals between conflicts
+        intervals = timestamps
+        |> Enum.chunk_every(2, 1, :discard)
+        |> Enum.map(fn [t1, t2] -> t2 - t1 end)
+        
+        # Check if intervals are regular (within 20% variance)
+        avg_interval = Enum.sum(intervals) / length(intervals)
+        variance = Enum.map(intervals, fn i -> abs(i - avg_interval) / avg_interval end)
+        |> Enum.max()
+        
+        variance < 0.2  # Regular pattern detected
+    end
   end
   
   defp handle_oscillation(unit1, unit2, _resource, state) do
@@ -337,7 +451,11 @@ defmodule AutonomousOpponentV2Core.VSM.S2.Coordination do
   
   defp detect_oscillation_patterns(conflict_history) do
     # Group conflicts by participating units
+    now = System.monotonic_time(:millisecond)
+    window_start = now - @oscillation_window
+    
     conflict_history
+    |> Enum.filter(&(&1.timestamp > window_start))
     |> Enum.group_by(fn conflict -> 
       conflict.units |> Enum.sort() |> Enum.join("-")
     end)
@@ -345,38 +463,297 @@ defmodule AutonomousOpponentV2Core.VSM.S2.Coordination do
       length(conflicts) >= @oscillation_threshold
     end)
     |> Enum.map(fn {units_key, conflicts} ->
+      units = String.split(units_key, "-")
+      timestamps = Enum.map(conflicts, & &1.timestamp) |> Enum.sort()
+      
+      # Calculate oscillation characteristics
+      {frequency, amplitude, phase} = analyze_oscillation(timestamps, conflicts)
+      
       %{
-        units: String.split(units_key, "-"),
-        frequency: length(conflicts),
-        resources: Enum.map(conflicts, & &1.resource) |> Enum.uniq()
+        units: units,
+        frequency: frequency,  # Conflicts per second
+        amplitude: amplitude,  # Resource consumption variance
+        phase: phase,         # Current phase in cycle
+        resources: Enum.map(conflicts, & &1.resource) |> Enum.uniq(),
+        pattern_type: classify_pattern(frequency, amplitude),
+        severity: calculate_severity(frequency, amplitude, length(conflicts))
       }
     end)
+    |> Enum.filter(&(&1.severity > 0.3))  # Only significant oscillations
   end
   
-  defp dampen_oscillation(pattern, _state) do
-    # Send dampening commands to affected units
-    Enum.each(pattern.units, fn unit ->
-      # Publish to specific S1 unit event channel
-      EventBus.publish(String.to_atom("s1_#{unit}"), {:apply_dampening, @damping_factor})
+  defp analyze_oscillation(timestamps, conflicts) do
+    # Calculate frequency from intervals
+    intervals = timestamps
+    |> Enum.chunk_every(2, 1, :discard)
+    |> Enum.map(fn [t1, t2] -> t2 - t1 end)
+    
+    avg_interval = if Enum.empty?(intervals), do: 1000, else: Enum.sum(intervals) / length(intervals)
+    frequency = 1000.0 / avg_interval  # Convert to Hz
+    
+    # Calculate amplitude from resource usage variance
+    resource_values = conflicts
+    |> Enum.map(fn c -> 
+      req = extract_resource_requirements(c[:request] || %{})
+      req.cpu + req.memory / 1000 + req.io + req.network
     end)
     
-    # Report pattern to S4 for learning
+    amplitude = if Enum.empty?(resource_values) do
+      0.0
+    else
+      mean = Enum.sum(resource_values) / length(resource_values)
+      variance = Enum.map(resource_values, fn v -> :math.pow(v - mean, 2) end)
+      |> Enum.sum()
+      |> Kernel./(length(resource_values))
+      :math.sqrt(variance)
+    end
+    
+    # Calculate phase (where in cycle we are)
+    phase = if length(timestamps) > 0 do
+      last_timestamp = List.last(timestamps)
+      time_since_last = System.monotonic_time(:millisecond) - last_timestamp
+      rem(round(time_since_last / avg_interval * 2 * :math.pi()), round(2 * :math.pi())) / (2 * :math.pi())
+    else
+      0.0
+    end
+    
+    {frequency, amplitude, phase}
+  end
+  
+  defp classify_pattern(frequency, amplitude) do
+    cond do
+      frequency > 2.0 && amplitude > 50 -> :high_frequency_oscillation
+      frequency > 1.0 && amplitude > 30 -> :resonance
+      frequency > 0.5 -> :periodic_conflict
+      frequency > 0.1 -> :slow_oscillation
+      true -> :sporadic
+    end
+  end
+  
+  defp calculate_severity(frequency, amplitude, conflict_count) do
+    # Severity based on frequency, amplitude, and persistence
+    base_severity = frequency * amplitude / 100
+    persistence_factor = min(conflict_count / 10, 2.0)
+    
+    min(base_severity * persistence_factor, 1.0)
+  end
+  
+  defp dampen_oscillation(pattern, state) do
+    # Apply appropriate damping based on pattern type
+    damping_strategy = case pattern.pattern_type do
+      :high_frequency_oscillation -> 
+        apply_time_division_multiplexing(pattern, state)
+      :resonance -> 
+        apply_phase_shifting(pattern, state)
+      :periodic_conflict -> 
+        apply_serialization(pattern, state)
+      :slow_oscillation -> 
+        apply_rate_limiting(pattern, state)
+      _ -> 
+        apply_basic_dampening(pattern, state)
+    end
+    
+    # Send specific dampening commands to affected units
+    Enum.each(pattern.units, fn unit ->
+      unit_command = Map.get(damping_strategy, unit, %{type: :basic, factor: @damping_factor})
+      
+      # Publish to specific S1 unit event channel
+      EventBus.publish(String.to_atom("s1_#{unit}"), {:apply_dampening, unit_command})
+    end)
+    
+    # Report pattern and solution to S4 for learning
     VarietyChannel.transmit(:s2_to_s4, %{
       oscillation_pattern: pattern,
+      damping_applied: damping_strategy,
       timestamp: DateTime.utc_now()
     })
   end
   
+  defp apply_time_division_multiplexing(pattern, state) do
+    # Assign time slots to conflicting units
+    units = pattern.units
+    slot_duration = 100  # milliseconds
+    
+    units
+    |> Enum.with_index()
+    |> Enum.map(fn {unit, index} ->
+      {unit, %{
+        type: :time_division,
+        slot: index,
+        slot_duration: slot_duration,
+        total_slots: length(units),
+        start_offset: index * slot_duration
+      }}
+    end)
+    |> Map.new()
+  end
+  
+  defp apply_phase_shifting(pattern, state) do
+    # Shift phases to prevent synchronous conflicts
+    units = pattern.units
+    phase_shift = 2 * :math.pi() / length(units)
+    
+    units
+    |> Enum.with_index()
+    |> Enum.map(fn {unit, index} ->
+      {unit, %{
+        type: :phase_shift,
+        phase_offset: index * phase_shift,
+        frequency_adjustment: 0.95 + (index * 0.02),  # Slight frequency detuning
+        damping_factor: @damping_factor
+      }}
+    end)
+    |> Map.new()
+  end
+  
+  defp apply_serialization(pattern, state) do
+    # Force sequential access to contested resources
+    units = pattern.units
+    
+    # Create serialization queue
+    queue_id = :erlang.unique_integer([:positive])
+    
+    units
+    |> Enum.map(fn unit ->
+      {unit, %{
+        type: :serialization,
+        queue_id: queue_id,
+        resources: pattern.resources,
+        max_hold_time: 50,  # milliseconds
+        priority: calculate_unit_priority(unit, state)
+      }}
+    end)
+    |> Map.new()
+  end
+  
+  defp apply_rate_limiting(pattern, _state) do
+    # Limit request rate for oscillating units
+    units = pattern.units
+    
+    # Calculate appropriate rate limit based on frequency
+    rate_limit = max(1, round(1000 / (pattern.frequency * 2)))  # Half the oscillation rate
+    
+    units
+    |> Enum.map(fn unit ->
+      {unit, %{
+        type: :rate_limit,
+        requests_per_second: rate_limit,
+        burst_size: rate_limit * 2,
+        cooldown_ms: 100
+      }}
+    end)
+    |> Map.new()
+  end
+  
+  defp apply_basic_dampening(pattern, _state) do
+    # Fallback to basic damping factor
+    pattern.units
+    |> Enum.map(fn unit ->
+      {unit, %{
+        type: :basic,
+        factor: @damping_factor,
+        duration: 1000
+      }}
+    end)
+    |> Map.new()
+  end
+  
+  defp calculate_unit_priority(unit, state) do
+    # Calculate priority based on current allocation and history
+    unit_state = Map.get(state.s1_units, unit, %{})
+    allocation_history = get_in(state.resource_allocations, [unit, :history]) || []
+    
+    # Higher priority for units with lower recent usage
+    recent_usage = allocation_history
+    |> Enum.take(5)
+    |> Enum.map(fn alloc -> 
+      Map.get(alloc, :cpu, 0) + Map.get(alloc, :memory, 0) / 1000
+    end)
+    |> Enum.sum()
+    
+    # Invert usage for priority (lower usage = higher priority)
+    100 - min(recent_usage, 100)
+  end
+  
   defp calculate_health_score(state) do
-    metrics = state.health_metrics
+    # Real health calculation based on actual metrics
     
-    # Health based on conflicts and efficiency
-    base_health = metrics.coordination_efficiency
+    # 1. Resource utilization efficiency (0-1)
+    utilization = calculate_resource_utilization(state)
+    utilization_score = if utilization > 0.9 do
+      0.5 - (utilization - 0.9) * 5  # Penalty for over-utilization
+    else
+      utilization  # Good up to 90%
+    end
     
-    # Penalty for unresolved conflicts
-    conflict_penalty = length(state.conflict_history) * 0.01
+    # 2. Conflict resolution effectiveness (0-1)
+    recent_conflicts = Enum.filter(state.conflict_history, fn c ->
+      c.timestamp > System.monotonic_time(:millisecond) - 60_000  # Last minute
+    end)
+    conflict_score = max(0, 1.0 - (length(recent_conflicts) / 20))
     
-    max(0.0, base_health - conflict_penalty)
+    # 3. Oscillation control (0-1)
+    oscillation_patterns = detect_oscillation_patterns(state.conflict_history)
+    oscillation_score = max(0, 1.0 - (length(oscillation_patterns) / 5))
+    
+    # 4. Response time (based on coordination efficiency)
+    efficiency_score = state.health_metrics.coordination_efficiency
+    
+    # 5. Active dampening penalty
+    active_dampening = MapSet.size(state.damping_controller.affected_units)
+    dampening_score = max(0, 1.0 - (active_dampening / 10))
+    
+    # Weighted average
+    health = (utilization_score * 0.2 + 
+              conflict_score * 0.25 + 
+              oscillation_score * 0.25 + 
+              efficiency_score * 0.2 + 
+              dampening_score * 0.1)
+    
+    # Update efficiency metric based on actual coordination performance
+    if System.monotonic_time(:millisecond) - state.health_metrics.last_efficiency_calc > 5000 do
+      new_efficiency = calculate_coordination_efficiency(state)
+      Process.send(self(), {:update_efficiency, new_efficiency}, [])
+    end
+    
+    health
+  end
+  
+  defp calculate_coordination_efficiency(state) do
+    # Measure how efficiently we're coordinating resources
+    
+    # 1. Resource allocation efficiency
+    pools = state.resource_pools
+    total_capacity = pools.cpu.total + pools.memory.total / 1_000_000 + 
+                     pools.io.total + pools.network.total
+    total_allocated = pools.cpu.allocated + pools.memory.allocated / 1_000_000 + 
+                      pools.io.allocated + pools.network.allocated
+    
+    allocation_efficiency = if total_capacity > 0 do
+      min(total_allocated / total_capacity, 1.0)
+    else
+      0.0
+    end
+    
+    # 2. Conflict prevention rate
+    prevented_conflicts = state.health_metrics.conflicts_resolved
+    total_attempts = prevented_conflicts + length(state.conflict_history)
+    prevention_rate = if total_attempts > 0 do
+      prevented_conflicts / total_attempts
+    else
+      1.0
+    end
+    
+    # 3. Time to resolve conflicts (based on queue length)
+    queue_efficiency = case :queue.len(state.serialization_queue) do
+      0 -> 1.0
+      n when n < 5 -> 0.8
+      n when n < 10 -> 0.6
+      _ -> 0.4
+    end
+    
+    # Combined efficiency
+    (allocation_efficiency * 0.4 + prevention_rate * 0.4 + queue_efficiency * 0.2)
   end
   
   defp coordination_degrading?(s1_units) do
@@ -444,10 +821,11 @@ defmodule AutonomousOpponentV2Core.VSM.S2.Coordination do
     end
   end
   
-  defp allocate_resources(resource, state) do
+  defp allocate_resources(request, state) do
     pools = state.resource_pools
+    requirements = extract_resource_requirements(request)
     
-    # Calculate available resources
+    # Calculate real available resources
     available = %{
       cpu: pools.cpu.total - pools.cpu.allocated,
       memory: pools.memory.total - pools.memory.allocated,
@@ -456,36 +834,125 @@ defmodule AutonomousOpponentV2Core.VSM.S2.Coordination do
     }
     
     # Allocate what's requested or what's available
-    %{
-      cpu: min(Map.get(resource, :cpu, 10), available.cpu),
-      memory: min(Map.get(resource, :memory, 20), available.memory),
-      io: min(Map.get(resource, :io, 5), available.io),
-      network: min(Map.get(resource, :network, 2), available.network)
+    allocation = %{
+      cpu: min(requirements.cpu, available.cpu),
+      memory: min(requirements.memory, available.memory),
+      io: min(requirements.io, available.io),
+      network: min(requirements.network, available.network),
+      allocated_at: System.monotonic_time(:millisecond)
     }
+    
+    allocation
   end
   
   defp update_s1_allocation(state, unit, allocation) do
-    put_in(state.s1_units[unit], %{resources_held: allocation})
+    # Update unit state
+    updated_units = Map.update(state.s1_units, unit, 
+      %{resources_held: allocation, last_update: DateTime.utc_now()},
+      fn existing -> 
+        %{existing | resources_held: allocation, last_update: DateTime.utc_now()}
+      end
+    )
+    
+    # Update resource pools with actual allocation
+    updated_pools = update_resource_pools(state.resource_pools, unit, allocation)
+    
+    # Track allocation history
+    updated_allocations = Map.put(state.resource_allocations, unit, %{
+      current: allocation,
+      history: [allocation | Map.get(state.resource_allocations[unit] || %{}, :history, [])] |> Enum.take(10)
+    })
+    
+    %{state | 
+      s1_units: updated_units,
+      resource_pools: updated_pools,
+      resource_allocations: updated_allocations
+    }
+  end
+  
+  defp update_resource_pools(pools, unit, allocation) do
+    # Update each pool with the new allocation
+    pools
+    |> update_pool(:cpu, unit, allocation.cpu)
+    |> update_pool(:memory, unit, allocation.memory)
+    |> update_pool(:io, unit, allocation.io)
+    |> update_pool(:network, unit, allocation.network)
+  end
+  
+  defp update_pool(pools, resource_type, unit, amount) do
+    pool = pools[resource_type]
+    
+    # Remove previous reservation if exists
+    old_amount = pool.reservations[unit] || 0
+    new_reservations = Map.put(pool.reservations, unit, amount)
+    new_allocated = pool.allocated - old_amount + amount
+    
+    put_in(pools[resource_type], %{pool | 
+      allocated: new_allocated,
+      reservations: new_reservations
+    })
   end
   
   defp calculate_resource_utilization(state) do
-    # Calculate overall resource usage
+    # Calculate real resource usage from pools
     pools = state.resource_pools
     
-    utilizations = [
-      pools.cpu.allocated / pools.cpu.total,
-      pools.memory.allocated / pools.memory.total,
-      pools.io.allocated / pools.io.total,
-      pools.network.allocated / pools.network.total
-    ]
+    # Safely calculate utilization for each resource type
+    cpu_util = if pools.cpu.total > 0, do: pools.cpu.allocated / pools.cpu.total, else: 0.0
+    memory_util = if pools.memory.total > 0, do: pools.memory.allocated / pools.memory.total, else: 0.0
+    io_util = if pools.io.total > 0, do: pools.io.allocated / pools.io.total, else: 0.0
+    network_util = if pools.network.total > 0, do: pools.network.allocated / pools.network.total, else: 0.0
     
-    # Return average utilization
-    Enum.sum(utilizations) / length(utilizations)
+    utilizations = [cpu_util, memory_util, io_util, network_util]
+    
+    # Calculate weighted average (CPU and memory are more important)
+    weighted_avg = (cpu_util * 0.35 + memory_util * 0.35 + io_util * 0.15 + network_util * 0.15)
+    
+    # Also track peak utilization
+    peak_util = Enum.max(utilizations)
+    
+    # Return average with peak penalty if any resource is overutilized
+    if peak_util > 0.95 do
+      min(weighted_avg * 1.2, 1.0)  # Penalty for hitting limits
+    else
+      weighted_avg
+    end
   end
   
   defp calculate_oscillation_risk(state) do
-    # Risk based on recent conflicts
-    min(1.0, length(state.conflict_history) / 20)
+    # Calculate real oscillation risk based on patterns
+    patterns = detect_oscillation_patterns(state.conflict_history)
+    
+    if Enum.empty?(patterns) do
+      # No active oscillations, but check for precursors
+      recent_conflicts = Enum.filter(state.conflict_history, fn c ->
+        c.timestamp > System.monotonic_time(:millisecond) - 10_000
+      end)
+      
+      # Base risk on conflict rate
+      base_risk = min(length(recent_conflicts) / 20, 0.3)
+      
+      # Check for repeating unit pairs (early warning)
+      unit_pairs = recent_conflicts
+      |> Enum.map(fn c -> c.units |> Enum.sort() |> Enum.join("-") end)
+      |> Enum.frequencies()
+      
+      repeat_risk = unit_pairs
+      |> Map.values()
+      |> Enum.filter(&(&1 > 1))
+      |> length()
+      |> Kernel.*(0.1)
+      
+      min(base_risk + repeat_risk, 0.5)
+    else
+      # Active oscillations detected
+      max_severity = patterns
+      |> Enum.map(& &1.severity)
+      |> Enum.max()
+      
+      # Risk based on most severe pattern
+      min(0.5 + max_severity * 0.5, 1.0)
+    end
   end
   
   defp summarize_coordination(s1_units) do
@@ -570,5 +1037,23 @@ defmodule AutonomousOpponentV2Core.VSM.S2.Coordination do
     else
       true
     end
+  end
+  
+  defp process_operational_variety(variety_data, state) do
+    # Update our understanding of operational patterns
+    new_metrics = %{state.health_metrics |
+      last_efficiency_calc: System.monotonic_time(:millisecond)
+    }
+    
+    %{state | health_metrics: new_metrics}
+  end
+  
+  defp analyze_resource_needs(variety_data) do
+    # Analyze patterns to determine resource requirements
+    %{
+      cpu: if(variety_data.volume > 500, do: :high, else: :medium),
+      memory: :medium,
+      io: if(length(variety_data.patterns) > 10, do: :high, else: :low)
+    }
   end
 end

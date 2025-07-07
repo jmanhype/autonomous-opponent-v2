@@ -277,6 +277,13 @@ defmodule AutonomousOpponentV2Core.VSM.S1ExternalOperations do
   end
   
   @impl true
+  # Handle new HLC event format from EventBus
+  def handle_info({:event_bus_hlc, event}, state) do
+    # Extract event data and forward to existing handler
+    handle_info({:event, event.type, event.data}, state)
+  end
+
+  @impl true
   def handle_info({:event, :mcp_client_connected, data}, state) do
     server_name = data.server_name
     Logger.info("External MCP server connected: #{server_name}, initiating capability absorption")

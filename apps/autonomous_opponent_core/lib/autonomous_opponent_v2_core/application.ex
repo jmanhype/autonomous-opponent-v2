@@ -19,10 +19,14 @@ defmodule AutonomousOpponentV2Core.Application do
     end
     
     children = repo_children ++ [
+      # Start the Hybrid Logical Clock for deterministic timestamps
+      {AutonomousOpponentV2Core.Core.HybridLogicalClock, []},
       # Start the EventBus
       {AutonomousOpponentV2Core.EventBus, name: AutonomousOpponentV2Core.EventBus},
       # CircuitBreaker is initialized on-demand
       {AutonomousOpponentV2Core.Core.RateLimiter, name: AutonomousOpponentV2Core.Core.RateLimiter},
+      # Start the Metrics system for comprehensive monitoring
+      {AutonomousOpponentV2Core.Core.Metrics, name: AutonomousOpponentV2Core.Core.Metrics},
       # Start the Connection Pool Manager for external services
       AutonomousOpponentV2Core.Connections.PoolManager,
       # Start Security services (Task 7)
@@ -53,13 +57,13 @@ defmodule AutonomousOpponentV2Core.Application do
     ]
   end
 
-  # Start VSM in all environments including test - TEMPORARILY DISABLED
+  # Start VSM in all environments including test
   defp vsm_children do
-    # if Application.get_env(:autonomous_opponent_core, :start_vsm, true) do
-    #   [AutonomousOpponentV2Core.VSM.Supervisor]
-    # else
+    if Application.get_env(:autonomous_opponent_core, :start_vsm, true) do
+      [AutonomousOpponentV2Core.VSM.Supervisor]
+    else
       []
-    # end
+    end
   end
   
   # Start MCP (Model Context Protocol) services - TEMPORARILY DISABLED

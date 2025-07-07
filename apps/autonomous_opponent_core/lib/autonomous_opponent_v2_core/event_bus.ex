@@ -9,6 +9,7 @@ defmodule AutonomousOpponentV2Core.EventBus do
   use GenServer
   require Logger
   alias AutonomousOpponentV2Core.Telemetry.SystemTelemetry
+  alias AutonomousOpponentV2Core.VSM.Clock
 
   @table_name :event_bus_subscriptions
 
@@ -40,15 +41,18 @@ defmodule AutonomousOpponentV2Core.EventBus do
   Publish an event to all subscribers
   """
   def publish(event_type, data) do
+    # Create causally-ordered event with HLC timestamp to prevent race conditions
+    {:ok, event} = Clock.create_event(:event_bus, event_type, data)
+    
     # Emit publish telemetry synchronously before the cast
-    message_size = :erlang.external_size(data)
+    message_size = :erlang.external_size(event.data)
     SystemTelemetry.emit(
       [:event_bus, :publish],
-      %{message_size: message_size},
+      %{message_size: message_size, event_id: event.id},
       %{topic: event_type}
     )
     
-    GenServer.cast(__MODULE__, {:publish, event_type, data})
+    GenServer.cast(__MODULE__, {:publish_hlc, event})
   end
 
   @doc """
@@ -150,24 +154,33 @@ defmodule AutonomousOpponentV2Core.EventBus do
   end
 
   @impl true
+  # Legacy publish handler - maintained for backward compatibility
   def handle_cast({:publish, event_type, data}, state) do
+    # Convert to HLC event for consistent handling
+    {:ok, event} = Clock.create_event(:event_bus, event_type, data)
+    handle_cast({:publish_hlc, event}, state)
+  end
+  
+  # New HLC-based publish handler
+  def handle_cast({:publish_hlc, event}, state) do
     # Get all subscribers for this event type
-    subscribers = :ets.lookup(@table_name, event_type)
+    subscribers = :ets.lookup(@table_name, event.type)
     
     # Measure broadcast time
     start_time = System.monotonic_time()
 
-    # Send event to each subscriber
-    delivered = Enum.reduce(subscribers, 0, fn {^event_type, pid}, count ->
+    # Send event to each subscriber with HLC timestamp and ordering info
+    delivered = Enum.reduce(subscribers, 0, fn {_event_type, pid}, count ->
       if Process.alive?(pid) do
-        send(pid, {:event_bus, event_type, data})
+        # Send full event with HLC timestamp for proper ordering
+        send(pid, {:event_bus_hlc, event})
         count + 1
       else
         # Emit dropped message telemetry
         SystemTelemetry.emit(
           [:event_bus, :message_dropped],
-          %{queue_size: Process.info(self(), :message_queue_len) |> elem(1)},
-          %{topic: event_type, reason: :dead_process}
+          %{queue_size: Process.info(self(), :message_queue_len) |> elem(1), event_id: event.id},
+          %{topic: event.type, reason: :dead_process}
         )
         count
       end
@@ -177,23 +190,26 @@ defmodule AutonomousOpponentV2Core.EventBus do
     duration = System.monotonic_time() - start_time
     SystemTelemetry.emit(
       [:event_bus, :broadcast],
-      %{recipient_count: delivered, duration: duration},
-      %{topic: event_type}
+      %{recipient_count: delivered, duration: duration, event_id: event.id},
+      %{topic: event.type}
     )
 
-    # Log high-priority events
-    case event_type do
+    # Log high-priority events with HLC info
+    case event.type do
       :algedonic_pain ->
-        Logger.warning("Algedonic pain signal published: #{inspect(data)}")
+        Logger.warning("Algedonic pain signal published", 
+          event_id: event.id, hlc: event.timestamp, data: event.data)
 
       :algedonic_intervention ->
-        Logger.warning("Algedonic intervention published: #{inspect(data)}")
+        Logger.warning("Algedonic intervention published", 
+          event_id: event.id, hlc: event.timestamp, data: event.data)
 
       :emergency_algedonic ->
-        Logger.error("EMERGENCY algedonic signal published: #{inspect(data)}")
+        Logger.error("EMERGENCY algedonic signal published", 
+          event_id: event.id, hlc: event.timestamp, data: event.data)
 
       _ ->
-        Logger.debug("Event published: #{event_type}")
+        Logger.debug("Event published", type: event.type, event_id: event.id)
     end
 
     {:noreply, state}
