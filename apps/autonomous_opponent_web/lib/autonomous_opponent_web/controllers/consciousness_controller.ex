@@ -1,6 +1,8 @@
 defmodule AutonomousOpponentV2Web.ConsciousnessController do
   use AutonomousOpponentV2Web, :controller
   
+  action_fallback AutonomousOpponentV2Web.FallbackController
+  
   alias AutonomousOpponentV2Core.Consciousness
   alias AutonomousOpponentV2Core.AMCP.Bridges.LLMBridge
   alias AutonomousOpponentV2Core.AMCP.Events.{SemanticFusion, SemanticAnalyzer}

@@ -81,7 +81,7 @@ defmodule AutonomousOpponentV2Core.VSM.S5.Policy do
     
     # Start monitoring loops
     Process.send_after(self(), :evaluate_identity, 10_000)
-    Process.send_after(self(), :report_health, 1000)
+    Process.send_after(self(), :report_health, 100)  # Report health immediately to prevent "dead" detection
     Process.send_after(self(), :enforce_policies, 2000)
     Process.send_after(self(), :analyze_violations, 5000)
     
@@ -255,21 +255,27 @@ defmodule AutonomousOpponentV2Core.VSM.S5.Policy do
   def handle_info({:event, :emergency_algedonic, emergency}, state) do
     Logger.error("S5 received EMERGENCY algedonic signal: #{inspect(emergency)}")
     
-    # Emergency overrides normal policy
-    emergency_response = %{
-      type: :emergency_override,
-      source: emergency.source,
-      action: determine_emergency_action(emergency, state),
-      bypass_normal_channels: true
-    }
-    
-    # Direct command to all subsystems
-    EventBus.publish(:all_subsystems, {:s5_emergency_override, emergency_response})
-    
-    # May require identity adjustment after emergency
-    Process.send_after(self(), :post_emergency_evaluation, 5000)
-    
-    {:noreply, state}
+    # Check if this is about S5 itself being dead - avoid recursive loop
+    if String.contains?(to_string(emergency[:reason] || ""), "SUBSYSTEMS DEAD: [:s5]") do
+      Logger.warning("S5 ignoring self-referential death notification to prevent loop")
+      {:noreply, state}
+    else
+      # Emergency overrides normal policy
+      emergency_response = %{
+        type: :emergency_override,
+        source: emergency.source,
+        action: determine_emergency_action(emergency, state),
+        bypass_normal_channels: true
+      }
+      
+      # Direct command to all subsystems
+      EventBus.publish(:all_subsystems, {:s5_emergency_override, emergency_response})
+      
+      # May require identity adjustment after emergency
+      Process.send_after(self(), :post_emergency_evaluation, 5000)
+      
+      {:noreply, state}
+    end
   end
   
   @impl true
@@ -305,6 +311,7 @@ defmodule AutonomousOpponentV2Core.VSM.S5.Policy do
     
     # Publish detailed health report
     health_report = %{
+      health: health,  # Add :health key that Algedonic channel expects
       overall_health: health,
       identity_coherence: state.health_metrics.identity_coherence,
       ethos_alignment: state.ethos_state.alignment,
@@ -476,7 +483,7 @@ defmodule AutonomousOpponentV2Core.VSM.S5.Policy do
     Logger.info("S5 received intelligence from S4")
     
     # Update environmental model
-    new_environmental_model = update_environmental_model(event_data, state.environmental_model)
+    new_environmental_model = update_environmental_model_from_event(event_data, state.environmental_model)
     
     # Determine if policy adaptation needed
     new_state = %{state | environmental_model: new_environmental_model}
@@ -2172,7 +2179,7 @@ defmodule AutonomousOpponentV2Core.VSM.S5.Policy do
     %{state | active_policies: new_policies}
   end
   
-  defp update_environmental_model(event_data, current_model) do
+  defp update_environmental_model_from_event(event_data, current_model) do
     # Update model with new intelligence
     Map.merge(current_model, %{
       last_update: DateTime.utc_now(),
@@ -2214,7 +2221,7 @@ defmodule AutonomousOpponentV2Core.VSM.S5.Policy do
     
     # Update environmental model if present
     new_environmental_model = if variety_data[:environmental_model] do
-      update_environmental_model(variety_data.environmental_model, state.environmental_model)
+      update_environmental_model(state.environmental_model, variety_data.environmental_model)
     else
       state.environmental_model
     end

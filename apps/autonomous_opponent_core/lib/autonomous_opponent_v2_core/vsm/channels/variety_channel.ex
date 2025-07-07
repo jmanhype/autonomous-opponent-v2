@@ -196,6 +196,13 @@ defmodule AutonomousOpponentV2Core.VSM.Channels.VarietyChannel do
   end
   
   @impl true
+  # Handle new HLC event format from EventBus
+  def handle_info({:event_bus_hlc, event}, state) do
+    # Extract event data and forward to existing handler
+    handle_info({:event, event.type, event.data}, state)
+  end
+  
+  @impl true
   def handle_info({:event, _source, variety_data}, state) do
     # Handle async variety flow from EventBus
     handle_call({:transmit, variety_data}, nil, state)
@@ -220,6 +227,7 @@ defmodule AutonomousOpponentV2Core.VSM.Channels.VarietyChannel do
     # S1 → S2: Aggregate operational variety into coordination patterns
     %{
       variety_type: :operational,
+      unit_id: Map.get(data, :unit_id, :unknown_unit),  # Preserve unit_id for S2
       patterns: extract_patterns(data),
       volume: calculate_variety_volume(data),
       hlc_timestamp: event.timestamp,
@@ -301,6 +309,7 @@ defmodule AutonomousOpponentV2Core.VSM.Channels.VarietyChannel do
       commands: data.commands,
       priority: :high,
       bypass_buffers: data[:emergency] || false,
+      unit_id: Map.get(data, :unit_id, :default_unit),  # Add unit_id for S2 coordination
       hlc_timestamp: event.timestamp,
       transmission_id: event.id
     }

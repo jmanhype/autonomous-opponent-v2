@@ -22,6 +22,7 @@ defmodule AutonomousOpponentV2Core.VSM.S1.Operations do
   alias AutonomousOpponentV2Core.VSM.Channels.VarietyChannel
   
   defstruct [
+    :unit_id,
     :circuit_breaker,
     :rate_limiter,
     :operation_workers,
@@ -103,6 +104,7 @@ defmodule AutonomousOpponentV2Core.VSM.S1.Operations do
     Process.send_after(self(), :calculate_entropy, 2000)
     
     state = %__MODULE__{
+      unit_id: :s1_primary,  # Default unit ID for S2 coordination
       circuit_breaker: circuit_breaker,
       rate_limiter: rate_limiter,
       operation_workers: [],  # Initialize as empty list for now
@@ -296,6 +298,7 @@ defmodule AutonomousOpponentV2Core.VSM.S1.Operations do
     
     # Report to S2 for coordination
     VarietyChannel.transmit(:s1_to_s2, %{
+      unit_id: state.unit_id || :s1_primary,  # Include unit_id for S2 coordination
       volume: length(requests),
       success_rate: calculate_success_rate(results),
       current_load: new_state.current_load,
@@ -331,6 +334,7 @@ defmodule AutonomousOpponentV2Core.VSM.S1.Operations do
       
       # Report back to S2 about control execution
       VarietyChannel.transmit(:s1_to_s2, %{
+        unit_id: state.unit_id || :s1_primary,  # Include unit_id for S2 coordination
         control_executed: true,
         commands_processed: length(control_data.commands),
         emergency: control_data[:bypass_buffers] || false,

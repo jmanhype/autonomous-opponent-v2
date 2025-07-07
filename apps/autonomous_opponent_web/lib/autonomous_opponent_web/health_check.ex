@@ -40,8 +40,8 @@ defmodule AutonomousOpponentV2Web.HealthCheck do
     # Check if critical processes are actually running
     critical_processes = [
       {AutonomousOpponentV2Core.EventBus, "EventBus"},
-      {AutonomousOpponentV2Core.VSM.S1Operations, "VSM S1"},
-      {AutonomousOpponentV2Core.VSM.S5Policy, "VSM S5"},
+      {AutonomousOpponentV2Core.VSM.S1.Operations, "VSM S1"},
+      {AutonomousOpponentV2Core.VSM.S5.Policy, "VSM S5"},
       {AutonomousOpponentV2Core.MCP.Server, "MCP Server"},
       {AutonomousOpponentV2Core.AMQP.ConnectionPool, "AMQP Pool"}
     ]

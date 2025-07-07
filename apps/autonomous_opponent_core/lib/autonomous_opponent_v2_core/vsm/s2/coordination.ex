@@ -166,8 +166,8 @@ defmodule AutonomousOpponentV2Core.VSM.S2.Coordination do
 
   @impl true
   def handle_info({:event, :s1_operations, s1_report}, state) do
-    # Update S1 unit state
-    unit_id = s1_report.unit_id
+    # Update S1 unit state - handle missing unit_id gracefully
+    unit_id = Map.get(s1_report, :unit_id, :default_unit)
     
     new_s1_units = Map.put(state.s1_units, unit_id, %{
       load: s1_report.current_load,

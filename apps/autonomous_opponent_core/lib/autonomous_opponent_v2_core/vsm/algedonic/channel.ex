@@ -59,8 +59,22 @@ defmodule AutonomousOpponentV2Core.VSM.Algedonic.Channel do
     GenServer.cast(__MODULE__, {:pain, source, metric, intensity})
   end
   
+  def report_pain(source, metric, intensity) do
+    # Ignore pain signals below threshold
+    :ok
+  end
+  
   def report_pleasure(source, metric, intensity) when intensity > @pleasure_threshold do
     GenServer.cast(__MODULE__, {:pleasure, source, metric, intensity})
+  end
+  
+  def report_pleasure(source, metric, intensity) do
+    # Still process lower intensity pleasure signals for external API
+    if intensity > 0.5 do
+      GenServer.cast(__MODULE__, {:pleasure, source, metric, intensity})
+    else
+      :ok
+    end
   end
   
   def emergency_scream(source, reason) do
@@ -69,7 +83,8 @@ defmodule AutonomousOpponentV2Core.VSM.Algedonic.Channel do
       source: source,
       reason: reason,
       bypass_all: true,
-      severity: 1.0  # Maximum pain
+      intensity: 1.0,  # Maximum pain intensity
+      severity: :critical  # Emergency level severity
     })
     
     Logger.error("🚨 ALGEDONIC SCREAM from #{source}: #{reason}", 
@@ -77,6 +92,17 @@ defmodule AutonomousOpponentV2Core.VSM.Algedonic.Channel do
     
     # Direct EventBus publish with HLC ordering to prevent race conditions
     EventBus.publish(:emergency_algedonic, emergency_event.data)
+  end
+  
+  @doc """
+  Emit an algedonic signal - used by external API
+  """
+  def emit_signal(type, intensity, source) when type in [:pain, :pleasure] do
+    case type do
+      :pain -> report_pain(source, :external_api, intensity)
+      :pleasure -> report_pleasure(source, :external_api, intensity)
+    end
+    :ok
   end
   
   @doc """
@@ -470,6 +496,7 @@ defmodule AutonomousOpponentV2Core.VSM.Algedonic.Channel do
       source: source,
       metric: metric,
       intensity: intensity,
+      severity: :warning,  # Regular pain is a warning
       timestamp: DateTime.utc_now()
     }
     
@@ -538,6 +565,7 @@ defmodule AutonomousOpponentV2Core.VSM.Algedonic.Channel do
       source: source,
       metric: metric,
       intensity: intensity,
+      severity: :info,  # Pleasure is informational
       timestamp: DateTime.utc_now()
     }
     
@@ -563,7 +591,7 @@ defmodule AutonomousOpponentV2Core.VSM.Algedonic.Channel do
     cutoff = DateTime.add(DateTime.utc_now(), -60, :second)
     
     state.pain_signals
-    |> Enum.filter(&(&1.timestamp > cutoff && &1.severity == :critical))
+    |> Enum.filter(&(&1.timestamp > cutoff && Map.get(&1, :severity) == :critical))
     |> Enum.map(&(&1.timestamp))
   end
   

@@ -880,7 +880,7 @@ defmodule AutonomousOpponentV2Core.AMCP.Bridges.LLMBridge do
     if enabled_provider do
       # Use actual LLM
       case do_call_llm_api(dialogue_prompt, :conversation, provider: enabled_provider) do
-        {:ok, response} -> response
+        {:ok, response} -> sanitize_llm_response(response)
         {:error, reason} ->
           Logger.warning("LLM call failed: #{inspect(reason)}, using fallback")
           generate_fallback_consciousness_response(message, consciousness_state)
@@ -906,6 +906,16 @@ defmodule AutonomousOpponentV2Core.AMCP.Bridges.LLMBridge do
   defp format_data(data) when is_map(data) do
     Jason.encode!(data, pretty: true)
   end
+  
+  defp sanitize_llm_response(response) when is_binary(response) do
+    # Remove control characters and ensure JSON-safe output
+    response
+    |> String.replace(~r/[\x00-\x1F\x7F-\x9F]/, "")  # Remove control characters
+    |> String.replace(~r/\r\n|\r/, "\n")  # Normalize line endings
+    |> String.trim()  # Remove leading/trailing whitespace
+  end
+  
+  defp sanitize_llm_response(response), do: response
   
   defp format_data(data) do
     inspect(data, limit: 5, pretty: true)

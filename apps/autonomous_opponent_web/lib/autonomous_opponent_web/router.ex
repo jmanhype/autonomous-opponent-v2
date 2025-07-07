@@ -49,6 +49,7 @@ defmodule AutonomousOpponentV2Web.Router do
     pipe_through :browser
 
     get "/", PageController, :home
+    live "/dashboard", DashboardLive
     live "/consciousness", ConsciousnessLive, :index
     live "/chat", ChatLive, :index
   end
@@ -101,6 +102,11 @@ defmodule AutonomousOpponentV2Web.Router do
     get "/patterns", ConsciousnessController, :patterns
     get "/events/analyze", ConsciousnessController, :analyze_events
     get "/memory/synthesize", ConsciousnessController, :synthesize_memory
+    
+    # VSM API endpoints
+    get "/vsm/state", VSMController, :state
+    get "/vsm/metrics", VSMController, :metrics
+    post "/vsm/algedonic", VSMController, :algedonic
     
     # Debug endpoint for seeding data (dev only)
     if Mix.env() == :dev do
