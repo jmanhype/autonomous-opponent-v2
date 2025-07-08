@@ -128,10 +128,25 @@ defmodule AutonomousOpponentV2Core.VSM.S2.Coordination do
       active_units: map_size(state.s1_units),
       resource_utilization: calculate_resource_utilization(state),
       oscillation_risk: calculate_oscillation_risk(state),
-      health: calculate_health_score(state)
+      health: calculate_health_score(state),
+      events_coordinated: state.health_metrics.events_coordinated
     }
     
     {:reply, coordination_state, state}
+  end
+  
+  @impl true
+  def handle_call(:get_metrics, _from, state) do
+    # Return metrics in the format expected by VSMController
+    metrics = %{
+      variety_absorbed: state.health_metrics.events_coordinated / 10.0,  # Simple variety metric
+      active_units: map_size(state.s1_units),
+      resource_conflicts: length(state.conflict_history),
+      oscillation_risk: calculate_oscillation_risk(state),
+      health: calculate_health_score(state),
+      coordination_efficiency: state.health_metrics.coordination_efficiency
+    }
+    {:reply, metrics, state}
   end
   
   @impl true

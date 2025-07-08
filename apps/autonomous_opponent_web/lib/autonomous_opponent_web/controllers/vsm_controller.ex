@@ -263,11 +263,20 @@ defmodule AutonomousOpponentV2Web.VSMController do
   end
   
   defp get_variety_metric(subsystem) do
-    case GenServer.whereis(subsystem) do
+    # Map short names to full module names
+    full_module = case subsystem do
+      S1 -> AutonomousOpponentV2Core.VSM.S1.Operations
+      S2 -> AutonomousOpponentV2Core.VSM.S2.Coordination  
+      S3 -> AutonomousOpponentV2Core.VSM.S3.Control
+      _ -> subsystem
+    end
+    
+    case GenServer.whereis(full_module) do
       nil -> 0
       pid when is_pid(pid) ->
         try do
-          %{variety_absorbed: variety} = GenServer.call(subsystem, :get_metrics, 5_000)
+          # All subsystems now implement :get_metrics
+          %{variety_absorbed: variety} = GenServer.call(full_module, :get_metrics, 5_000)
           variety
         catch
           _ -> 0

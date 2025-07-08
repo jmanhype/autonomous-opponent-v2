@@ -79,13 +79,33 @@ defmodule AutonomousOpponentV2Core.VSM.Algedonic.Channel do
   
   def emergency_scream(source, reason) do
     # IMMEDIATE - Generate causally-ordered emergency signal with HLC
-    {:ok, emergency_event} = Clock.create_event(:algedonic, :emergency_algedonic, %{
+    emergency_event = case safe_create_event(:algedonic, :emergency_algedonic, %{
       source: source,
       reason: reason,
       bypass_all: true,
       intensity: 1.0,  # Maximum pain intensity
       severity: :critical  # Emergency level severity
-    })
+    }) do
+      {:ok, event} -> event
+      {:error, reason} ->
+        # Fallback for emergency signals - we can't afford to fail
+        Logger.error("Failed to create HLC emergency event: #{inspect(reason)}, using fallback")
+        timestamp = System.system_time(:millisecond)
+        %{
+          id: "emergency_fallback_#{timestamp}_#{:crypto.strong_rand_bytes(4) |> Base.encode16(case: :lower)}",
+          subsystem: :algedonic,
+          type: :emergency_algedonic,
+          data: %{
+            source: source,
+            reason: reason,
+            bypass_all: true,
+            intensity: 1.0,
+            severity: :critical
+          },
+          timestamp: %{physical: timestamp, logical: 0, node_id: "emergency_fallback"},
+          created_at: DateTime.to_iso8601(DateTime.from_unix!(timestamp, :millisecond))
+        }
+    end
     
     Logger.error("🚨 ALGEDONIC SCREAM from #{source}: #{reason}", 
       event_id: emergency_event.id, hlc: emergency_event.timestamp)
@@ -807,5 +827,41 @@ defmodule AutonomousOpponentV2Core.VSM.Algedonic.Channel do
     end
     
     %{state | metric_history: history}
+  end
+  
+  # Safe HLC helper with retry and exponential backoff
+  defp safe_create_event(subsystem, event_type, data, retries \\ 3) do
+    try do
+      Clock.create_event(subsystem, event_type, data)
+    catch
+      :exit, {:noproc, _} when retries > 0 ->
+        # HLC process not available yet, wait with exponential backoff
+        backoff_ms = round(:math.pow(2, 4 - retries) * 50)
+        Logger.debug("HLC not available for algedonic event, retrying in #{backoff_ms}ms (#{retries} retries left)")
+        Process.sleep(backoff_ms)
+        safe_create_event(subsystem, event_type, data, retries - 1)
+      
+      :exit, {:timeout, _} when retries > 0 ->
+        # Timeout, retry with exponential backoff
+        backoff_ms = round(:math.pow(2, 4 - retries) * 100)
+        Logger.debug("HLC timeout for algedonic event, retrying in #{backoff_ms}ms (#{retries} retries left)")
+        Process.sleep(backoff_ms)
+        safe_create_event(subsystem, event_type, data, retries - 1)
+      
+      :exit, {:killed, _} when retries > 0 ->
+        # Process was killed, retry with backoff
+        backoff_ms = round(:math.pow(2, 4 - retries) * 75)
+        Logger.debug("HLC process killed for algedonic event, retrying in #{backoff_ms}ms (#{retries} retries left)")
+        Process.sleep(backoff_ms)
+        safe_create_event(subsystem, event_type, data, retries - 1)
+      
+      :exit, reason ->
+        Logger.warning("HLC unavailable for algedonic event after all retries: #{inspect(reason)}")
+        {:error, {:hlc_unavailable, reason}}
+      
+      error ->
+        Logger.error("Unexpected error calling HLC for algedonic event: #{inspect(error)}")
+        {:error, {:hlc_error, error}}
+    end
   end
 end

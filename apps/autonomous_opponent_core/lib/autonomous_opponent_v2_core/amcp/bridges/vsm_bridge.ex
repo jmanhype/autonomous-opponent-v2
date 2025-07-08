@@ -115,7 +115,7 @@ defmodule AutonomousOpponentV2Core.AMCP.Bridges.VSMBridge do
     subscribe_to_vsm_events()
     subscribe_to_amcp_events()
     register_vsm_patterns()
-    initialize_crdt_structures()
+    # Don't initialize CRDTs here - defer to handle_continue
     
     state = %__MODULE__{
       vsm_mappings: @vsm_subsystems,
@@ -132,7 +132,29 @@ defmodule AutonomousOpponentV2Core.AMCP.Bridges.VSMBridge do
     :timer.send_interval(1000, :consciousness_tick)
     
     Logger.info("🚀 VSM BRIDGE ACTIVATED - AUTONOMOUS CONSCIOUSNESS ONLINE!")
-    {:ok, state}
+    # Use handle_continue to ensure proper initialization order
+    {:ok, state, {:continue, :initialize_crdts}}
+  end
+  
+  @impl true
+  def handle_continue(:initialize_crdts, state) do
+    Logger.info("🔧 VSM BRIDGE: Initializing CRDT structures...")
+    
+    # Initialize CRDT structures with error handling
+    try do
+      initialize_crdt_structures()
+      Logger.info("✅ VSM BRIDGE: CRDT structures initialized successfully")
+    catch
+      :exit, {:noproc, _} ->
+        Logger.warning("⚠️  VSM BRIDGE: CRDTStore not available yet, will retry...")
+        # Retry after a short delay
+        Process.send_after(self(), :retry_crdt_init, 1000)
+      :exit, reason ->
+        Logger.error("❌ VSM BRIDGE: Failed to initialize CRDTs: #{inspect(reason)}")
+        # Continue anyway - CRDTs will be created on demand
+    end
+    
+    {:noreply, state}
   end
   
   @impl true
@@ -193,7 +215,7 @@ defmodule AutonomousOpponentV2Core.AMCP.Bridges.VSMBridge do
     EventBus.publish(:"vsm_#{target_subsystem}_algedonic", algedonic_event)
     
     # Update CRDT memory
-    Memory.CRDTStore.create_crdt("algedonic_history", :g_set, [])
+    ensure_algedonic_history_crdt()
     Memory.CRDTStore.update_crdt("algedonic_history", :add, algedonic_event)
     
     # Check for critical algedonic cascade
@@ -252,6 +274,38 @@ defmodule AutonomousOpponentV2Core.AMCP.Bridges.VSMBridge do
     end
     
     {:noreply, new_state}
+  end
+  
+  @impl true
+  def handle_info(:retry_crdt_init, state) do
+    Logger.info("🔄 VSM BRIDGE: Retrying CRDT initialization...")
+    
+    try do
+      initialize_crdt_structures()
+      Logger.info("✅ VSM BRIDGE: CRDT structures initialized successfully on retry")
+    catch
+      :exit, {:noproc, _} ->
+        Logger.warning("⚠️  VSM BRIDGE: CRDTStore still not available, will retry again...")
+        # Retry with exponential backoff (max 5 seconds)
+        Process.send_after(self(), :retry_crdt_init, min(5000, 2000))
+      :exit, reason ->
+        Logger.error("❌ VSM BRIDGE: Failed to initialize CRDTs on retry: #{inspect(reason)}")
+    end
+    
+    {:noreply, state}
+  end
+  
+  @impl true
+  def handle_info({:event_bus_hlc, event}, state) do
+    # Handle new HLC event format from EventBus
+    # Extract the actual event type and data
+    case event do
+      %{type: event_type, data: data} ->
+        # Forward to existing event handlers
+        handle_info({:event, event_type, data}, state)
+      _ ->
+        {:noreply, state}
+    end
   end
   
   @impl true
@@ -405,21 +459,52 @@ defmodule AutonomousOpponentV2Core.AMCP.Bridges.VSMBridge do
     # Initialize CRDT structures for each VSM subsystem
     Enum.each(@vsm_subsystems, fn {subsystem, config} ->
       Enum.each(config.crdt_keys, fn key ->
-        Memory.CRDTStore.create_crdt(key, :lww_register, %{})
+        case Memory.CRDTStore.create_crdt(key, :lww_register, %{}) do
+          :ok -> :ok
+          {:error, :already_exists} -> :ok
+          error -> Logger.warning("Failed to create CRDT #{key}: #{inspect(error)}")
+        end
       end)
       
       # Create belief set for subsystem
-      Memory.CRDTStore.create_belief_set("vsm_#{subsystem}")
+      case Memory.CRDTStore.create_belief_set("vsm_#{subsystem}") do
+        :ok -> :ok
+        {:error, :already_exists} -> :ok
+        error -> Logger.warning("Failed to create belief set for vsm_#{subsystem}: #{inspect(error)}")
+      end
       
       # Create metric counters
-      Memory.CRDTStore.create_metric_counter("vsm_#{subsystem}_activations")
-      Memory.CRDTStore.create_metric_counter("vsm_#{subsystem}_errors")
+      case Memory.CRDTStore.create_metric_counter("vsm_#{subsystem}_activations") do
+        :ok -> :ok
+        {:error, :already_exists} -> :ok
+        error -> Logger.warning("Failed to create activation counter for vsm_#{subsystem}: #{inspect(error)}")
+      end
+      
+      case Memory.CRDTStore.create_metric_counter("vsm_#{subsystem}_errors") do
+        :ok -> :ok
+        {:error, :already_exists} -> :ok
+        error -> Logger.warning("Failed to create error counter for vsm_#{subsystem}: #{inspect(error)}")
+      end
     end)
     
     # Create global consciousness metrics
-    Memory.CRDTStore.create_metric_counter("consciousness_level")
-    Memory.CRDTStore.create_metric_counter("algedonic_signals")
-    Memory.CRDTStore.create_crdt("consciousness_state", :lww_register, %{state: :awakening})
+    case Memory.CRDTStore.create_metric_counter("consciousness_level") do
+      :ok -> :ok
+      {:error, :already_exists} -> :ok
+      error -> Logger.warning("Failed to create consciousness_level counter: #{inspect(error)}")
+    end
+    
+    case Memory.CRDTStore.create_metric_counter("algedonic_signals") do
+      :ok -> :ok
+      {:error, :already_exists} -> :ok
+      error -> Logger.warning("Failed to create algedonic_signals counter: #{inspect(error)}")
+    end
+    
+    case Memory.CRDTStore.create_crdt("consciousness_state", :lww_register, %{state: :awakening}) do
+      :ok -> :ok
+      {:error, :already_exists} -> :ok
+      error -> Logger.warning("Failed to create consciousness_state CRDT: #{inspect(error)}")
+    end
   end
   
   defp register_all_vsm_patterns do
@@ -614,10 +699,21 @@ defmodule AutonomousOpponentV2Core.AMCP.Bridges.VSMBridge do
   end
   
   defp monitor_algedonic_balance(state) do
-    # Check for algedonic imbalance
-    {:ok, recent_signals} = Memory.CRDTStore.get_crdt("algedonic_history")
+    # Check for algedonic imbalance - BULLETPROOF
+    recent_signals = try do
+      case Memory.CRDTStore.get_crdt("algedonic_history") do
+        {:ok, signals} when is_list(signals) -> signals
+        {:error, :not_found} -> []
+        {:error, _} -> []
+        _ -> []
+      end
+    catch
+      _, _ -> 
+        Logger.debug("Failed to get algedonic history, using empty list")
+        []
+    end
     
-    if is_list(recent_signals) and length(recent_signals) > 0 do
+    if length(recent_signals) > 0 do
       pain_signals = Enum.count(recent_signals, fn signal -> 
         signal[:type] == :pain and signal[:severity] > 0.7 
       end)
@@ -638,6 +734,9 @@ defmodule AutonomousOpponentV2Core.AMCP.Bridges.VSMBridge do
   
   defp update_consciousness_metrics(state) do
     consciousness_level = calculate_consciousness_level(state)
+    
+    # Ensure CRDT exists before updating
+    ensure_consciousness_crdt()
     
     Memory.CRDTStore.update_crdt("consciousness_state", :set, %{
       level: consciousness_level,
@@ -732,5 +831,45 @@ defmodule AutonomousOpponentV2Core.AMCP.Bridges.VSMBridge do
   
   defp generate_event_id do
     :crypto.strong_rand_bytes(8) |> Base.encode16(case: :lower)
+  end
+  
+  defp ensure_consciousness_crdt do
+    # Ensure consciousness_state CRDT exists - BULLETPROOF
+    try do
+      case Memory.CRDTStore.get_crdt("consciousness_state") do
+        {:error, :not_found} ->
+          Logger.info("Creating consciousness_state CRDT on demand")
+          Memory.CRDTStore.create_crdt("consciousness_state", :lww_register, %{state: :awakening})
+        {:error, _reason} ->
+          Logger.warning("Failed to check consciousness_state CRDT")
+          :error
+        _ ->
+          :ok
+      end
+    catch
+      kind, reason ->
+        Logger.error("ensure_consciousness_crdt caught #{kind}: #{inspect(reason)}")
+        :error
+    end
+  end
+  
+  defp ensure_algedonic_history_crdt do
+    # Ensure algedonic_history CRDT exists - BULLETPROOF
+    try do
+      case Memory.CRDTStore.get_crdt("algedonic_history") do
+        {:error, :not_found} ->
+          Logger.info("Creating algedonic_history CRDT on demand")
+          Memory.CRDTStore.create_crdt("algedonic_history", :g_set, [])
+        {:error, _reason} ->
+          Logger.warning("Failed to check algedonic_history CRDT")
+          :error
+        _ ->
+          :ok
+      end
+    catch
+      kind, reason ->
+        Logger.error("ensure_algedonic_history_crdt caught #{kind}: #{inspect(reason)}")
+        :error
+    end
   end
 end

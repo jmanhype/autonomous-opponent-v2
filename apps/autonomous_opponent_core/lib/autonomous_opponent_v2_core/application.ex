@@ -20,7 +20,7 @@ defmodule AutonomousOpponentV2Core.Application do
     
     children = repo_children ++ [
       # Start the Hybrid Logical Clock for deterministic timestamps
-      {AutonomousOpponentV2Core.Core.HybridLogicalClock, []},
+      {AutonomousOpponentV2Core.Core.HybridLogicalClock, name: AutonomousOpponentV2Core.Core.HybridLogicalClock},
       # Start the EventBus
       {AutonomousOpponentV2Core.EventBus, name: AutonomousOpponentV2Core.EventBus},
       # CircuitBreaker is initialized on-demand
@@ -48,6 +48,10 @@ defmodule AutonomousOpponentV2Core.Application do
       AutonomousOpponentV2Core.AMCP.Bridges.LLMCache,
       # LLM Bridge for multi-provider AI integration - RE-ENABLED
       AutonomousOpponentV2Core.AMCP.Bridges.LLMBridge,
+      # Goldrush Event Processor - MUST start before VSMBridge
+      AutonomousOpponentV2Core.AMCP.Goldrush.EventProcessor,
+      # VSM Bridge for connecting VSM to aMCP - CRITICAL for CRDT initialization
+      AutonomousOpponentV2Core.AMCP.Bridges.VSMBridge,
       # Semantic Analyzer for event analysis - RE-ENABLED
       AutonomousOpponentV2Core.AMCP.Events.SemanticAnalyzer,
       # Semantic Fusion for pattern detection - RE-ENABLED

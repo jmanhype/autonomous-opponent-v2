@@ -145,10 +145,25 @@ defmodule AutonomousOpponentV2Core.VSM.S3.Control do
       active_interventions: state.control_state.active_interventions,
       resource_allocation: get_current_allocation(state),
       performance: get_performance_metrics(state),
-      health: calculate_health_score(state)
+      health: calculate_health_score(state),
+      commands_issued: state.health_metrics.commands_issued
     }
     
     {:reply, control_state, state}
+  end
+  
+  @impl true
+  def handle_call(:get_metrics, _from, state) do
+    # Return metrics in the format expected by VSMController
+    metrics = %{
+      variety_absorbed: state.health_metrics.commands_issued / 10.0,  # Simple variety metric
+      active_interventions: state.control_state.active_interventions,
+      resource_utilization: calculate_resource_utilization(state),
+      optimization_cycles: state.health_metrics.optimization_cycles,
+      health: calculate_health_score(state),
+      control_effectiveness: state.health_metrics.control_effectiveness
+    }
+    {:reply, metrics, state}
   end
   
   @impl true
@@ -1456,5 +1471,25 @@ defmodule AutonomousOpponentV2Core.VSM.S3.Control do
     
     EventBus.publish(:s5_policy, scale_request)
     state
+  end
+  
+  defp calculate_resource_utilization(state) do
+    # Calculate average resource utilization across all resources
+    resources = get_latest_resources(state)
+    
+    cpu_utilization = if resources.cpu.current > 0 do
+      resources.cpu.current / 100.0
+    else
+      0.0
+    end
+    
+    memory_utilization = if resources.memory.total > 0 do
+      resources.memory.current / resources.memory.total
+    else
+      0.0
+    end
+    
+    # Return weighted average
+    (cpu_utilization * 0.6 + memory_utilization * 0.4)
   end
 end

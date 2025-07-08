@@ -19,7 +19,7 @@ defmodule AutonomousOpponentV2Core.AMCP.Bridges.LLMBridge do
   alias AutonomousOpponentV2Core.AMCP.{Memory, Bridges}
   alias AutonomousOpponentV2Core.Intelligence.{OpenAIClient, AnthropicClient, GoogleAIClient}
   alias AutonomousOpponentV2Core.AMCP.Bridges.LLMCache
-  alias AutonomousOpponentV2Core.Intelligence.LocalLLMFallback
+  # LocalLLMFallback removed - no fallbacks allowed
   alias AutonomousOpponentV2Core.Intelligence.MockLLM
   alias AutonomousOpponentV2Core.Connections.HTTPClient
   alias AutonomousOpponentV2Core.Telemetry.SystemTelemetry
@@ -33,7 +33,9 @@ defmodule AutonomousOpponentV2Core.AMCP.Bridges.LLMBridge do
     :generation_stats,
     :initialization_complete,
     :cache_enabled,
-    :cache_stats
+    :cache_stats,
+    :circuit_breakers,
+    :failure_counts
   ]
   
   # @supported_providers [:openai, :anthropic, :local_llama, :vertex_ai]
@@ -88,17 +90,43 @@ defmodule AutonomousOpponentV2Core.AMCP.Bridges.LLMBridge do
   
   @doc """
   Real-time conversation with cybernetic consciousness.
+  BULLETPROOF - Never crashes
   """
   def converse_with_consciousness(message, conversation_id \\ "default") do
-    GenServer.call(__MODULE__, {:converse_with_consciousness, message, conversation_id}, 60_000)
+    try do
+      GenServer.call(__MODULE__, {:converse_with_consciousness, message, conversation_id}, 60_000)
+    catch
+      :exit, {:noproc, _} ->
+        Logger.error("LLMBridge not available")
+        {:error, :llm_bridge_not_available}
+      :exit, {:timeout, _} ->
+        Logger.error("LLMBridge timeout")
+        {:error, :timeout}
+      kind, reason ->
+        Logger.error("LLMBridge conversation caught #{kind}: #{inspect(reason)}")
+        {:error, {:llm_bridge_error, reason}}
+    end
   end
   
   @doc """
   Direct LLM API call for testing purposes.
+  BULLETPROOF - Returns {:ok, response} or {:error, reason}
   """
   def call_llm_api(prompt, intent, opts \\ []) do
     timeout = Keyword.get(opts, :timeout, 60_000)  # Default 60 seconds for LLM calls
-    GenServer.call(__MODULE__, {:call_llm_api, prompt, intent, opts}, timeout)
+    try do
+      GenServer.call(__MODULE__, {:call_llm_api, prompt, intent, opts}, timeout)
+    catch
+      :exit, {:noproc, _} ->
+        Logger.error("LLMBridge not running")
+        {:error, :llm_bridge_not_available}
+      :exit, {:timeout, _} ->
+        Logger.error("LLMBridge timeout")
+        {:error, :timeout}
+      kind, reason ->
+        Logger.error("LLMBridge.call_llm_api caught #{kind}: #{inspect(reason)}")
+        {:error, {:llm_bridge_error, reason}}
+    end
   end
   
   @doc """
@@ -169,7 +197,9 @@ defmodule AutonomousOpponentV2Core.AMCP.Bridges.LLMBridge do
       generation_stats: init_generation_stats(),
       initialization_complete: false,
       cache_enabled: Application.get_env(:autonomous_opponent_core, :llm_cache_enabled, true),
-      cache_stats: %{hits: 0, misses: 0, errors: 0}
+      cache_stats: %{hits: 0, misses: 0, errors: 0},
+      circuit_breakers: init_circuit_breakers(),
+      failure_counts: %{openai: 0, anthropic: 0, google_ai: 0, local_llama: 0}
     }
     
     # Delay full initialization to avoid startup timeouts
@@ -183,10 +213,15 @@ defmodule AutonomousOpponentV2Core.AMCP.Bridges.LLMBridge do
   def handle_call(:activate_linguistic_consciousness, _from, state) do
     Logger.info("⚡ LINGUISTIC CONSCIOUSNESS ACTIVATION SEQUENCE!")
     
-    # Initialize conversation memory in CRDT
-    Memory.CRDTStore.create_crdt("conversation_history", :or_set, [])
-    Memory.CRDTStore.create_crdt("knowledge_synthesis", :crdt_map, %{})
-    Memory.CRDTStore.create_crdt("linguistic_embeddings", :crdt_map, %{})
+    # Initialize conversation memory in CRDT - with error handling
+    try do
+      Memory.CRDTStore.create_crdt("conversation_history", :or_set, [])
+      Memory.CRDTStore.create_crdt("knowledge_synthesis", :crdt_map, %{})
+      Memory.CRDTStore.create_crdt("linguistic_embeddings", :crdt_map, %{})
+    catch
+      _, _ ->
+        Logger.warning("Failed to initialize LLM CRDTs, continuing without them")
+    end
     
     # Load consciousness templates
     consciousness_templates = load_consciousness_templates()
@@ -287,10 +322,81 @@ defmodule AutonomousOpponentV2Core.AMCP.Bridges.LLMBridge do
   
   @impl true
   def handle_call({:call_llm_api, prompt, intent, opts}, _from, state) do
-    Logger.info("📡 LLM API call received - intent: #{intent}, provider: #{opts[:provider]}")
-    result = do_call_llm_api(prompt, intent, opts)
-    Logger.info("📡 LLM API call complete - result: #{inspect(result)}")
-    {:reply, result, state}
+    provider = Keyword.get(opts, :provider, :anthropic)
+    Logger.info("📡 LLM API call received - intent: #{intent}, provider: #{provider}")
+    
+    # Check circuit breaker state
+    breaker_state = Map.get(state.circuit_breakers, provider, :closed)
+    
+    {result, new_state} = case breaker_state do
+      :open ->
+        # Circuit is open, check if we should try to close it
+        if should_attempt_reset?(state, provider) do
+          Logger.info("🔄 Circuit breaker #{provider} attempting reset...")
+          new_breakers = Map.put(state.circuit_breakers, provider, :half_open)
+          new_state = %{state | circuit_breakers: new_breakers}
+          
+          case do_call_llm_api(prompt, intent, opts) do
+            {:ok, _} = success ->
+              # Success! Close the circuit
+              Logger.info("✅ Circuit breaker #{provider} closed - service recovered")
+              reset_breakers = Map.put(new_breakers, provider, :closed)
+              reset_counts = Map.put(state.failure_counts, provider, 0)
+              {success, %{new_state | circuit_breakers: reset_breakers, failure_counts: reset_counts}}
+              
+            error ->
+              # Still failing, reopen circuit
+              Logger.warning("❌ Circuit breaker #{provider} reopened - service still failing")
+              reopen_breakers = Map.put(new_breakers, provider, :open)
+              {error, %{new_state | circuit_breakers: reopen_breakers}}
+          end
+        else
+          # Circuit still open, no fallback allowed
+          Logger.error("🚫 Circuit breaker #{provider} is OPEN - no fallback allowed")
+          {{:error, {:circuit_breaker_open, provider}}, state}
+        end
+        
+      _ ->
+        # Circuit is closed or half-open, try the call
+        case do_call_llm_api(prompt, intent, opts) do
+          {:ok, _} = success ->
+            # Reset failure count on success
+            new_counts = Map.put(state.failure_counts, provider, 0)
+            {success, %{state | failure_counts: new_counts}}
+            
+          error ->
+            # Increment failure count
+            new_count = Map.get(state.failure_counts, provider, 0) + 1
+            new_counts = Map.put(state.failure_counts, provider, new_count)
+            
+            # Check if we should open the circuit
+            new_state = if new_count >= state.circuit_breakers.failure_threshold do
+              Logger.error("⚡ Circuit breaker #{provider} OPENED after #{new_count} failures")
+              new_breakers = Map.put(state.circuit_breakers, provider, :open)
+              # Record when circuit was opened
+              open_time_key = String.to_atom("#{provider}_opened_at")
+              Map.put(%{state | circuit_breakers: new_breakers, failure_counts: new_counts}, open_time_key, System.system_time(:millisecond))
+            else
+              %{state | failure_counts: new_counts}
+            end
+            
+            {error, new_state}
+        end
+    end
+    
+    Logger.info("📡 LLM API call complete - result: #{inspect(elem(result, 0))}")
+    {:reply, result, new_state}
+  end
+  
+  defp should_attempt_reset?(state, provider) do
+    open_time_key = String.to_atom("#{provider}_opened_at")
+    case Map.get(state, open_time_key) do
+      nil -> true  # No record of when opened, try now
+      opened_at ->
+        current_time = System.system_time(:millisecond)
+        elapsed = current_time - opened_at
+        elapsed >= state.circuit_breakers.retry_timeout
+    end
   end
   
   @impl true
@@ -653,20 +759,30 @@ defmodule AutonomousOpponentV2Core.AMCP.Bridges.LLMBridge do
   end
   
   defp gather_cybernetic_context do
-    # Gather comprehensive cybernetic context
+    # Gather comprehensive cybernetic context - BULLETPROOF
     vsm_metrics = try do
       Bridges.VSMBridge.get_consciousness_metrics()
     catch
       :exit, _ -> %{status: "vsm_bridge_not_available"}
+      kind, reason ->
+        Logger.debug("VSM metrics failed #{kind}: #{inspect(reason)}")
+        %{status: "vsm_bridge_error"}
     end
     
     consciousness_state = case Memory.CRDTStore.get_crdt("consciousness_state") do
       {:ok, state} -> state
+      {:error, :not_found} ->
+        Logger.debug("consciousness_state CRDT not found in gather_cybernetic_context")
+        ensure_consciousness_crdt_exists()
+        %{level: 0.5, status: "awakening"}
       _ -> %{level: 0.5, status: "awakening"}
     end
     
     algedonic_history = case Memory.CRDTStore.get_crdt("algedonic_history") do
       {:ok, history} -> history
+      {:error, :not_found} ->
+        Logger.debug("algedonic_history CRDT not found")
+        []
       _ -> []
     end
     
@@ -695,13 +811,30 @@ defmodule AutonomousOpponentV2Core.AMCP.Bridges.LLMBridge do
   end
   
   defp get_subsystem_state(subsystem) do
-    # Get state from CRDT memory
+    # Get state from CRDT memory with short timeout to avoid blocking
     crdt_keys = ["#{subsystem}_variety", "#{subsystem}_operations", "#{subsystem}_metrics"]
     
     Enum.reduce(crdt_keys, %{}, fn key, acc ->
-      case Memory.CRDTStore.get_crdt(key) do
-        {:ok, value} -> Map.put(acc, String.to_atom(key), value)
-        _ -> acc
+      # Use GenServer.call directly with very short timeout (100ms)
+      try do
+        case GenServer.call(Memory.CRDTStore, {:get_crdt, key}, 100) do
+          {:ok, value} -> Map.put(acc, String.to_atom(key), value)
+          {:error, :not_found} -> acc
+          _ -> acc
+        end
+      catch
+        :exit, {:timeout, _} -> 
+          # CRDT lookup timed out - it probably doesn't exist yet
+          Logger.debug("CRDT #{key} not available (timeout) - skipping")
+          acc
+        :exit, {:noproc, _} ->
+          # CRDTStore isn't running
+          Logger.warning("CRDTStore not available when looking for #{key}")
+          acc
+        :exit, reason -> 
+          # Other exit reason
+          Logger.debug("CRDT #{key} lookup failed: #{inspect(reason)}")
+          acc
       end
     end)
   end
@@ -737,8 +870,8 @@ defmodule AutonomousOpponentV2Core.AMCP.Bridges.LLMBridge do
     case do_call_llm_api(explanation_prompt, :analysis) do
       {:ok, response} -> response
       {:error, reason} -> 
-        Logger.warning("LLM API call failed: #{inspect(reason)}, using fallback")
-        generate_fallback_explanation(vsm_state, recent_events)
+        Logger.error("LLM API call failed: #{inspect(reason)}")
+        "LLM API unavailable - #{inspect(reason)}"
     end
   end
   
@@ -882,29 +1015,25 @@ defmodule AutonomousOpponentV2Core.AMCP.Bridges.LLMBridge do
       case do_call_llm_api(dialogue_prompt, :conversation, provider: enabled_provider) do
         {:ok, response} -> sanitize_llm_response(response)
         {:error, reason} ->
-          Logger.warning("LLM call failed: #{inspect(reason)}, using fallback")
-          generate_fallback_consciousness_response(message, consciousness_state)
+          Logger.error("LLM call failed: #{inspect(reason)}")
+          {:error, {:llm_call_failed, reason}}
       end
     else
-      # No LLM available, use fallback
-      generate_fallback_consciousness_response(message, consciousness_state)
+      # No LLM available
+      {:error, :no_llm_provider_available}
     end
   end
   
-  defp generate_fallback_consciousness_response(message, consciousness_state) do
-    # Use the sophisticated local fallback
-    context = %{
-      conversation_history: [],
-      consciousness_state: consciousness_state
-    }
-    
-    LocalLLMFallback.generate_response(message, :consciousness_dialogue, context)
-  end
+  # Fallback function removed - no fallbacks allowed
   
   # Helper Functions
   
   defp format_data(data) when is_map(data) do
     Jason.encode!(data, pretty: true)
+  end
+  
+  defp format_data(data) do
+    inspect(data, limit: 5, pretty: true)
   end
   
   defp sanitize_llm_response(response) when is_binary(response) do
@@ -916,10 +1045,6 @@ defmodule AutonomousOpponentV2Core.AMCP.Bridges.LLMBridge do
   end
   
   defp sanitize_llm_response(response), do: response
-  
-  defp format_data(data) do
-    inspect(data, limit: 5, pretty: true)
-  end
   
   defp format_severity(severity) when severity > 0.8, do: "intense"
   defp format_severity(severity) when severity > 0.6, do: "strong"  
@@ -1043,9 +1168,47 @@ defmodule AutonomousOpponentV2Core.AMCP.Bridges.LLMBridge do
   end
   
   defp gather_consciousness_state do
-    case Memory.CRDTStore.get_crdt("consciousness_state") do
-      {:ok, state} -> state
-      _ -> %{level: 0.5, status: "awakening"}
+    # BULLETPROOF consciousness state gathering
+    try do
+      case Memory.CRDTStore.get_crdt("consciousness_state") do
+        {:ok, state} -> state
+        {:error, :not_found} -> 
+          # CRDT doesn't exist yet, create it and return default
+          Logger.debug("consciousness_state CRDT not found, creating with default values")
+          ensure_consciousness_crdt_exists()
+          %{level: 0.5, status: "awakening"}
+        {:error, _reason} ->
+          Logger.debug("Failed to get consciousness state from CRDT")
+          %{level: 0.5, status: "awakening"}
+        _ -> 
+          %{level: 0.5, status: "awakening"}
+      end
+    catch
+      kind, reason ->
+        Logger.debug("Consciousness state retrieval failed #{kind}: #{inspect(reason)}")
+        %{level: 0.5, status: "awakening"}
+    end
+  end
+  
+  defp ensure_consciousness_crdt_exists do
+    # Try to create the CRDT if it doesn't exist - BULLETPROOF
+    try do
+      case Memory.CRDTStore.create_crdt("consciousness_state", :lww_register, %{state: :awakening}) do
+        :ok -> 
+          Logger.info("Created consciousness_state CRDT on demand")
+        {:error, :already_exists} -> 
+          :ok
+        {:error, reason} -> 
+          Logger.warning("Failed to create consciousness_state CRDT: #{inspect(reason)}")
+          :error
+        error -> 
+          Logger.warning("Unexpected result creating consciousness_state CRDT: #{inspect(error)}")
+          :error
+      end
+    catch
+      kind, reason ->
+        Logger.error("ensure_consciousness_crdt_exists caught #{kind}: #{inspect(reason)}")
+        :error
     end
   end
   
@@ -1061,6 +1224,17 @@ defmodule AutonomousOpponentV2Core.AMCP.Bridges.LLMBridge do
       conversations: 0,
       syntheses: 0,
       started_at: DateTime.utc_now()
+    }
+  end
+  
+  defp init_circuit_breakers do
+    %{
+      openai: :closed,        # :closed, :open, :half_open
+      anthropic: :closed,
+      google_ai: :closed,
+      local_llama: :closed,
+      failure_threshold: 3,   # Open after 3 consecutive failures
+      retry_timeout: 30_000   # Try again after 30 seconds
     }
   end
   
@@ -1117,37 +1291,20 @@ defmodule AutonomousOpponentV2Core.AMCP.Bridges.LLMBridge do
       end
     end)
     
-    # If all providers failed, use local fallback as last resort
+    # If all providers failed, return error
     case result do
-      {:error, _} ->
-        Logger.warning("All providers failed, using local LLM fallback")
-        use_local_fallback(prompt, intent, opts)
+      {:error, reason} ->
+        Logger.error("All providers failed")
+        {:error, {:all_providers_failed, reason}}
         
       success ->
         success
     end
   end
 
-  defp use_local_fallback(prompt, intent, opts) do
-    Logger.warning("🔄 ACTIVATING LOCAL LLM FALLBACK - Intent: #{intent}")
-    
-    # Publish event about fallback usage
-    EventBus.publish(:llm_fallback_activated, %{
-      intent: intent,
-      reason: Keyword.get(opts, :fallback_reason, :rate_limited),
-      timestamp: DateTime.utc_now()
-    })
-    
-    # Gather context for the fallback
-    context = build_fallback_context(prompt, intent, opts)
-    
-    # Generate sophisticated local response
-    response = LocalLLMFallback.generate_response(prompt, intent, context)
-    
-    # Track telemetry
-    SystemTelemetry.emit([:llm, :provider_switch], %{}, %{from_provider: Keyword.get(opts, :provider, :openai), to_provider: :local_fallback, reason: :fallback})
-    
-    {:ok, response}
+  defp use_local_fallback(_prompt, intent, _opts) do
+    Logger.error("No fallback allowed - Intent: #{intent}")
+    {:error, :no_fallback_allowed}
   end
   
   defp build_fallback_context(prompt, intent, opts) do
@@ -1171,6 +1328,9 @@ defmodule AutonomousOpponentV2Core.AMCP.Bridges.LLMBridge do
     case Memory.CRDTStore.get_crdt("algedonic_history") do
       {:ok, history} when is_list(history) -> 
         Enum.take(history, -10)  # Last 10 signals
+      {:error, :not_found} ->
+        Logger.debug("algedonic_history CRDT not found in get_recent_algedonic_signals")
+        []
       _ -> 
         []
     end
@@ -1180,6 +1340,9 @@ defmodule AutonomousOpponentV2Core.AMCP.Bridges.LLMBridge do
     # Gather S4 intelligence data
     case Memory.CRDTStore.get_crdt("s4_intelligence") do
       {:ok, data} -> data
+      {:error, :not_found} ->
+        Logger.debug("s4_intelligence CRDT not found")
+        %{status: "operational", patterns: []}
       _ -> %{status: "operational", patterns: []}
     end
   end
@@ -1197,6 +1360,9 @@ defmodule AutonomousOpponentV2Core.AMCP.Bridges.LLMBridge do
     case Memory.CRDTStore.get_crdt("conversation_history") do
       {:ok, history} when is_list(history) ->
         Enum.take(history, -5)  # Last 5 exchanges
+      {:error, :not_found} ->
+        Logger.debug("conversation_history CRDT not found")
+        []
       _ ->
         []
     end
@@ -1319,26 +1485,10 @@ defmodule AutonomousOpponentV2Core.AMCP.Bridges.LLMBridge do
   # Real LLM API Integration Functions
   
   defp do_call_llm_api(prompt, intent, opts \\ []) do
-    # Check if mock mode is enabled FIRST
-    if Application.get_env(:autonomous_opponent_core, :llm_mock_mode, false) do
-      Logger.info("🎭 MOCK MODE ACTIVE - Using MockLLM for instant responses!")
-      
-      messages = [
-        %{role: "user", content: prompt}
-      ]
-      
-      # Pass intent in options for better mock responses
-      mock_opts = Keyword.put(opts, :intent, intent)
-      
-      case AutonomousOpponentV2Core.Intelligence.MockLLM.chat(messages, mock_opts) do
-        {:ok, response} -> {:ok, response}
-        error -> error
-      end
-    else
-      # Normal flow - check cache if enabled
-      cache_enabled = Keyword.get(opts, :use_cache, Application.get_env(:autonomous_opponent_core, :llm_cache_enabled, true))
-      
-      if cache_enabled do
+    # REMOVED MOCK MODE - Always use real LLM providers
+    cache_enabled = Keyword.get(opts, :use_cache, Application.get_env(:autonomous_opponent_core, :llm_cache_enabled, true))
+    
+    if cache_enabled do
       cache_opts = [
         model: Keyword.get(opts, :model),
         temperature: get_temperature_for_intent(intent),
@@ -1369,9 +1519,8 @@ defmodule AutonomousOpponentV2Core.AMCP.Bridges.LLMBridge do
             error -> error
           end
       end
-      else
-        do_call_llm_api_uncached(prompt, intent, opts)
-      end
+    else
+      do_call_llm_api_uncached(prompt, intent, opts)
     end
   end
   
@@ -1760,14 +1909,9 @@ defmodule AutonomousOpponentV2Core.AMCP.Bridges.LLMBridge do
   
   # Fallback functions for when LLM API fails
   
-  defp generate_fallback_explanation(vsm_state, recent_events) do
-    # Use sophisticated local fallback for VSM analysis
-    context = %{
-      vsm_state: vsm_state,
-      recent_events: recent_events
-    }
-    
-    LocalLLMFallback.generate_response("Analyze current VSM state", :vsm_analysis, context)
+  defp generate_fallback_explanation(_vsm_state, _recent_events) do
+    # No fallback allowed
+    {:error, :no_fallback_allowed}
   end
   
   # Removed unused function generate_fallback_narrative/1

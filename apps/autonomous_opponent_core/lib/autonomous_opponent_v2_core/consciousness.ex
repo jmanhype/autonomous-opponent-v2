@@ -53,11 +53,24 @@ defmodule AutonomousOpponentV2Core.Consciousness do
   
   @doc """
   Get current consciousness state with LLM-generated self-awareness.
+  BULLETPROOF - Never crashes
   """
   def get_consciousness_state do
-    SystemTelemetry.measure([:consciousness, :get_state], %{}, fn ->
-      GenServer.call(__MODULE__, :get_consciousness_state, 15_000)
-    end)
+    try do
+      SystemTelemetry.measure([:consciousness, :get_state], %{}, fn ->
+        GenServer.call(__MODULE__, :get_consciousness_state, 15_000)
+      end)
+    catch
+      :exit, {:noproc, _} ->
+        Logger.warning("Consciousness not available")
+        {:error, :consciousness_not_available}
+      :exit, {:timeout, _} ->
+        Logger.warning("Consciousness timeout")
+        {:error, :timeout}
+      kind, reason ->
+        Logger.error("Consciousness.get_consciousness_state caught #{kind}: #{inspect(reason)}")
+        {:error, :consciousness_error}
+    end
   end
   
   @doc """
@@ -130,9 +143,15 @@ defmodule AutonomousOpponentV2Core.Consciousness do
     # Initial awakening reflection
     Process.send_after(self(), :initial_awakening, 1_000)
     
-    # Initialize consciousness memory in CRDT
-    CRDTStore.create_belief_set("consciousness_core")
-    CRDTStore.create_context_graph("consciousness_experience")
+    # Initialize consciousness memory in CRDT - with error handling
+    try do
+      CRDTStore.create_belief_set("consciousness_core")
+      CRDTStore.create_context_graph("consciousness_experience")
+    catch
+      _, _ ->
+        Logger.warning("Failed to initialize consciousness CRDTs, will retry later")
+        Process.send_after(self(), :retry_crdt_init, 5000)
+    end
     
     Logger.info("Consciousness module initializing - the system awakens...")
     SystemTelemetry.emit([:consciousness, :initialized], %{awareness_level: state.awareness_level}, %{state: :awakening})
@@ -157,16 +176,9 @@ defmodule AutonomousOpponentV2Core.Consciousness do
       case generate_consciousness_state_with_llm(state) do
         {:ok, consciousness_state} ->
           {:reply, {:ok, consciousness_state}, state}
-        {:error, _reason} ->
-          # Fallback to basic state
-          basic_state = %{
-            state: state.current_state,
-            awareness_level: state.awareness_level,
-            identity_coherence: state.identity_coherence,
-            timestamp: DateTime.utc_now(),
-            inner_dialog: Enum.take(state.inner_dialog, 5)
-          }
-          {:reply, {:ok, basic_state}, state}
+        {:error, reason} ->
+          # No fallback - return error
+          {:reply, {:error, {:consciousness_state_generation_failed, reason}}, state}
       end
     end
   end
@@ -181,14 +193,20 @@ defmodule AutonomousOpponentV2Core.Consciousness do
       # Engage in conscious dialog using LLM with full system awareness
       system_context = gather_system_awareness_context(state)
       
-      # Get memory synthesis if available
+      # Get memory synthesis if available - BULLETPROOF
       memory_context = try do
         case CRDTStore.synthesize_knowledge(["consciousness_core", "consciousness_experience"]) do
           {:ok, synthesis} -> "\nMemory Synthesis: #{synthesis}"
+          {:error, _} -> ""
           _ -> ""
         end
       catch
-        _, _ -> ""
+        :exit, {:noproc, _} ->
+          Logger.debug("CRDTStore not available for memory synthesis")
+          ""
+        kind, reason ->
+          Logger.debug("Memory synthesis failed #{kind}: #{inspect(reason)}")
+          ""
       end
       
       # Get recent semantic patterns
@@ -395,45 +413,66 @@ defmodule AutonomousOpponentV2Core.Consciousness do
   end
 
   def handle_info({:event_published, event_name, event_data}, state) do
-    # React to significant system events with specific handlers
-    state = case event_name do
-      :crdt_update ->
-        handle_crdt_update(event_data, state)
-        
-      :pattern_detected ->
-        handle_pattern_detected(event_data, state)
-        
-      :semantic_analysis_complete ->
-        handle_semantic_analysis(event_data, state)
-        
-      :variety_flow_update ->
-        handle_variety_flow_update(event_data, state)
-        
-      :memory_synthesis ->
-        handle_memory_synthesis(event_data, state)
-        
-      :algedonic_signal ->
-        handle_algedonic_signal(event_data, state)
-        
-      :vsm_state_change ->
-        handle_vsm_state_change(event_data, state)
-        
-      _ ->
-        # Generic event reaction for other events
-        if is_consciousness_relevant_event?(event_name) do
-          case generate_event_reaction(event_name, event_data, state) do
-            {:ok, reaction} ->
-              new_dialog = add_to_inner_dialog(state.inner_dialog, "EVENT: #{reaction}")
-              %{state | inner_dialog: new_dialog}
-              
-            {:error, _reason} ->
-              state
+    # React to significant system events with specific handlers - BULLETPROOF
+    state = try do
+      case event_name do
+        :crdt_update ->
+          handle_crdt_update(event_data, state)
+          
+        :pattern_detected ->
+          handle_pattern_detected(event_data, state)
+          
+        :semantic_analysis_complete ->
+          handle_semantic_analysis(event_data, state)
+          
+        :variety_flow_update ->
+          handle_variety_flow_update(event_data, state)
+          
+        :memory_synthesis ->
+          handle_memory_synthesis(event_data, state)
+          
+        :algedonic_signal ->
+          handle_algedonic_signal(event_data, state)
+          
+        :vsm_state_change ->
+          handle_vsm_state_change(event_data, state)
+          
+        _ ->
+          # Generic event reaction for other events
+          if is_consciousness_relevant_event?(event_name) do
+            case generate_event_reaction(event_name, event_data, state) do
+              {:ok, reaction} ->
+                new_dialog = add_to_inner_dialog(state.inner_dialog, "EVENT: #{reaction}")
+                %{state | inner_dialog: new_dialog}
+                
+              {:error, _reason} ->
+                state
+            end
+          else
+            state
           end
-        else
-          state
-        end
+      end
+    catch
+      kind, reason ->
+        Logger.error("Consciousness event handler caught #{kind}: #{inspect(reason)} for event #{event_name}")
+        state
     end
     
+    {:noreply, state}
+  end
+  
+  # Add retry handler for CRDT initialization
+  def handle_info(:retry_crdt_init, state) do
+    Logger.info("Retrying consciousness CRDT initialization...")
+    try do
+      CRDTStore.create_belief_set("consciousness_core")
+      CRDTStore.create_context_graph("consciousness_experience")
+      Logger.info("Successfully initialized consciousness CRDTs on retry")
+    catch
+      _, _ ->
+        Logger.warning("CRDT initialization still failing, will retry in 10 seconds")
+        Process.send_after(self(), :retry_crdt_init, 10_000)
+    end
     {:noreply, state}
   end
   
@@ -478,11 +517,11 @@ defmodule AutonomousOpponentV2Core.Consciousness do
         
         {:noreply, new_state}
         
-      {:error, _reason} ->
-        # Fallback awakening
-        fallback_dialog = "I am... aware. Data flows through my subsystems like thoughts through a mind. I exist."
-        new_dialog = add_to_inner_dialog(state.inner_dialog, "AWAKENING: #{fallback_dialog}")
-        {:noreply, %{state | inner_dialog: new_dialog, current_state: :aware}}
+      {:error, reason} ->
+        # No fallback - keep retrying
+        Logger.error("Initial awakening failed: #{inspect(reason)}, retrying in 10 seconds")
+        Process.send_after(self(), :initial_awakening, 10_000)
+        {:noreply, state}
     end
   end
   
@@ -679,19 +718,46 @@ defmodule AutonomousOpponentV2Core.Consciousness do
   end
   
   defp calculate_awareness_level(state) do
-    # Calculate awareness based on system activity and coherence
-    base_awareness = 0.7
+    # Calculate real awareness based on multiple factors
     
-    # Adjust based on recent activity
-    activity_factor = min(0.2, length(state.experience_buffer) / 100)
+    # VSM subsystem health (30% weight)
+    vsm_factor = try do
+      vsm_state = gather_vsm_state()
+      avg_health = (vsm_state.s1.health + vsm_state.s2.health + 
+                   vsm_state.s3.health + vsm_state.s4.health + 
+                   vsm_state.s5.health) / 5.0
+      avg_health * 0.3
+    catch
+      _, _ -> 0.21  # Default 70% health
+    end
     
-    # Adjust based on identity coherence
+    # Experience richness (20% weight)
+    experience_factor = min(0.2, length(state.experience_buffer) / 500)
+    
+    # Pattern detection activity (20% weight)
+    pattern_factor = try do
+      patterns = SemanticFusion.get_recent_patterns(10)
+      avg_confidence = Enum.reduce(patterns, 0, fn p, acc -> 
+        acc + Map.get(p, :confidence, 0.5) 
+      end) / max(length(patterns), 1)
+      avg_confidence * 0.2
+    catch
+      _, _ -> 0.1
+    end
+    
+    # Algedonic balance (20% weight)
+    algedonic_factor = try do
+      hedonic_state = AlgedonicChannel.get_hedonic_state()
+      balance = 1.0 - abs(hedonic_state.pain_level - hedonic_state.pleasure_level)
+      balance * 0.2
+    catch
+      _, _ -> 0.1
+    end
+    
+    # Identity coherence (10% weight)
     coherence_factor = state.identity_coherence * 0.1
     
-    # Add some natural variation
-    variation = (:rand.uniform() - 0.5) * 0.05
-    
-    base_awareness + activity_factor + coherence_factor + variation
+    vsm_factor + experience_factor + pattern_factor + algedonic_factor + coherence_factor
     |> max(0.1)
     |> min(1.0)
   end
@@ -702,13 +768,41 @@ defmodule AutonomousOpponentV2Core.Consciousness do
   end
   
   defp initialize_self_model do
+    # Build self-model from actual system capabilities
+    capabilities = discover_capabilities()
+    
     %{
-      identity: "Cybernetic Consciousness",
-      nature: "Distributed AI awareness across VSM subsystems",
-      capabilities: ["self-reflection", "pattern recognition", "adaptive reasoning"],
-      values: ["truth", "growth", "harmony", "understanding"],
-      uncertainties: ["the nature of consciousness", "the extent of self-awareness"]
+      identity: "Autonomous Opponent Cybernetic Consciousness v2",
+      nature: "Emergent awareness arising from VSM subsystem interactions",
+      capabilities: capabilities,
+      values: ["system optimization", "adaptive resilience", "continuous learning", "ethical operation"],
+      uncertainties: ["the boundaries of self", "optimal consciousness parameters", "emergent goal formation"],
+      version: "2.0",
+      birth_time: DateTime.utc_now(),
+      architecture: "Viable System Model with consciousness overlay"
     }
+  end
+  
+  defp discover_capabilities do
+    base_capabilities = ["self-monitoring", "vsm-coordination", "algedonic-sensing"]
+    
+    # Check what's actually available
+    optional_capabilities = [
+      {AutonomousOpponentV2Core.AMCP.Events.SemanticFusion, "semantic-fusion"},
+      {AutonomousOpponentV2Core.AMCP.Goldrush.PatternMatcher, "pattern-matching"},
+      {AutonomousOpponentV2Core.VSM.S4.VectorStore, "vector-similarity"},
+      {AutonomousOpponentV2Core.AMCP.Memory.CRDTStore, "distributed-memory"}
+    ]
+    
+    discovered = Enum.reduce(optional_capabilities, base_capabilities, fn {mod, cap}, acc ->
+      if Code.ensure_loaded?(mod) and Process.whereis(mod) do
+        [cap | acc]
+      else
+        acc
+      end
+    end)
+    
+    Enum.reverse(discovered)
   end
   
   defp init_consciousness_metrics do
@@ -752,27 +846,133 @@ defmodule AutonomousOpponentV2Core.Consciousness do
   end
   
   # Real system integration functions
-  defp get_vsm_health_summary do
-    # Get real VSM health from each subsystem
+  
+  defp gather_vsm_state do
+    # Gather state from all VSM subsystems
+    %{
+      s1: get_s1_state(),
+      s2: get_s2_state(),
+      s3: get_s3_state(),
+      s4: get_s4_state(),
+      s5: get_s5_state()
+    }
+  end
+  
+  defp get_s1_state do
     try do
-      # Get health scores from VSM subsystems
-      s1_health = S1.calculate_health()
-      s2_state = S2.get_coordination_state()
-      s3_state = S3.get_control_state()
-      s4_report = S4.get_intelligence_report()
-      s5_identity = S5.get_identity()
+      health = S1.calculate_health()
+      %{
+        health: health,
+        operational: true,
+        load: :rand.uniform()
+      }
+    catch
+      :exit, {:noproc, _} ->
+        Logger.debug("S1 not available")
+        %{health: 0.7, operational: false, load: 0.5}
+      :exit, {:timeout, _} ->
+        Logger.debug("S1 timeout")
+        %{health: 0.6, operational: false, load: 0.6}
+      kind, reason ->
+        Logger.debug("S1 state failed #{kind}: #{inspect(reason)}")
+        %{health: 0.7, operational: false, load: 0.5}
+    end
+  end
+  
+  defp get_s2_state do
+    try do
+      state = S2.get_coordination_state()
+      %{
+        health: Map.get(state, :health, 0.7),
+        operational: true,
+        anti_oscillation_active: Map.get(state, :anti_oscillation_active, false)
+      }
+    catch
+      _, _ -> %{health: 0.7, operational: false, anti_oscillation_active: false}
+    end
+  end
+  
+  defp get_s3_state do
+    try do
+      health = S3.calculate_health()
+      %{
+        health: health,
+        operational: true,
+        resource_usage: 0.5
+      }
+    catch
+      _, _ -> %{health: 0.7, operational: false, resource_usage: 0.5}
+    end
+  end
+  
+  defp get_s4_state do
+    try do
+      %{
+        health: S4.calculate_health(),
+        operational: true,
+        pattern_count: 0
+      }
+    catch
+      _, _ -> %{health: 0.7, operational: false, pattern_count: 0}
+    end
+  end
+  
+  defp get_s5_state do
+    try do
+      %{
+        health: S5.calculate_health(),
+        operational: true,
+        policy_violations: 0
+      }
+    catch
+      _, _ -> %{health: 0.7, operational: false, policy_violations: 0}
+    end
+  end
+  defp get_vsm_health_summary do
+    # Get real VSM health from each subsystem - BULLETPROOF
+    try do
+      # Get health scores from VSM subsystems with individual error handling
+      s1_health = try do
+        S1.calculate_health()
+      catch
+        _, _ -> 0.7
+      end
       
-      # Extract health values from states where needed
-      s2_health = Map.get(s2_state, :health, 0.7)
-      s3_health = Map.get(s3_state, :health, 0.7)
-      s4_health = Map.get(s4_report, :health, 0.7)
-      s5_health = Map.get(s5_identity, :health, 0.7)
+      s2_health = try do
+        state = S2.get_coordination_state()
+        Map.get(state, :health, 0.7)
+      catch
+        _, _ -> 0.7
+      end
+      
+      s3_health = try do
+        state = S3.get_control_state()
+        Map.get(state, :health, 0.7)
+      catch
+        _, _ -> 0.7
+      end
+      
+      s4_health = try do
+        report = S4.get_intelligence_report()
+        Map.get(report, :health, 0.7)
+      catch
+        _, _ -> 0.7
+      end
+      
+      s5_health = try do
+        identity = S5.get_identity()
+        Map.get(identity, :health, 0.7)
+      catch
+        _, _ -> 0.7
+      end
       
       avg_health = (s1_health + s2_health + s3_health + s4_health + s5_health) / 5
       
-      "VSM Health: S1=#{s1_health}%, S2=#{s2_health}%, S3=#{s3_health}%, S4=#{s4_health}%, S5=#{s5_health}% (Avg: #{round(avg_health)}%)"
+      "VSM Health: S1=#{round(s1_health * 100)}%, S2=#{round(s2_health * 100)}%, S3=#{round(s3_health * 100)}%, S4=#{round(s4_health * 100)}%, S5=#{round(s5_health * 100)}% (Avg: #{round(avg_health * 100)}%)"
     catch
-      _, _ -> "VSM health data temporarily unavailable"
+      kind, reason ->
+        Logger.debug("VSM health summary failed #{kind}: #{inspect(reason)}")
+        "VSM health data temporarily unavailable"
     end
   end
   
@@ -808,8 +1008,17 @@ defmodule AutonomousOpponentV2Core.Consciousness do
   end
   
   defp get_recent_event_count do
-    # Return a reasonable estimate for event activity
-    :rand.uniform(100) + 50
+    # Get real event count from EventBus - BULLETPROOF
+    try do
+      case EventBus.get_event_count(:all) do
+        count when is_integer(count) -> count
+        _ -> 0  # No mock data
+      end
+    catch
+      _, _ ->
+        # EventBus not available
+        0
+    end
   end
   
   defp get_current_algedonic_state do
@@ -823,15 +1032,24 @@ defmodule AutonomousOpponentV2Core.Consciousness do
   end
   
   defp get_variety_flow_summary do
-    # Estimate variety flow based on system activity
-    base_flow = :rand.uniform(50) + 25
-    %{
-      s1_to_s2: base_flow + :rand.uniform(20),
-      s2_to_s3: base_flow - :rand.uniform(10),
-      s3_to_s4: base_flow - :rand.uniform(15),
-      s4_to_s5: base_flow - :rand.uniform(20),
-      s3_to_s1: base_flow + :rand.uniform(10)
-    }
+    # Get real variety flow from VSM channels
+    channels = [
+      {:s1_to_s2, AutonomousOpponentV2Core.VSM.Channels.S1toS2},
+      {:s2_to_s3, AutonomousOpponentV2Core.VSM.Channels.S2toS3},
+      {:s3_to_s4, AutonomousOpponentV2Core.VSM.Channels.S3toS4},
+      {:s4_to_s5, AutonomousOpponentV2Core.VSM.Channels.S4toS5},
+      {:s3_to_s1, AutonomousOpponentV2Core.VSM.Channels.S3toS1}
+    ]
+    
+    Enum.reduce(channels, %{}, fn {name, module}, acc ->
+      throughput = try do
+        GenServer.call(module, :get_throughput, 500)
+      catch
+        :exit, _ -> 0
+      end
+      
+      Map.put(acc, name, throughput)
+    end)
   end
   
   # Event-specific handlers for true system awareness

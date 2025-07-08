@@ -82,11 +82,5 @@ config :autonomous_opponent_core,
   ]
 
 # LLM Mock Mode Configuration - DISABLED FOR REAL FUNCTIONALITY
-config :autonomous_opponent_core,
-  # Enable mock mode for instant development responses (no API delays!)
-  # Set to true for ultra-fast development, false for real LLM calls
-  llm_mock_mode: false,
-  
-  # Mock response delay in milliseconds (simulate thinking)
-  # Set to 0 for instant responses, or add small delay for realism
-  llm_mock_delay: 0
+# Mock mode removed - always use real LLM providers
+# The system now uses real AI providers for all responses

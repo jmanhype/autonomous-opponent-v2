@@ -634,13 +634,64 @@ defmodule AutonomousOpponentV2Core.Core.Metrics do
     Enum.sum(values) / length(values)
   end
   
-  defp build_loop_metrics(_table) do
-    # Placeholder for cybernetic loop metrics
+  defp build_loop_metrics(table) do
+    # Calculate real cybernetic loop metrics
+    
+    # Count active feedback loops from VSM subsystems
+    active_loops = count_active_feedback_loops()
+    
+    # Calculate average loop latency from event timings
+    latency_data = get_latency_metrics(table)
+    avg_latency = if latency_data == [], do: 0, else: Enum.sum(latency_data) / length(latency_data)
+    
+    # Calculate control effectiveness from VSM performance
+    effectiveness = calculate_control_effectiveness()
+    
     %{
-      feedback_loops_active: 5,
-      avg_loop_latency_ms: 25,
-      control_effectiveness: 0.85
+      feedback_loops_active: active_loops,
+      avg_loop_latency_ms: Float.round(avg_latency, 2),
+      control_effectiveness: Float.round(effectiveness, 3)
     }
+  end
+  
+  defp count_active_feedback_loops do
+    # Check each VSM subsystem for active loops
+    subsystems = [
+      AutonomousOpponentV2Core.VSM.S1.Operations,
+      AutonomousOpponentV2Core.VSM.S2.Coordination,
+      AutonomousOpponentV2Core.VSM.S3.Control,
+      AutonomousOpponentV2Core.VSM.S4.Intelligence,
+      AutonomousOpponentV2Core.VSM.S5.Policy
+    ]
+    
+    Enum.reduce(subsystems, 0, fn module, count ->
+      if Process.whereis(module) do
+        count + 1
+      else
+        count
+      end
+    end)
+  end
+  
+  defp get_latency_metrics(table) do
+    # Get actual latency from metrics table
+    case :ets.match(table, {{:event_latency, :_}, :'$1'}) do
+      [] -> []
+      matches -> Enum.map(matches, fn [value] -> value end)
+    end
+  end
+  
+  defp calculate_control_effectiveness do
+    # Measure how well control signals are working
+    try do
+      s3_state = GenServer.call(AutonomousOpponentV2Core.VSM.S3.Control, :get_state, 1000)
+      resource_efficiency = Map.get(s3_state, :resource_efficiency, 0.5)
+      optimization_success = Map.get(s3_state, :optimization_success_rate, 0.5)
+      
+      (resource_efficiency + optimization_success) / 2
+    catch
+      :exit, _ -> 0.7  # Default if S3 not available
+    end
   end
   
   defp calculate_system_health(table) do

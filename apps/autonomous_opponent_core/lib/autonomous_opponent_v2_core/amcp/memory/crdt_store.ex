@@ -48,23 +48,62 @@ defmodule AutonomousOpponentV2Core.AMCP.Memory.CRDTStore do
   
   @doc """
   Creates a new CRDT of the specified type.
+  BULLETPROOF - Returns :ok or error, never crashes
   """
   def create_crdt(crdt_id, crdt_type, initial_value \\ nil) do
-    GenServer.call(__MODULE__, {:create_crdt, crdt_id, crdt_type, initial_value})
+    try do
+      GenServer.call(__MODULE__, {:create_crdt, crdt_id, crdt_type, initial_value}, 5000)
+    catch
+      :exit, {:noproc, _} ->
+        Logger.warning("CRDTStore not available for create_crdt")
+        {:error, :crdt_store_not_available}
+      :exit, {:timeout, _} ->
+        Logger.warning("CRDTStore timeout for create_crdt")
+        {:error, :timeout}
+      kind, reason ->
+        Logger.error("CRDTStore.create_crdt caught #{kind}: #{inspect(reason)}")
+        {:error, :crdt_operation_failed}
+    end
   end
   
   @doc """
   Gets the current value of a CRDT.
+  BULLETPROOF - Returns {:ok, value} or error, never crashes
   """
   def get_crdt(crdt_id) do
-    GenServer.call(__MODULE__, {:get_crdt, crdt_id})
+    try do
+      GenServer.call(__MODULE__, {:get_crdt, crdt_id}, 5000)
+    catch
+      :exit, {:noproc, _} ->
+        Logger.debug("CRDTStore not available for get_crdt")
+        {:error, :crdt_store_not_available}
+      :exit, {:timeout, _} ->
+        Logger.debug("CRDTStore timeout for get_crdt")
+        {:error, :timeout}
+      kind, reason ->
+        Logger.error("CRDTStore.get_crdt caught #{kind}: #{inspect(reason)}")
+        {:error, :crdt_operation_failed}
+    end
   end
   
   @doc """
   Updates a CRDT with an operation.
+  BULLETPROOF - Returns :ok or error, never crashes
   """
   def update_crdt(crdt_id, operation, value) do
-    GenServer.call(__MODULE__, {:update_crdt, crdt_id, operation, value})
+    try do
+      GenServer.call(__MODULE__, {:update_crdt, crdt_id, operation, value}, 5000)
+    catch
+      :exit, {:noproc, _} ->
+        Logger.warning("CRDTStore not available for update_crdt")
+        {:error, :crdt_store_not_available}
+      :exit, {:timeout, _} ->
+        Logger.warning("CRDTStore timeout for update_crdt")
+        {:error, :timeout}
+      kind, reason ->
+        Logger.error("CRDTStore.update_crdt caught #{kind}: #{inspect(reason)}")
+        {:error, :crdt_operation_failed}
+    end
   end
   
   @doc """
@@ -120,18 +159,32 @@ defmodule AutonomousOpponentV2Core.AMCP.Memory.CRDTStore do
   
   @doc """
   Creates a belief set for agent knowledge.
+  BULLETPROOF - Returns :ok or error, never crashes
   """
   def create_belief_set(agent_id) do
-    crdt_id = "belief_set:#{agent_id}"
-    create_crdt(crdt_id, :or_set, [])
+    try do
+      crdt_id = "belief_set:#{agent_id}"
+      create_crdt(crdt_id, :or_set, [])
+    catch
+      _, _ ->
+        Logger.warning("Failed to create belief set for #{agent_id}")
+        {:error, :belief_set_creation_failed}
+    end
   end
   
   @doc """
   Adds a belief to an agent's belief set.
+  BULLETPROOF - Returns :ok or error, never crashes
   """
   def add_belief(agent_id, belief) do
-    crdt_id = "belief_set:#{agent_id}"
-    update_crdt(crdt_id, :add, belief)
+    try do
+      crdt_id = "belief_set:#{agent_id}"
+      update_crdt(crdt_id, :add, belief)
+    catch
+      _, _ ->
+        Logger.debug("Failed to add belief for #{agent_id}")
+        {:error, :belief_add_failed}
+    end
   end
   
   @doc """
@@ -155,19 +208,29 @@ defmodule AutonomousOpponentV2Core.AMCP.Memory.CRDTStore do
   """
   def add_context_relationship(context_id, from_concept, to_concept, relationship_type) do
     crdt_id = "context_graph:#{context_id}"
-    # Use HLC timestamp for deterministic ordering
-    {:ok, hlc_event} = Clock.create_event(:crdt_store, :relationship_added, %{
+    
+    # Use HLC timestamp for deterministic ordering with error handling
+    {hlc_timestamp, event_id} = case safe_create_hlc_event(:relationship_added, %{
       from: from_concept,
       to: to_concept,
       type: relationship_type
-    })
+    }) do
+      {:ok, hlc_event} ->
+        {hlc_event.timestamp, hlc_event.id}
+      {:error, reason} ->
+        Logger.warning("Failed to create HLC event: #{inspect(reason)}, using fallback timestamp")
+        # Fallback to system time if HLC is unavailable
+        timestamp = System.system_time(:millisecond)
+        fallback_id = "fallback_#{timestamp}_#{:crypto.strong_rand_bytes(4) |> Base.encode16(case: :lower)}"
+        {%{physical: timestamp, logical: 0, node_id: "fallback"}, fallback_id}
+    end
     
     relationship = %{
       from: from_concept,
       to: to_concept,
       type: relationship_type,
-      hlc_timestamp: hlc_event.timestamp,
-      event_id: hlc_event.id
+      hlc_timestamp: hlc_timestamp,
+      event_id: event_id
     }
     update_crdt(crdt_id, :put, {"relationships", generate_relationship_id(), relationship})
   end
@@ -444,11 +507,82 @@ defmodule AutonomousOpponentV2Core.AMCP.Memory.CRDTStore do
       updates: 0,
       merges: 0,
       syncs: 0,
-      created_at: case Clock.now() do
+      created_at: case safe_get_hlc_now() do
         {:ok, timestamp} -> timestamp.physical
         _ -> System.system_time(:millisecond)
       end
     }
+  end
+  
+  # Safe HLC helpers with retry and exponential backoff
+  defp safe_create_hlc_event(type, data, retries \\ 3) do
+    try do
+      Clock.create_event(:crdt_store, type, data)
+    catch
+      :exit, {:noproc, _} when retries > 0 ->
+        # HLC process not available yet, wait with exponential backoff
+        backoff_ms = round(:math.pow(2, 4 - retries) * 100)
+        Logger.debug("HLC not available for CRDT event, retrying in #{backoff_ms}ms (#{retries} retries left)")
+        Process.sleep(backoff_ms)
+        safe_create_hlc_event(type, data, retries - 1)
+      
+      :exit, {:timeout, _} when retries > 0 ->
+        # Timeout, retry with exponential backoff
+        backoff_ms = round(:math.pow(2, 4 - retries) * 150)
+        Logger.debug("HLC timeout for CRDT event, retrying in #{backoff_ms}ms (#{retries} retries left)")
+        Process.sleep(backoff_ms)
+        safe_create_hlc_event(type, data, retries - 1)
+      
+      :exit, {:killed, _} when retries > 0 ->
+        # Process was killed, retry with backoff
+        backoff_ms = round(:math.pow(2, 4 - retries) * 125)
+        Logger.debug("HLC process killed for CRDT event, retrying in #{backoff_ms}ms (#{retries} retries left)")
+        Process.sleep(backoff_ms)
+        safe_create_hlc_event(type, data, retries - 1)
+      
+      :exit, reason ->
+        Logger.warning("HLC unavailable for CRDT event after all retries: #{inspect(reason)}")
+        {:error, {:hlc_unavailable, reason}}
+      
+      error ->
+        Logger.error("Unexpected error calling HLC for CRDT event: #{inspect(error)}")
+        {:error, {:hlc_error, error}}
+    end
+  end
+  
+  defp safe_get_hlc_now(retries \\ 3) do
+    try do
+      Clock.now()
+    catch
+      :exit, {:noproc, _} when retries > 0 ->
+        # HLC process not available yet, wait with exponential backoff
+        backoff_ms = round(:math.pow(2, 4 - retries) * 100)
+        Logger.debug("HLC not available for Clock.now, retrying in #{backoff_ms}ms (#{retries} retries left)")
+        Process.sleep(backoff_ms)
+        safe_get_hlc_now(retries - 1)
+      
+      :exit, {:timeout, _} when retries > 0 ->
+        # Timeout, retry with exponential backoff
+        backoff_ms = round(:math.pow(2, 4 - retries) * 150)
+        Logger.debug("HLC timeout for Clock.now, retrying in #{backoff_ms}ms (#{retries} retries left)")
+        Process.sleep(backoff_ms)
+        safe_get_hlc_now(retries - 1)
+      
+      :exit, {:killed, _} when retries > 0 ->
+        # Process was killed, retry with backoff
+        backoff_ms = round(:math.pow(2, 4 - retries) * 125)
+        Logger.debug("HLC process killed for Clock.now, retrying in #{backoff_ms}ms (#{retries} retries left)")
+        Process.sleep(backoff_ms)
+        safe_get_hlc_now(retries - 1)
+      
+      :exit, reason ->
+        Logger.warning("HLC unavailable for Clock.now after all retries: #{inspect(reason)}")
+        {:error, {:hlc_unavailable, reason}}
+      
+      error ->
+        Logger.error("Unexpected error calling Clock.now: #{inspect(error)}")
+        {:error, {:hlc_error, error}}
+    end
   end
   
   defp increment_stat(stats, key) do
@@ -478,7 +612,7 @@ defmodule AutonomousOpponentV2Core.AMCP.Memory.CRDTStore do
   end
   
   defp create_crdt_instance(:lww_register, initial_value, node_id) do
-    {:ok, LWWRegister.new(node_id, initial_value)}
+    {:ok, LWWRegister.new(initial_value, node_id)}
   end
   
   defp create_crdt_instance(:or_set, initial_value, node_id) do
@@ -598,7 +732,7 @@ defmodule AutonomousOpponentV2Core.AMCP.Memory.CRDTStore do
         node_id: state.node_id,
         vector_clock: state.vector_clock,
         crdt_summaries: create_crdt_summaries(state.crdts),
-        hlc_timestamp: case Clock.now() do
+        hlc_timestamp: case safe_get_hlc_now() do
           {:ok, timestamp} -> timestamp.physical
           _ -> System.system_time(:millisecond)
         end

@@ -39,20 +39,53 @@ defmodule AutonomousOpponentV2Core.EventBus do
 
   @doc """
   Publish an event to all subscribers
+  BULLETPROOF - Never crashes
   """
   def publish(event_type, data) do
-    # Create causally-ordered event with HLC timestamp to prevent race conditions
-    {:ok, event} = Clock.create_event(:event_bus, event_type, data)
-    
-    # Emit publish telemetry synchronously before the cast
-    message_size = :erlang.external_size(event.data)
-    SystemTelemetry.emit(
-      [:event_bus, :publish],
-      %{message_size: message_size, event_id: event.id},
-      %{topic: event_type}
-    )
-    
-    GenServer.cast(__MODULE__, {:publish_hlc, event})
+    try do
+      # Create causally-ordered event with HLC timestamp to prevent race conditions
+      event = case safe_create_event(:event_bus, event_type, data) do
+        {:ok, hlc_event} ->
+          hlc_event
+        {:error, reason} ->
+          Logger.warning("Failed to create HLC event for #{event_type}: #{inspect(reason)}, using fallback")
+          # Fallback event structure when HLC is unavailable
+          timestamp = System.system_time(:millisecond)
+          fallback_id = "fallback_#{timestamp}_#{:crypto.strong_rand_bytes(4) |> Base.encode16(case: :lower)}"
+          %{
+            id: fallback_id,
+            subsystem: :event_bus,
+            type: event_type,
+            data: data,
+            timestamp: %{physical: timestamp, logical: 0, node_id: "fallback"},
+            created_at: DateTime.to_iso8601(DateTime.from_unix!(timestamp, :millisecond))
+          }
+      end
+      
+      # Emit publish telemetry synchronously before the cast
+      try do
+        message_size = :erlang.external_size(event.data)
+        SystemTelemetry.emit(
+          [:event_bus, :publish],
+          %{message_size: message_size, event_id: event.id},
+          %{topic: event_type}
+        )
+      catch
+        _, _ -> :ok  # Telemetry failures should not stop event publishing
+      end
+      
+      # Check if EventBus process is alive before casting
+      if Process.whereis(__MODULE__) do
+        GenServer.cast(__MODULE__, {:publish_hlc, event})
+      else
+        Logger.error("EventBus process not available! Event #{event_type} dropped")
+      end
+    catch
+      kind, reason ->
+        Logger.error("EventBus.publish caught #{kind}: #{inspect(reason)} for event #{event_type}")
+        # Even in catastrophic failure, don't crash
+        :error
+    end
   end
 
   @doc """
@@ -110,6 +143,35 @@ defmodule AutonomousOpponentV2Core.EventBus do
   def get_event_count(_event_type) do
     # Return a reasonable default for variety flow calculations
     :rand.uniform(100)
+  end
+  
+  @doc """
+  Get a safe HLC timestamp with retry logic.
+  This is a public helper for other modules that need HLC timestamps.
+  Returns {:ok, timestamp} or {:error, reason}
+  """
+  def get_hlc_timestamp(retries \\ 3) do
+    try do
+      Clock.now()
+    catch
+      :exit, {:noproc, _} when retries > 0 ->
+        # HLC process not available yet, wait with exponential backoff
+        backoff_ms = round(:math.pow(2, 4 - retries) * 50)
+        Process.sleep(backoff_ms)
+        get_hlc_timestamp(retries - 1)
+      
+      :exit, {:timeout, _} when retries > 0 ->
+        # Timeout, retry with exponential backoff
+        backoff_ms = round(:math.pow(2, 4 - retries) * 100)
+        Process.sleep(backoff_ms)
+        get_hlc_timestamp(retries - 1)
+      
+      :exit, reason ->
+        {:error, {:hlc_unavailable, reason}}
+      
+      error ->
+        {:error, {:hlc_error, error}}
+    end
   end
 
   # Server Callbacks
@@ -183,7 +245,21 @@ defmodule AutonomousOpponentV2Core.EventBus do
   # Legacy publish handler - maintained for backward compatibility
   def handle_cast({:publish, event_type, data}, state) do
     # Convert to HLC event for consistent handling
-    {:ok, event} = Clock.create_event(:event_bus, event_type, data)
+    event = case safe_create_event(:event_bus, event_type, data) do
+      {:ok, hlc_event} -> hlc_event
+      {:error, _reason} ->
+        # Fallback for legacy handler
+        timestamp = System.system_time(:millisecond)
+        fallback_id = "legacy_#{timestamp}_#{:crypto.strong_rand_bytes(4) |> Base.encode16(case: :lower)}"
+        %{
+          id: fallback_id,
+          subsystem: :event_bus,
+          type: event_type,
+          data: data,
+          timestamp: %{physical: timestamp, logical: 0, node_id: "legacy"},
+          created_at: DateTime.to_iso8601(DateTime.from_unix!(timestamp, :millisecond))
+        }
+    end
     handle_cast({:publish_hlc, event}, state)
   end
   
@@ -197,18 +273,32 @@ defmodule AutonomousOpponentV2Core.EventBus do
 
     # Send event to each subscriber with HLC timestamp and ordering info
     delivered = Enum.reduce(subscribers, 0, fn {_event_type, pid}, count ->
-      if Process.alive?(pid) do
-        # Send full event with HLC timestamp for proper ordering
-        send(pid, {:event_bus_hlc, event})
-        count + 1
-      else
-        # Emit dropped message telemetry
-        SystemTelemetry.emit(
-          [:event_bus, :message_dropped],
-          %{queue_size: Process.info(self(), :message_queue_len) |> elem(1), event_id: event.id},
-          %{topic: event.type, reason: :dead_process}
-        )
-        count
+      try do
+        if Process.alive?(pid) do
+          # Send full event with HLC timestamp for proper ordering
+          send(pid, {:event_bus_hlc, event})
+          count + 1
+        else
+          # Emit dropped message telemetry safely
+          try do
+            queue_size = case Process.info(self(), :message_queue_len) do
+              {_, size} -> size
+              _ -> 0
+            end
+            SystemTelemetry.emit(
+              [:event_bus, :message_dropped],
+              %{queue_size: queue_size, event_id: event.id},
+              %{topic: event.type, reason: :dead_process}
+            )
+          catch
+            _, _ -> :ok  # Telemetry failure is non-critical
+          end
+          count
+        end
+      catch
+        _, _ -> 
+          # Even if Process.alive? fails, continue delivering to other subscribers
+          count
       end
     end)
     
@@ -267,5 +357,41 @@ defmodule AutonomousOpponentV2Core.EventBus do
   def handle_info(msg, state) do
     Logger.debug("EventBus received unexpected message: #{inspect(msg)}")
     {:noreply, state}
+  end
+  
+  # Safe HLC helper with retry and exponential backoff
+  defp safe_create_event(subsystem, event_type, data, retries \\ 3) do
+    try do
+      Clock.create_event(subsystem, event_type, data)
+    catch
+      :exit, {:noproc, _} when retries > 0 ->
+        # HLC process not available yet, wait with exponential backoff
+        backoff_ms = round(:math.pow(2, 4 - retries) * 50)
+        Logger.debug("HLC not available, retrying in #{backoff_ms}ms (#{retries} retries left)")
+        Process.sleep(backoff_ms)
+        safe_create_event(subsystem, event_type, data, retries - 1)
+      
+      :exit, {:timeout, _} when retries > 0 ->
+        # Timeout, retry with exponential backoff
+        backoff_ms = round(:math.pow(2, 4 - retries) * 100)
+        Logger.debug("HLC timeout, retrying in #{backoff_ms}ms (#{retries} retries left)")
+        Process.sleep(backoff_ms)
+        safe_create_event(subsystem, event_type, data, retries - 1)
+      
+      :exit, {:killed, _} when retries > 0 ->
+        # Process was killed, retry with backoff
+        backoff_ms = round(:math.pow(2, 4 - retries) * 75)
+        Logger.debug("HLC process killed, retrying in #{backoff_ms}ms (#{retries} retries left)")
+        Process.sleep(backoff_ms)
+        safe_create_event(subsystem, event_type, data, retries - 1)
+      
+      :exit, reason ->
+        Logger.warning("HLC unavailable after all retries: #{inspect(reason)}")
+        {:error, {:hlc_unavailable, reason}}
+      
+      error ->
+        Logger.error("Unexpected error calling HLC: #{inspect(error)}")
+        {:error, {:hlc_error, error}}
+    end
   end
 end

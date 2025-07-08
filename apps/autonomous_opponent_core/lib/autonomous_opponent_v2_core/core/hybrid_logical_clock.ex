@@ -61,7 +61,10 @@ defmodule AutonomousOpponentV2Core.Core.HybridLogicalClock do
   Starts the HLC GenServer.
   """
   def start_link(opts \\ []) do
-    GenServer.start_link(__MODULE__, opts, name: __MODULE__)
+    # Extract the name from opts if provided, otherwise use module name
+    {name, init_opts} = Keyword.pop(opts, :name, __MODULE__)
+    Logger.info("Starting Hybrid Logical Clock with name: #{inspect(name)}")
+    GenServer.start_link(__MODULE__, init_opts, name: name)
   end
   
   @doc """
@@ -187,6 +190,9 @@ defmodule AutonomousOpponentV2Core.Core.HybridLogicalClock do
   
   @impl true
   def init(opts) do
+    # Log initialization
+    Logger.info("HLC init called with PID: #{inspect(self())}")
+    
     node_id = Keyword.get(opts, :node_id, node_id())
     max_offset = Keyword.get(opts, :max_offset, @max_drift)
     
@@ -196,6 +202,9 @@ defmodule AutonomousOpponentV2Core.Core.HybridLogicalClock do
       logical_counter: 0,
       max_offset: max_offset
     }
+    
+    # Check registration
+    Logger.info("HLC checking registration: #{inspect(Process.whereis(__MODULE__))}")
     
     {:ok, state}
   end

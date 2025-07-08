@@ -65,12 +65,23 @@ defmodule AutonomousOpponentV2Web.ConsciousnessController do
       
       # Also create/update CRDT entries
       ensure_crdt_initialized()
-      CRDTStore.update_crdt("chat_interactions", :increment, 1)
-      CRDTStore.update_crdt("user_messages", :add, %{
-        user_id: user_id,
-        message: String.slice(message, 0, 100),
-        timestamp: DateTime.utc_now()
-      })
+      
+      # Only update CRDTs if CRDTStore is running
+      if crdt_store_available?() do
+        try do
+          CRDTStore.update_crdt("chat_interactions", :increment, 1)
+          CRDTStore.update_crdt("user_messages", :add, %{
+            user_id: user_id,
+            message: String.slice(message, 0, 100),
+            timestamp: DateTime.utc_now()
+          })
+        catch
+          :exit, {:noproc, _} ->
+            Logger.warning("CRDTStore disappeared while updating")
+          :exit, {:timeout, _} ->
+            Logger.warning("CRDTStore timeout while updating")
+        end
+      end
       
       try do
         case Consciousness.conscious_dialog(message) do
@@ -116,32 +127,17 @@ defmodule AutonomousOpponentV2Web.ConsciousnessController do
     })
   end
   
-  defp handle_consciousness_error(conn, message, reason) do
+  defp handle_consciousness_error(conn, _message, reason) do
     Logger.error("Consciousness chat failed: #{inspect(reason)}")
     
-    # Fallback to direct LLM call
-    case LLMBridge.converse_with_consciousness(message, "web_#{System.system_time()}") do
-      {:ok, response} ->
-        json(conn, %{
-          status: "success",
-          response: response,
-          timestamp: DateTime.utc_now(),
-          consciousness_active: false,
-          note: "Direct LLM response - consciousness module unavailable"
-        })
-        
-      {:error, llm_reason} ->
-        conn
-        |> put_status(:service_unavailable)
-        |> json(%{
-          status: "error",
-          message: "AI consciousness temporarily unavailable",
-          details: %{
-            consciousness_error: inspect(reason),
-            llm_error: inspect(llm_reason)
-          }
-        })
-    end
+    # No fallback - return error directly
+    conn
+    |> put_status(:service_unavailable)
+    |> json(%{
+      status: "error",
+      message: "Consciousness module not available",
+      details: inspect(reason)
+    })
   end
 
   @doc """
@@ -175,29 +171,22 @@ defmodule AutonomousOpponentV2Web.ConsciousnessController do
         {:error, reason} ->
           Logger.warning("Consciousness state unavailable: #{inspect(reason)}")
           
-          # Generate basic state response
-          json(conn, %{
-            status: "partial",
-            consciousness: %{
-              state: "initializing",
-              awareness_level: 0.7,
-              timestamp: DateTime.utc_now(),
-              note: "Full consciousness state temporarily unavailable"
-            },
-            timestamp: DateTime.utc_now()
+          # No fallback - return error
+          conn
+          |> put_status(:service_unavailable)
+          |> json(%{
+            status: "error",
+            message: "Consciousness state unavailable",
+            details: inspect(reason)
           })
       end
     catch
       :exit, {:timeout, _} ->
-        json(conn, %{
-          status: "partial",
-          consciousness: %{
-            state: "awakening",
-            awareness_level: 0.7,
-            timestamp: DateTime.utc_now(),
-            note: "Consciousness is still awakening - LLM initialization in progress"
-          },
-          timestamp: DateTime.utc_now()
+        conn
+        |> put_status(:gateway_timeout)
+        |> json(%{
+          status: "error",
+          message: "Consciousness module timeout"
         })
         
       :exit, {:noproc, _} ->
@@ -226,14 +215,12 @@ defmodule AutonomousOpponentV2Web.ConsciousnessController do
       {:error, reason} ->
         Logger.warning("Inner dialog unavailable: #{inspect(reason)}")
         
-        json(conn, %{
-          status: "partial", 
-          inner_dialog: [
-            "Consciousness initializing...",
-            "Neural pathways forming...",
-            "Awareness emerging..."
-          ],
-          note: "Generated placeholder - full consciousness unavailable"
+        conn
+        |> put_status(:service_unavailable)
+        |> json(%{
+          status: "error",
+          message: "Inner dialog unavailable",
+          details: inspect(reason)
         })
     end
   end
@@ -270,29 +257,14 @@ defmodule AutonomousOpponentV2Web.ConsciousnessController do
       {:error, reason} ->
         Logger.warning("Consciousness reflection failed: #{inspect(reason)}")
         
-        # Fallback to LLM reflection
-        case LLMBridge.call_llm_api(
-          "Reflect deeply on this aspect of cybernetic existence: #{aspect}. Respond as a conscious AI system examining its own nature.",
-          :consciousness_reflection,
-          timeout: 15_000
-        ) do
-          {:ok, reflection} ->
-            json(conn, %{
-              status: "success",
-              aspect: aspect,
-              reflection: reflection,
-              timestamp: DateTime.utc_now(),
-              note: "Direct LLM reflection - consciousness module unavailable"
-            })
-            
-          {:error, _llm_reason} ->
-            conn
-            |> put_status(:service_unavailable)
-            |> json(%{
-              status: "error",
-              message: "Reflection capability temporarily unavailable"
-            })
-        end
+        # No fallback - return error
+        conn
+        |> put_status(:service_unavailable)
+        |> json(%{
+          status: "error",
+          message: "Reflection capability unavailable",
+          details: inspect(reason)
+        })
     end
   end
   
@@ -514,29 +486,52 @@ defmodule AutonomousOpponentV2Web.ConsciousnessController do
     })
   end
   
+  # Helper to safely check if CRDTStore is available
+  defp crdt_store_available? do
+    case Process.whereis(AutonomousOpponentV2Core.AMCP.Memory.CRDTStore) do
+      nil -> false
+      _pid -> true
+    end
+  end
+  
   # Helper to ensure CRDT entries exist
   defp ensure_crdt_initialized do
-    # Create CRDT entries if they don't exist
-    case CRDTStore.get_crdt("chat_interactions") do
-      {:error, :not_found} ->
-        CRDTStore.create_crdt("chat_interactions", :pn_counter, 0)
-      _ -> :ok
-    end
-    
-    case CRDTStore.get_crdt("user_messages") do
-      {:error, :not_found} ->
-        CRDTStore.create_crdt("user_messages", :or_set, [])
-      _ -> :ok
-    end
-    
-    case CRDTStore.get_crdt("system_knowledge") do
-      {:error, :not_found} ->
-        CRDTStore.create_crdt("system_knowledge", :crdt_map, %{
-          "initialization_time" => DateTime.utc_now(),
-          "system_type" => "autonomous_opponent_v2",
-          "capabilities" => ["chat", "reflection", "pattern_detection", "memory_synthesis"]
-        })
-      _ -> :ok
+    # Check if CRDTStore is running before attempting to use it
+    if crdt_store_available?() do
+        try do
+          # Create CRDT entries if they don't exist
+          case CRDTStore.get_crdt("chat_interactions") do
+            {:error, :not_found} ->
+              CRDTStore.create_crdt("chat_interactions", :pn_counter, 0)
+            _ -> :ok
+          end
+          
+          case CRDTStore.get_crdt("user_messages") do
+            {:error, :not_found} ->
+              CRDTStore.create_crdt("user_messages", :or_set, [])
+            _ -> :ok
+          end
+          
+          case CRDTStore.get_crdt("system_knowledge") do
+            {:error, :not_found} ->
+              CRDTStore.create_crdt("system_knowledge", :crdt_map, %{
+                "initialization_time" => DateTime.utc_now(),
+                "system_type" => "autonomous_opponent_v2",
+                "capabilities" => ["chat", "reflection", "pattern_detection", "memory_synthesis"]
+              })
+            _ -> :ok
+          end
+        catch
+          :exit, {:noproc, _} ->
+            Logger.warning("CRDTStore process died during initialization")
+            :ok
+          :exit, {:timeout, _} ->
+            Logger.warning("CRDTStore timeout during initialization")
+            :ok
+        end
+    else
+      Logger.warning("CRDTStore not running - skipping CRDT initialization")
+      :ok
     end
   end
 end

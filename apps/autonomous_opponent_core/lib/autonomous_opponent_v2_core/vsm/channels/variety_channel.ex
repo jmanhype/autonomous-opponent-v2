@@ -140,11 +140,28 @@ defmodule AutonomousOpponentV2Core.VSM.Channels.VarietyChannel do
       new_flow = state.current_flow + 1
       
       # Create HLC event for variety transmission ordering
-      {:ok, transmission_event} = Clock.create_event(:variety_channel, :variety_transmission, %{
+      transmission_event = case safe_create_event(:variety_channel, :variety_transmission, %{
         channel: state.channel_type,
         data: variety_data,
         flow_sequence: new_flow
-      })
+      }) do
+        {:ok, event} -> event
+        {:error, _reason} ->
+          # Fallback event structure when HLC is unavailable
+          timestamp = System.system_time(:millisecond)
+          %{
+            id: "variety_fallback_#{timestamp}_#{:crypto.strong_rand_bytes(4) |> Base.encode16(case: :lower)}",
+            subsystem: :variety_channel,
+            type: :variety_transmission,
+            data: %{
+              channel: state.channel_type,
+              data: variety_data,
+              flow_sequence: new_flow
+            },
+            timestamp: %{physical: timestamp, logical: 0, node_id: "fallback"},
+            created_at: DateTime.to_iso8601(DateTime.from_unix!(timestamp, :millisecond))
+          }
+      end
       
       # Transform variety according to channel rules with HLC timestamp
       transformed = apply_transformation(variety_data, state.transformation_fn, transmission_event)
@@ -163,12 +180,30 @@ defmodule AutonomousOpponentV2Core.VSM.Channels.VarietyChannel do
       }}
     else
       # Capacity exceeded - attenuate with HLC timestamp for debugging
-      {:ok, drop_event} = Clock.create_event(:variety_channel, :variety_dropped, %{
+      drop_event = case safe_create_event(:variety_channel, :variety_dropped, %{
         channel: state.channel_type,
         reason: :capacity_exceeded,
         current_flow: state.current_flow,
         capacity: state.capacity
-      })
+      }) do
+        {:ok, event} -> event
+        {:error, _reason} ->
+          # Fallback event for drop tracking
+          timestamp = System.system_time(:millisecond)
+          %{
+            id: "drop_fallback_#{timestamp}_#{:crypto.strong_rand_bytes(4) |> Base.encode16(case: :lower)}",
+            subsystem: :variety_channel,
+            type: :variety_dropped,
+            data: %{
+              channel: state.channel_type,
+              reason: :capacity_exceeded,
+              current_flow: state.current_flow,
+              capacity: state.capacity
+            },
+            timestamp: %{physical: timestamp, logical: 0, node_id: "fallback"},
+            created_at: DateTime.to_iso8601(DateTime.from_unix!(timestamp, :millisecond))
+          }
+      end
       
       Logger.warning("Variety channel capacity exceeded", 
         channel: state.channel_type, event_id: drop_event.id)
@@ -219,6 +254,42 @@ defmodule AutonomousOpponentV2Core.VSM.Channels.VarietyChannel do
   
   # Private Functions
   
+  # Safe HLC helper with retry and exponential backoff
+  defp safe_create_event(subsystem, event_type, data, retries \\ 3) do
+    try do
+      Clock.create_event(subsystem, event_type, data)
+    catch
+      :exit, {:noproc, _} when retries > 0 ->
+        # HLC process not available yet, wait with exponential backoff
+        backoff_ms = round(:math.pow(2, 4 - retries) * 50)
+        Logger.debug("HLC not available for variety event, retrying in #{backoff_ms}ms (#{retries} retries left)")
+        Process.sleep(backoff_ms)
+        safe_create_event(subsystem, event_type, data, retries - 1)
+      
+      :exit, {:timeout, _} when retries > 0 ->
+        # Timeout, retry with exponential backoff
+        backoff_ms = round(:math.pow(2, 4 - retries) * 100)
+        Logger.debug("HLC timeout for variety event, retrying in #{backoff_ms}ms (#{retries} retries left)")
+        Process.sleep(backoff_ms)
+        safe_create_event(subsystem, event_type, data, retries - 1)
+      
+      :exit, {:killed, _} when retries > 0 ->
+        # Process was killed, retry with backoff
+        backoff_ms = round(:math.pow(2, 4 - retries) * 75)
+        Logger.debug("HLC process killed for variety event, retrying in #{backoff_ms}ms (#{retries} retries left)")
+        Process.sleep(backoff_ms)
+        safe_create_event(subsystem, event_type, data, retries - 1)
+      
+      :exit, reason ->
+        Logger.warning("HLC unavailable for variety event after all retries: #{inspect(reason)}")
+        {:error, {:hlc_unavailable, reason}}
+      
+      error ->
+        Logger.error("Unexpected error calling HLC for variety event: #{inspect(error)}")
+        {:error, {:hlc_error, error}}
+    end
+  end
+  
   defp channel_name(channel_type) do
     :"vsm_channel_#{channel_type}"
   end
@@ -237,33 +308,33 @@ defmodule AutonomousOpponentV2Core.VSM.Channels.VarietyChannel do
   
   # Legacy function for backward compatibility
   defp apply_transformation(data, transformation_type) do
-    {:ok, event} = Clock.create_event(:variety_channel, :variety_transformation, %{type: transformation_type})
+    event = get_or_create_transformation_event(transformation_type)
     apply_transformation(data, transformation_type, event)
   end
   
   # Fallback 2-arg variants that create HLC events
   defp apply_transformation(data, :coordinate_to_control) do
-    {:ok, event} = Clock.create_event(:variety_channel, :variety_transformation, %{type: :coordinate_to_control})
+    event = get_or_create_transformation_event(:coordinate_to_control)
     apply_transformation(data, :coordinate_to_control, event)
   end
   
   defp apply_transformation(data, :audit_to_learning) do
-    {:ok, event} = Clock.create_event(:variety_channel, :variety_transformation, %{type: :audit_to_learning})
+    event = get_or_create_transformation_event(:audit_to_learning)
     apply_transformation(data, :audit_to_learning, event)
   end
   
   defp apply_transformation(data, :intelligence_to_policy) do
-    {:ok, event} = Clock.create_event(:variety_channel, :variety_transformation, %{type: :intelligence_to_policy})
+    event = get_or_create_transformation_event(:intelligence_to_policy)
     apply_transformation(data, :intelligence_to_policy, event)
   end
   
   defp apply_transformation(data, :control_commands) do
-    {:ok, event} = Clock.create_event(:variety_channel, :variety_transformation, %{type: :control_commands})
+    event = get_or_create_transformation_event(:control_commands)
     apply_transformation(data, :control_commands, event)
   end
   
   defp apply_transformation(data, :policy_constraints) do
-    {:ok, event} = Clock.create_event(:variety_channel, :variety_transformation, %{type: :policy_constraints})
+    event = get_or_create_transformation_event(:policy_constraints)
     apply_transformation(data, :policy_constraints, event)
   end
   
@@ -394,5 +465,23 @@ defmodule AutonomousOpponentV2Core.VSM.Channels.VarietyChannel do
     utilization_penalty = if capacity_utilization > 0.8, do: 0.2, else: 0
     
     max(0.0, base_health - utilization_penalty)
+  end
+  
+  # Safe HLC helper for getting transformation events
+  defp get_or_create_transformation_event(transformation_type) do
+    case safe_create_event(:variety_channel, :variety_transformation, %{type: transformation_type}) do
+      {:ok, event} -> event
+      {:error, _reason} ->
+        # Fallback event for transformations
+        timestamp = System.system_time(:millisecond)
+        %{
+          id: "transform_fallback_#{timestamp}_#{:crypto.strong_rand_bytes(4) |> Base.encode16(case: :lower)}",
+          subsystem: :variety_channel,
+          type: :variety_transformation,
+          data: %{type: transformation_type},
+          timestamp: %{physical: timestamp, logical: 0, node_id: "fallback"},
+          created_at: DateTime.to_iso8601(DateTime.from_unix!(timestamp, :millisecond))
+        }
+    end
   end
 end

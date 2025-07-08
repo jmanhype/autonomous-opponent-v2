@@ -230,6 +230,22 @@ defmodule AutonomousOpponentV2Core.VSM.S1.Operations do
   end
 
   @impl true
+  def handle_call(:get_metrics, _from, state) do
+    # Return metrics in the format expected by VSMController
+    variety_ratio = calculate_variety_ratio(state)
+    metrics = %{
+      variety_absorbed: variety_ratio * 100,  # Convert to percentage
+      entropy: state.system_capacity.current_entropy,
+      max_entropy: state.system_capacity.max_entropy,
+      health: calculate_health_score(state),
+      processed: state.health_metrics.processed,
+      rejected: state.health_metrics.rejected,
+      failed: state.health_metrics.failed
+    }
+    {:reply, metrics, state}
+  end
+
+  @impl true
   def handle_call(:get_system_capacity, _from, state) do
     {:reply, state.system_capacity, state}
   end
