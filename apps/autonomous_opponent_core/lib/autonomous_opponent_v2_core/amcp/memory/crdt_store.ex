@@ -37,7 +37,12 @@ defmodule AutonomousOpponentV2Core.AMCP.Memory.CRDTStore do
     :sync_in_progress,
     :last_sync_time,
     :max_crdt_size,
-    :max_peers
+    :max_peers,
+    :peer_failures,
+    :sync_timeouts,
+    :circuit_breaker_config,
+    :max_queue_size,
+    :sync_timeout_ms
   ]
   
   @type crdt_type :: :g_set | :pn_counter | :lww_register | :or_set | :crdt_map
@@ -231,6 +236,10 @@ defmodule AutonomousOpponentV2Core.AMCP.Memory.CRDTStore do
     # Start memory cleanup timer
     :timer.send_interval(60_000, :cleanup_memory)
     
+    # Get configuration with defaults
+    max_queue_size = Keyword.get(opts, :max_queue_size, 1000)
+    sync_timeout_ms = Keyword.get(opts, :sync_timeout_ms, 5_000)
+    
     state = %__MODULE__{
       node_id: node_id,
       crdts: %{},
@@ -241,7 +250,15 @@ defmodule AutonomousOpponentV2Core.AMCP.Memory.CRDTStore do
       sync_in_progress: false,
       last_sync_time: nil,
       max_crdt_size: 10_000,  # Maximum number of CRDTs
-      max_peers: 100  # Maximum number of sync peers
+      max_peers: 100,  # Maximum number of sync peers
+      peer_failures: %{},  # Track failed peer connections
+      sync_timeouts: %{},  # Track sync request timeouts
+      circuit_breaker_config: %{
+        failure_threshold: 3,  # Open circuit after 3 failures
+        reset_timeout_ms: 60_000  # Try again after 1 minute
+      },
+      max_queue_size: max_queue_size,
+      sync_timeout_ms: sync_timeout_ms
     }
     
     Logger.info("CRDT Store started with node ID: #{node_id}")
@@ -539,6 +556,31 @@ defmodule AutonomousOpponentV2Core.AMCP.Memory.CRDTStore do
   end
   
   @impl true
+  def handle_info({:sync_timeout, peer_id, hlc_timestamp}, state) do
+    # Check if this timeout is still valid
+    case Map.get(state.sync_timeouts, peer_id) do
+      %{hlc_timestamp: ^hlc_timestamp} ->
+        # Timeout is valid, mark peer as failed
+        Logger.warning("Sync timeout for peer #{peer_id}")
+        new_state = record_peer_failure(state, peer_id)
+        new_timeouts = Map.delete(new_state.sync_timeouts, peer_id)
+        
+        # Emit telemetry
+        :telemetry.execute(
+          [:crdt_store, :sync_timeout],
+          %{peer_id: peer_id},
+          %{node_id: state.node_id}
+        )
+        
+        {:noreply, %{new_state | sync_timeouts: new_timeouts}}
+        
+      _ ->
+        # Timeout was already cleared or different, ignore
+        {:noreply, state}
+    end
+  end
+  
+  @impl true
   def handle_info({:event, event_name, data}, state) do
     # Handle context and belief events automatically
     new_state = case event_name do
@@ -737,8 +779,8 @@ defmodule AutonomousOpponentV2Core.AMCP.Memory.CRDTStore do
         end
       }
       
-      # Send to all peers
-      send_to_peers(state.sync_peers, sync_digest)
+      # Send to all peers with circuit breaker checks
+      send_to_peers_with_state(state.sync_peers, sync_digest, state)
       
       # Also publish to EventBus for monitoring
       EventBus.publish(:amcp_crdt_sync_request, sync_digest)
@@ -751,6 +793,10 @@ defmodule AutonomousOpponentV2Core.AMCP.Memory.CRDTStore do
   end
   
   defp send_to_peers(peers, message) do
+    send_to_peers_with_state(peers, message, nil)
+  end
+  
+  defp send_to_peers_with_state(peers, message, state) do
     # Add message size check
     message_size = :erlang.external_size(message)
     if message_size > 1_000_000 do  # 1MB limit
@@ -758,19 +804,33 @@ defmodule AutonomousOpponentV2Core.AMCP.Memory.CRDTStore do
     end
     
     Enum.each(peers, fn peer_node_id ->
-      # Try multiple transport mechanisms
-      case send_via_transport(peer_node_id, message) do
-        :ok -> 
-          Logger.debug("Sent sync message to #{peer_node_id}")
-        {:error, reason} ->
-          Logger.warning("Failed to send to #{peer_node_id}: #{inspect(reason)}")
-          # Fallback to EventBus
-          EventBus.publish({:crdt_sync, peer_node_id}, message)
+      # Check circuit breaker if we have state
+      can_send = if state do
+        check_circuit_breaker_status(peer_node_id, state) != :open
+      else
+        true
+      end
+      
+      if can_send do
+        # Try multiple transport mechanisms
+        case send_via_transport(peer_node_id, message) do
+          :ok -> 
+            Logger.debug("Sent sync message to #{peer_node_id}")
+          {:error, reason} ->
+            Logger.warning("Failed to send to #{peer_node_id}: #{inspect(reason)}")
+            # Fallback to EventBus
+            EventBus.publish({:crdt_sync, peer_node_id}, message)
+        end
+      else
+        Logger.debug("Circuit breaker open for peer #{peer_node_id}, skipping")
       end
     end)
   end
   
   defp send_via_transport(peer_node_id, message) do
+    # Note: We can't check circuit breaker here without state
+    # The circuit breaker check is done by the caller
+    
     # First try direct process messaging if on same node
     case Process.whereis(String.to_atom("crdt_store_#{peer_node_id}")) do
       pid when is_pid(pid) ->
@@ -801,22 +861,57 @@ defmodule AutonomousOpponentV2Core.AMCP.Memory.CRDTStore do
   end
   
   defp handle_sync_digest(digest, state) do
-    # Compare vector clocks and summaries
-    differences = find_crdt_differences(digest, state)
+    # Backpressure check - limit queue size
+    current_queue_size = :queue.len(state.merge_queue)
     
-    if not Enum.empty?(differences) do
-      # Send full state for differing CRDTs
-      sync_response = %{
-        type: :sync_response,
-        node_id: state.node_id,
-        updates: prepare_sync_updates(differences, state),
-        vector_clock: state.vector_clock
-      }
+    if current_queue_size >= state.max_queue_size do
+      Logger.warning("Merge queue full (#{current_queue_size}/#{state.max_queue_size}), dropping sync request from #{digest.node_id}")
+      # Emit telemetry for monitoring
+      :telemetry.execute(
+        [:crdt_store, :backpressure, :dropped],
+        %{queue_size: current_queue_size},
+        %{node_id: state.node_id, peer_id: digest.node_id}
+      )
+      state
+    else
+      # Compare vector clocks and summaries
+      differences = find_crdt_differences(digest, state)
       
-      send_via_transport(digest.node_id, sync_response)
+      if not Enum.empty?(differences) do
+        # Send full state for differing CRDTs
+        sync_response = %{
+          type: :sync_response,
+          node_id: state.node_id,
+          updates: prepare_sync_updates(differences, state),
+          vector_clock: state.vector_clock
+        }
+        
+        # Check circuit breaker before sending
+        if check_circuit_breaker_status(digest.node_id, state) == :open do
+          Logger.warning("Circuit breaker open for peer #{digest.node_id}, dropping sync request")
+          state
+        else
+          # Send response and start timeout monitoring
+          case send_via_transport(digest.node_id, sync_response) do
+            :ok ->
+              # Set up timeout for this sync
+              Process.send_after(self(), {:sync_timeout, digest.node_id, digest.hlc_timestamp}, state.sync_timeout_ms)
+              # Track sync request
+              new_timeouts = Map.put(state.sync_timeouts, digest.node_id, %{
+                timestamp: System.system_time(:millisecond),
+                hlc_timestamp: digest.hlc_timestamp
+              })
+              %{state | sync_timeouts: new_timeouts}
+              
+            {:error, reason} ->
+              Logger.warning("Failed to send sync response to #{digest.node_id}: #{inspect(reason)}")
+              record_peer_failure(state, digest.node_id)
+          end
+        end
+      else
+        state
+      end
     end
-    
-    state
   end
   
   defp handle_sync_message(%{type: :sync_response, updates: updates}, state) do
@@ -830,6 +925,22 @@ defmodule AutonomousOpponentV2Core.AMCP.Memory.CRDTStore do
   end
   
   defp handle_sync_response(updates, state) do
+    # Extract peer ID from updates if available
+    peer_id = case List.first(updates) do
+      %{node_id: pid} -> pid
+      _ -> nil
+    end
+    
+    # Clear sync timeout if we have peer_id
+    state = if peer_id do
+      new_timeouts = Map.delete(state.sync_timeouts, peer_id)
+      # Clear peer failures on successful response
+      new_failures = Map.delete(state.peer_failures, peer_id)
+      %{state | sync_timeouts: new_timeouts, peer_failures: new_failures}
+    else
+      state
+    end
+    
     # Apply remote updates
     Enum.reduce(updates, state, fn update, acc_state ->
       case update do
@@ -1274,5 +1385,49 @@ defmodule AutonomousOpponentV2Core.AMCP.Memory.CRDTStore do
       end
     end)
     |> :queue.from_list()
+  end
+  
+  defp check_circuit_breaker_status(peer_node_id, state) do
+    case Map.get(state.peer_failures, peer_node_id) do
+      nil -> :closed
+      %{count: count, last_failure: last_failure} ->
+        current_time = System.system_time(:millisecond)
+        reset_timeout = state.circuit_breaker_config.reset_timeout_ms
+        failure_threshold = state.circuit_breaker_config.failure_threshold
+        
+        cond do
+          count >= failure_threshold ->
+            # Check if we should reset
+            if current_time - last_failure >= reset_timeout do
+              :half_open  # Allow one attempt
+            else
+              :open  # Still in failure state
+            end
+          true ->
+            :closed  # Not enough failures
+        end
+    end
+  end
+  
+  defp record_peer_failure(state, peer_node_id) do
+    current_time = System.system_time(:millisecond)
+    
+    new_failures = Map.update(state.peer_failures, peer_node_id, 
+      %{count: 1, last_failure: current_time},
+      fn %{count: count} -> 
+        %{count: count + 1, last_failure: current_time}
+      end
+    )
+    
+    # Check if we should remove peer from sync list
+    case Map.get(new_failures, peer_node_id) do
+      %{count: count} when count >= state.circuit_breaker_config.failure_threshold ->
+        Logger.error("Peer #{peer_node_id} has failed #{count} times, removing from sync peers")
+        new_peers = MapSet.delete(state.sync_peers, peer_node_id)
+        %{state | peer_failures: new_failures, sync_peers: new_peers}
+        
+      _ ->
+        %{state | peer_failures: new_failures}
+    end
   end
 end
