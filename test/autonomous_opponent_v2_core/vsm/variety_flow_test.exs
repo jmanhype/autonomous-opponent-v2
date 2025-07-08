@@ -15,7 +15,7 @@ defmodule AutonomousOpponentV2Core.VSM.VarietyFlowTest do
       :ok
     end
     
-    test "variety flows from S1 → S2 → S3 → S1 completing the control loop" do
+    test "variety flows from S1 → S2 → S3 → S4 → S5 completing the full VSM loop" do
       # Set up test process to monitor variety flow
       test_pid = self()
       
@@ -23,6 +23,8 @@ defmodule AutonomousOpponentV2Core.VSM.VarietyFlowTest do
       EventBus.subscribe(:s1_operations)
       EventBus.subscribe(:s2_coordination)
       EventBus.subscribe(:s3_control)
+      EventBus.subscribe(:s4_intelligence)
+      EventBus.subscribe(:s5_policy)
       
       # Simulate S1 publishing operational variety
       s1_variety = %{
@@ -72,15 +74,47 @@ defmodule AutonomousOpponentV2Core.VSM.VarietyFlowTest do
       
       EventBus.publish(:s3_control, s3_command)
       
-      # S3 → VarietyChannel → S1 (CLOSES THE LOOP!)
-      assert_receive {:event_bus_hlc, %{topic: :s1_operations, data: s1_command}}, 1000
-      assert s1_command.variety_type == :command
-      assert s1_command.commands != nil
+      # S3 → VarietyChannel → S4
+      assert_receive {:event_bus_hlc, %{topic: :s4_intelligence, data: s4_data}}, 1000
+      assert s4_data.variety_type == :intelligence_ready
+      assert s4_data.control_status == :control_analyzed
       
-      # Verify the control loop is complete
-      assert s1_command.commands |> Enum.any?(fn cmd -> 
-        cmd.command == :throttle && cmd.target_unit == :test_s1_unit
-      end)
+      # S4 should generate intelligence reports
+      # For test, we simulate S4's intelligence report
+      s4_intelligence = %{
+        intelligence_id: :test_intelligence,
+        variety_type: :intelligence,
+        pattern_detected: :overload_trend,
+        recommendations: [:increase_capacity, :throttle_inputs],
+        timestamp: DateTime.utc_now()
+      }
+      
+      EventBus.publish(:s4_intelligence, s4_intelligence)
+      
+      # S4 → VarietyChannel → S5
+      assert_receive {:event_bus_hlc, %{topic: :s5_policy, data: s5_data}}, 1000
+      assert s5_data.variety_type == :policy_ready
+      assert s5_data.intelligence_status == :analyzed
+      
+      # S5 should generate policy decisions
+      # For test, we simulate S5's policy directive
+      s5_policy = %{
+        policy_id: :test_policy,
+        variety_type: :policy,
+        directive: :enforce_throttling,
+        constraints: %{max_load: 80, min_response_time: 100},
+        timestamp: DateTime.utc_now()
+      }
+      
+      EventBus.publish(:s5_policy, s5_policy)
+      
+      # S5 → VarietyChannel → S1 (CLOSES THE FULL VSM LOOP!)
+      assert_receive {:event_bus_hlc, %{topic: :s1_operations, data: s1_policy}}, 1000
+      assert s1_policy.variety_type == :policy_directive
+      assert s1_policy.constraints != nil
+      
+      # Verify the full VSM loop is complete
+      assert s1_policy.constraints.max_load == 80
     end
     
     test "algedonic signals bypass normal variety flow" do
@@ -113,7 +147,7 @@ defmodule AutonomousOpponentV2Core.VSM.VarietyFlowTest do
       
       if length(s1_to_s2_channels) > 0 do
         # Stop the channel
-        Process.exit(Process.whereis(hd(s1_to_s2_channels)), :kill)
+        Process.exit(Process.whereis(hd(s1_to_s2_channels)), :shutdown)
         
         # Give it time to die
         Process.sleep(100)

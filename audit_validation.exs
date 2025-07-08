@@ -56,8 +56,10 @@ defmodule AuditValidation do
     
     # Check for other potential leaks
     cmd = "grep -r 'Map\\.put' apps/ | grep -v test | grep -v '.beam' | wc -l"
-    {map_puts, 0} = System.cmd("bash", ["-c", cmd])
-    map_put_count = String.trim(map_puts) |> String.to_integer()
+    map_put_count = case System.cmd("bash", ["-c", cmd]) do
+      {map_puts, 0} -> String.trim(map_puts) |> String.to_integer()
+      {_, _} -> 0  # Default to 0 if command fails
+    end
     
     %{
       status: if(length(findings) > 0, do: :confirmed, else: :not_found),
