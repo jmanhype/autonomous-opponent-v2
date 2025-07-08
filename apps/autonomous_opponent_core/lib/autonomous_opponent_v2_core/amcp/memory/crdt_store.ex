@@ -33,7 +33,11 @@ defmodule AutonomousOpponentV2Core.AMCP.Memory.CRDTStore do
     :vector_clock,
     :sync_peers,
     :merge_queue,
-    :stats
+    :stats,
+    :sync_in_progress,
+    :last_sync_time,
+    :max_crdt_size,
+    :max_peers
   ]
   
   @type crdt_type :: :g_set | :pn_counter | :lww_register | :or_set | :crdt_map
@@ -93,6 +97,13 @@ defmodule AutonomousOpponentV2Core.AMCP.Memory.CRDTStore do
   """
   def add_sync_peer(peer_node_id) do
     GenServer.call(__MODULE__, {:add_sync_peer, peer_node_id})
+  end
+  
+  @doc """
+  Discovers and adds peers from the cluster.
+  """
+  def discover_peers do
+    GenServer.cast(__MODULE__, :discover_peers)
   end
   
   @doc """
@@ -207,8 +218,18 @@ defmodule AutonomousOpponentV2Core.AMCP.Memory.CRDTStore do
     EventBus.subscribe(:amcp_belief_change)
     EventBus.subscribe(:vsm_state_change)
     
+    # Subscribe to CRDT sync events
+    EventBus.subscribe(:amcp_crdt_sync_request)
+    EventBus.subscribe(:amcp_crdt_sync_response)
+    EventBus.subscribe({:crdt_sync, node_id})
+    EventBus.subscribe(:amcp_peer_discovery_request)
+    EventBus.subscribe(:amcp_peer_discovery_response)
+    
     # Start periodic sync timer
     :timer.send_interval(30_000, :periodic_sync)
+    
+    # Start memory cleanup timer
+    :timer.send_interval(60_000, :cleanup_memory)
     
     state = %__MODULE__{
       node_id: node_id,
@@ -216,7 +237,11 @@ defmodule AutonomousOpponentV2Core.AMCP.Memory.CRDTStore do
       vector_clock: %{node_id => 0},
       sync_peers: MapSet.new(),
       merge_queue: :queue.new(),
-      stats: init_stats()
+      stats: init_stats(),
+      sync_in_progress: false,
+      last_sync_time: nil,
+      max_crdt_size: 10_000,  # Maximum number of CRDTs
+      max_peers: 100  # Maximum number of sync peers
     }
     
     Logger.info("CRDT Store started with node ID: #{node_id}")
@@ -225,11 +250,14 @@ defmodule AutonomousOpponentV2Core.AMCP.Memory.CRDTStore do
   
   @impl true
   def handle_call({:create_crdt, crdt_id, crdt_type, initial_value}, _from, state) do
-    case Map.has_key?(state.crdts, crdt_id) do
-      true ->
+    cond do
+      Map.has_key?(state.crdts, crdt_id) ->
         {:reply, {:error, :already_exists}, state}
         
-      false ->
+      map_size(state.crdts) >= state.max_crdt_size ->
+        {:reply, {:error, :max_crdts_reached}, state}
+        
+      true ->
         case create_crdt_instance(crdt_type, initial_value, state.node_id) do
           {:ok, crdt_instance} ->
             new_crdts = Map.put(state.crdts, crdt_id, {crdt_type, crdt_instance})
@@ -340,10 +368,19 @@ defmodule AutonomousOpponentV2Core.AMCP.Memory.CRDTStore do
   
   @impl true
   def handle_call({:add_sync_peer, peer_node_id}, _from, state) do
-    new_peers = MapSet.put(state.sync_peers, peer_node_id)
-    new_state = %{state | sync_peers: new_peers}
-    Logger.info("Added sync peer: #{peer_node_id}")
-    {:reply, :ok, new_state}
+    cond do
+      peer_node_id == state.node_id ->
+        {:reply, {:error, :cannot_add_self}, state}
+        
+      MapSet.size(state.sync_peers) >= state.max_peers ->
+        {:reply, {:error, :max_peers_reached}, state}
+        
+      true ->
+        new_peers = MapSet.put(state.sync_peers, peer_node_id)
+        new_state = %{state | sync_peers: new_peers}
+        Logger.info("Added sync peer: #{peer_node_id}")
+        {:reply, :ok, new_state}
+    end
   end
   
   @impl true
@@ -399,9 +436,43 @@ defmodule AutonomousOpponentV2Core.AMCP.Memory.CRDTStore do
   end
   
   @impl true
+  def handle_cast(:discover_peers, state) do
+    # Discover peers through EventBus broadcast
+    EventBus.publish(:amcp_peer_discovery_request, %{
+      node_id: state.node_id,
+      vector_clock: state.vector_clock,
+      crdt_count: map_size(state.crdts)
+    })
+    
+    Logger.info("CRDT peer discovery initiated")
+    {:noreply, state}
+  end
+  
+  @impl true
   def handle_info(:periodic_sync, state) do
+    # Log sync activity for monitoring
+    Logger.debug("CRDT periodic sync triggered - peers: #{MapSet.size(state.sync_peers)}")
     new_state = perform_peer_sync(state)
     {:noreply, new_state}
+  end
+  
+  @impl true
+  def handle_info(:cleanup_memory, state) do
+    # Clean up old merge queue items
+    new_queue = cleanup_merge_queue(state.merge_queue)
+    
+    # Emit telemetry for monitoring
+    :telemetry.execute(
+      [:crdt_store, :memory_cleanup],
+      %{
+        crdt_count: map_size(state.crdts),
+        peer_count: MapSet.size(state.sync_peers),
+        queue_size: :queue.len(new_queue)
+      },
+      %{node_id: state.node_id}
+    )
+    
+    {:noreply, %{state | merge_queue: new_queue}}
   end
   
   @impl true
@@ -417,6 +488,56 @@ defmodule AutonomousOpponentV2Core.AMCP.Memory.CRDTStore do
     handle_info({:event, event.type, event.data}, state)
   end
 
+  @impl true
+  def handle_info({:event, :amcp_crdt_sync_request, data}, state) do
+    # Handle incoming sync request from EventBus
+    Logger.debug("Received CRDT sync request from EventBus")
+    new_state = handle_sync_message(data, state)
+    {:noreply, new_state}
+  end
+  
+  @impl true
+  def handle_info({:event, :amcp_crdt_sync_response, data}, state) do
+    # Handle incoming sync response from EventBus
+    Logger.debug("Received CRDT sync response from EventBus")
+    new_state = handle_sync_message(data, state)
+    {:noreply, new_state}
+  end
+  
+  @impl true
+  def handle_info({:event, :amcp_peer_discovery_request, %{node_id: peer_id} = data}, state) do
+    # Respond to peer discovery if it's not us
+    if peer_id != state.node_id do
+      EventBus.publish(:amcp_peer_discovery_response, %{
+        node_id: state.node_id,
+        peer_id: peer_id,
+        vector_clock: state.vector_clock,
+        crdt_count: map_size(state.crdts)
+      })
+      
+      # Auto-add discovered peer
+      new_peers = MapSet.put(state.sync_peers, peer_id)
+      new_state = %{state | sync_peers: new_peers}
+      Logger.info("Discovered and added CRDT peer: #{peer_id}")
+      {:noreply, new_state}
+    else
+      {:noreply, state}
+    end
+  end
+  
+  @impl true
+  def handle_info({:event, :amcp_peer_discovery_response, %{node_id: peer_id} = data}, state) do
+    # Add responding peer if not already known
+    if peer_id != state.node_id and not MapSet.member?(state.sync_peers, peer_id) do
+      new_peers = MapSet.put(state.sync_peers, peer_id)
+      new_state = %{state | sync_peers: new_peers}
+      Logger.info("Added responding CRDT peer: #{peer_id}")
+      {:noreply, new_state}
+    else
+      {:noreply, state}
+    end
+  end
+  
   @impl true
   def handle_info({:event, event_name, data}, state) do
     # Handle context and belief events automatically
@@ -591,7 +712,19 @@ defmodule AutonomousOpponentV2Core.AMCP.Memory.CRDTStore do
   end
   
   defp perform_peer_sync(state) do
+    # Prevent concurrent syncs
+    if state.sync_in_progress do
+      Logger.debug("Sync already in progress, skipping")
+      state
+    else
+      perform_peer_sync_internal(state)
+    end
+  end
+  
+  defp perform_peer_sync_internal(state) do
     if MapSet.size(state.sync_peers) > 0 do
+      # Mark sync as in progress
+      state = %{state | sync_in_progress: true, last_sync_time: System.system_time(:millisecond)}
       # Create sync digest
       sync_digest = %{
         type: :sync_digest,
@@ -611,13 +744,19 @@ defmodule AutonomousOpponentV2Core.AMCP.Memory.CRDTStore do
       EventBus.publish(:amcp_crdt_sync_request, sync_digest)
       
       new_stats = increment_stat(state.stats, :syncs)
-      %{state | stats: new_stats}
+      %{state | stats: new_stats, sync_in_progress: false}
     else
       state
     end
   end
   
   defp send_to_peers(peers, message) do
+    # Add message size check
+    message_size = :erlang.external_size(message)
+    if message_size > 1_000_000 do  # 1MB limit
+      Logger.warning("CRDT sync message too large: #{message_size} bytes")
+    end
+    
     Enum.each(peers, fn peer_node_id ->
       # Try multiple transport mechanisms
       case send_via_transport(peer_node_id, message) do
@@ -652,6 +791,16 @@ defmodule AutonomousOpponentV2Core.AMCP.Memory.CRDTStore do
   end
   
   defp handle_sync_message(%{type: :sync_digest} = digest, state) do
+    # Validate message has required fields
+    if not (Map.has_key?(digest, :node_id) and Map.has_key?(digest, :vector_clock)) do
+      Logger.warning("Invalid sync digest received: missing required fields")
+      state
+    else
+      handle_sync_digest(digest, state)
+    end
+  end
+  
+  defp handle_sync_digest(digest, state) do
     # Compare vector clocks and summaries
     differences = find_crdt_differences(digest, state)
     
@@ -671,6 +820,16 @@ defmodule AutonomousOpponentV2Core.AMCP.Memory.CRDTStore do
   end
   
   defp handle_sync_message(%{type: :sync_response, updates: updates}, state) do
+    # Validate updates is a list
+    if not is_list(updates) do
+      Logger.warning("Invalid sync response: updates must be a list")
+      state
+    else
+      handle_sync_response(updates, state)
+    end
+  end
+  
+  defp handle_sync_response(updates, state) do
     # Apply remote updates
     Enum.reduce(updates, state, fn update, acc_state ->
       case update do
@@ -681,10 +840,25 @@ defmodule AutonomousOpponentV2Core.AMCP.Memory.CRDTStore do
           end
           
         %{crdt_id: id, operation: :update, crdt_data: data} ->
-          case merge_remote_state(id, data) do
-            :ok -> acc_state
-            _ -> acc_state
+          # Use internal merge to avoid deadlock
+          case Map.get(acc_state.crdts, id) do
+            {crdt_type, local_instance} ->
+              case reconstruct_crdt_instance(crdt_type, data, update.node_id || acc_state.node_id) do
+                {:ok, remote_instance} ->
+                  case merge_crdt_instances(crdt_type, local_instance, remote_instance) do
+                    {:ok, merged} ->
+                      new_crdts = Map.put(acc_state.crdts, id, {crdt_type, merged})
+                      %{acc_state | crdts: new_crdts}
+                    _ -> acc_state
+                  end
+                _ -> acc_state
+              end
+            nil -> acc_state
           end
+          
+        _ ->
+          Logger.warning("Unknown update operation in sync response")
+          acc_state
       end
     end)
   end
@@ -1085,5 +1259,20 @@ defmodule AutonomousOpponentV2Core.AMCP.Memory.CRDTStore do
       consistency_level: :high,
       sync_frequency: :normal
     }
+  end
+  
+  defp cleanup_merge_queue(queue) do
+    # Remove items older than 5 minutes from merge queue
+    cutoff_time = System.system_time(:millisecond) - 300_000
+    
+    queue
+    |> :queue.to_list()
+    |> Enum.filter(fn item ->
+      case item do
+        %{timestamp: ts} when is_integer(ts) -> ts > cutoff_time
+        _ -> true
+      end
+    end)
+    |> :queue.from_list()
   end
 end

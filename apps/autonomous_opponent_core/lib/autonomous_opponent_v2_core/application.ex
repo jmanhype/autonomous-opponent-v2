@@ -44,6 +44,8 @@ defmodule AutonomousOpponentV2Core.Application do
     [
       # CRDT Memory Store
       AutonomousOpponentV2Core.AMCP.Memory.CRDTStore,
+      # CRDT Sync Monitor for safe peer synchronization
+      AutonomousOpponentV2Core.AMCP.Memory.CRDTSyncMonitor,
       # LLM Response Cache (must start before LLMBridge)
       AutonomousOpponentV2Core.AMCP.Bridges.LLMCache,
       # LLM Bridge for multi-provider AI integration - RE-ENABLED
