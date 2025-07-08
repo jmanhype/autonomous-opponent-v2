@@ -65,18 +65,18 @@ config :autonomous_opponent_core, skip_rate_limiting: false
 config :autonomous_opponent_core,
   # Enable/disable LLM response caching
   llm_cache_enabled: true,
-  
+
   # Cache settings
   llm_cache_config: [
     # Maximum number of cached responses (default: 1000)
     max_size: 1000,
-    
+
     # Default TTL in milliseconds (1 hour)
     ttl: 3_600_000,
-    
+
     # Warm cache from disk on startup
     warm_on_start: true,
-    
+
     # Persist cache to disk every 5 minutes
     persist_interval: 300_000
   ]
@@ -86,7 +86,7 @@ config :autonomous_opponent_core,
   # Enable mock mode for instant development responses (no API delays!)
   # Set to true for ultra-fast development, false for real LLM calls
   llm_mock_mode: false,
-  
+
   # Mock response delay in milliseconds (simulate thinking)
   # Set to 0 for instant responses, or add small delay for realism
   llm_mock_delay: 0

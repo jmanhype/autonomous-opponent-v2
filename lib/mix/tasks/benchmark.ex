@@ -30,19 +30,20 @@ defmodule Mix.Tasks.Benchmark do
 
   @benchmark_modules %{
     "llm" => "benchmarks/llm_bench.exs",
-    "api" => "benchmarks/api_endpoints_bench.exs", 
+    "api" => "benchmarks/api_endpoints_bench.exs",
     "consciousness" => "benchmarks/consciousness_bench.exs"
   }
 
   @impl Mix.Task
   def run(args) do
-    {opts, args, _} = OptionParser.parse(args, 
-      switches: [
-        quick: :boolean,
-        output: :string,
-        format: :string
-      ]
-    )
+    {opts, args, _} =
+      OptionParser.parse(args,
+        switches: [
+          quick: :boolean,
+          output: :string,
+          format: :string
+        ]
+      )
 
     # Start applications
     Mix.Task.run("app.start")
@@ -63,7 +64,7 @@ defmodule Mix.Tasks.Benchmark do
         # Run all benchmarks
         Mix.shell().info("Running all benchmarks... 🚀")
         run_all_benchmarks(opts)
-        
+
       [suite] ->
         # Run specific benchmark suite
         if Map.has_key?(@benchmark_modules, suite) do
@@ -80,28 +81,29 @@ defmodule Mix.Tasks.Benchmark do
 
   defp run_all_benchmarks(opts) do
     start_time = System.monotonic_time(:millisecond)
-    
-    results = Enum.map(@benchmark_modules, fn {name, file} ->
-      Mix.shell().info("\n" <> String.duplicate("-", 60))
-      Mix.shell().info("Running #{name} benchmarks...")
-      Mix.shell().info(String.duplicate("-", 60))
-      
-      try do
-        Code.require_file(file)
-        :ok
-      rescue
-        e ->
-          Mix.shell().error("Error running #{name}: #{inspect(e)}")
-          {:error, e}
-      end
-    end)
+
+    results =
+      Enum.map(@benchmark_modules, fn {name, file} ->
+        Mix.shell().info("\n" <> String.duplicate("-", 60))
+        Mix.shell().info("Running #{name} benchmarks...")
+        Mix.shell().info(String.duplicate("-", 60))
+
+        try do
+          Code.require_file(file)
+          :ok
+        rescue
+          e ->
+            Mix.shell().error("Error running #{name}: #{inspect(e)}")
+            {:error, e}
+        end
+      end)
 
     total_time = System.monotonic_time(:millisecond) - start_time
-    
+
     # Print summary
     successful = Enum.count(results, &(&1 == :ok))
     failed = length(results) - successful
-    
+
     Mix.shell().info("\n" <> String.duplicate("=", 60))
     Mix.shell().info("Benchmark Summary:")
     Mix.shell().info("  ✓ Successful: #{successful}")
@@ -127,6 +129,7 @@ defmodule Mix.Tasks.Benchmark do
   end
 
   defp format_time(ms) when ms < 1000, do: "#{ms}ms"
+
   defp format_time(ms) do
     seconds = div(ms, 1000)
     remainder = rem(ms, 1000)

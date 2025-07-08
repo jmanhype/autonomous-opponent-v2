@@ -22,18 +22,18 @@ config :logger, level: :info
 config :autonomous_opponent_core,
   # Enable LLM response caching in production
   llm_cache_enabled: true,
-  
+
   # Production cache settings
   llm_cache_config: [
     # Larger cache size for production
     max_size: 5000,
-    
+
     # Default TTL: 2 hours
     ttl: 7_200_000,
-    
+
     # Warm cache from disk on startup
     warm_on_start: true,
-    
+
     # Persist cache to disk every 10 minutes
     persist_interval: 600_000
   ]
