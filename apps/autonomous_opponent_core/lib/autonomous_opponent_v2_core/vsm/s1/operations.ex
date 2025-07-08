@@ -79,6 +79,7 @@ defmodule AutonomousOpponentV2Core.VSM.S1.Operations do
   @impl true
   def init(_opts) do
     # Subscribe to control commands and external requests
+    EventBus.subscribe(:s1_operations)  # Added: receive control commands from S3 via variety channel
     EventBus.subscribe(:external_requests)
     EventBus.subscribe(:s3_control)
     EventBus.subscribe(:s5_policy)  # Policy constraints

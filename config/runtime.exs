@@ -17,6 +17,7 @@ if config_env() == :dev and File.exists?(".env") do
     case String.split(line, "=", parts: 2) do
       [key, value] ->
         System.put_env(String.trim(key), String.trim(value))
+
       _ ->
         :ok
     end
@@ -33,7 +34,7 @@ config :autonomous_opponent_core, :security,
     "OPENAI_API_KEY",
     "ANTHROPIC_API_KEY",
     "GOOGLE_AI_API_KEY",
-    "DATABASE_URL", 
+    "DATABASE_URL",
     "SECRET_KEY_BASE",
     "GUARDIAN_SECRET",
     "AMQP_URL"
@@ -140,7 +141,7 @@ if config_env() == :prod do
     secret_key_base: secret_key_base
 
   # ## SSL Support with TLS 1.3 (Task 7: Security Hardening)
-  
+
   # Enable TLS 1.3 for enhanced security
   if System.get_env("TLS_ENABLED") == "true" do
     config :autonomous_opponent_web, AutonomousOpponentV2Web.Endpoint,

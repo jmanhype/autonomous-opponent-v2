@@ -1,0 +1,70 @@
+=== FEATURE BRANCH TESTS ===
+
+1. Health Check:
+{
+  "status": "unhealthy",
+  "system": {
+    "memory": 96138417,
+    "process_count": 10
+  },
+  "timestamp": "2025-07-08T02:25:27.359434Z",
+  "checks": {
+    "server": "not_running: EventBus, VSM S1, VSM S5, MCP Server, AMQP Pool",
+    "core_repo": "error",
+    "web_repo": "ok"
+  }
+}
+
+2. Consciousness Chat API:
+{
+  "message": "Consciousness module not available",
+  "status": "error",
+  "details": "\"Consciousness module not running\""
+}
+
+3. VSM Metrics:
+{
+  "status": "success",
+  "timestamp": "2025-07-08T02:25:28.109861Z",
+  "metrics": {
+    "algedonic_signals": {
+      "pain_level": 0,
+      "pleasure_level": 0,
+      "mood": "neutral",
+      "response_times": [],
+      "error_count": 0
+    },
+    "resource_allocation": {
+      "cpu": {
+        "allocated": 0.5,
+        "available": 0.5
+      },
+      "memory": {
+        "allocated": 0.6,
+        "available": 0.4
+      },
+      "connections": {
+        "allocated": 10,
+        "available": 90
+      }
+    },
+    "command_flow": {
+      "commands_issued": 0,
+      "avg_completion_time_ms": 0,
+      "commands_completed": 0,
+      "commands_pending": 0
+    },
+    "variety_absorption": {
+      "s1": 0,
+      "s2": 0,
+      "s3": 0
+    }
+  }
+}
+
+4. Consciousness State:
+{
+  "message": "Consciousness state unavailable",
+  "status": "error",
+  "details": ":consciousness_not_available"
+}
