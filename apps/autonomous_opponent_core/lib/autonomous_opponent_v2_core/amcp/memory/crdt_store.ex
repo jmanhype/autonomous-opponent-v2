@@ -33,7 +33,10 @@ defmodule AutonomousOpponentV2Core.AMCP.Memory.CRDTStore do
     :vector_clock,
     :sync_peers,
     :merge_queue,
-    :stats
+    :stats,
+    :belief_update_count,
+    :last_synthesis_time,
+    :synthesis_enabled
   ]
   
   @type crdt_type :: :g_set | :pn_counter | :lww_register | :or_set | :crdt_map
@@ -210,13 +213,23 @@ defmodule AutonomousOpponentV2Core.AMCP.Memory.CRDTStore do
     # Start periodic sync timer
     :timer.send_interval(30_000, :periodic_sync)
     
+    # Start synthesis timer if enabled
+    synthesis_enabled = Application.get_env(:autonomous_opponent_core, :synthesis_enabled, false)
+    if synthesis_enabled do
+      :timer.send_interval(300_000, :periodic_synthesis)  # Every 5 minutes
+      Logger.info("Knowledge synthesis timer activated - the system will now learn and evolve")
+    end
+    
     state = %__MODULE__{
       node_id: node_id,
       crdts: %{},
       vector_clock: %{node_id => 0},
       sync_peers: MapSet.new(),
       merge_queue: :queue.new(),
-      stats: init_stats()
+      stats: init_stats(),
+      belief_update_count: 0,
+      last_synthesis_time: nil,
+      synthesis_enabled: synthesis_enabled
     }
     
     Logger.info("CRDT Store started with node ID: #{node_id}")
@@ -408,6 +421,58 @@ defmodule AutonomousOpponentV2Core.AMCP.Memory.CRDTStore do
   def handle_info({:crdt_sync_message, message}, state) do
     new_state = handle_sync_message(message, state)
     {:noreply, new_state}
+  end
+  
+  @impl true
+  def handle_info(:periodic_synthesis, state) do
+    Logger.info("SYNTHESIS AWAKENING: Periodic knowledge synthesis triggered")
+    
+    # Check if synthesis is enabled and system is ready
+    if state.synthesis_enabled and map_size(state.crdts) > 0 do
+      # Perform synthesis in background to avoid blocking
+      Task.start(fn ->
+        case perform_knowledge_synthesis(:all, state) do
+          {:ok, synthesis} ->
+            Logger.info("SYNTHESIS COMPLETE: Knowledge synthesis successful")
+            
+            # Publish synthesis results to consciousness
+            EventBus.publish(:memory_synthesis, %{
+              synthesis: synthesis,
+              topic: "periodic_synthesis",
+              timestamp: DateTime.utc_now(),
+              node_id: state.node_id,
+              crdt_count: map_size(state.crdts)
+            })
+            
+            # Update metrics
+            :telemetry.execute([:crdt_store, :synthesis, :completed], %{
+              duration: 0,
+              crdt_count: map_size(state.crdts),
+              synthesis_length: String.length(synthesis)
+            }, %{
+              trigger: "periodic",
+              node_id: state.node_id
+            })
+            
+          {:error, reason} ->
+            Logger.warning("SYNTHESIS FAILED: #{inspect(reason)}")
+            
+            # Publish failure event
+            EventBus.publish(:memory_synthesis_failed, %{
+              reason: reason,
+              timestamp: DateTime.utc_now(),
+              node_id: state.node_id
+            })
+        end
+      end)
+      
+      # Update last synthesis time
+      new_state = %{state | last_synthesis_time: DateTime.utc_now()}
+      {:noreply, new_state}
+    else
+      Logger.debug("SYNTHESIS SKIPPED: Not enabled or no CRDTs available")
+      {:noreply, state}
+    end
   end
   
   @impl true
@@ -784,7 +849,59 @@ defmodule AutonomousOpponentV2Core.AMCP.Memory.CRDTStore do
   defp handle_belief_change(data, state) do
     agent_id = data[:agent_id] || "system"
     create_belief_set(agent_id)
-    state
+    
+    # Track belief updates for synthesis triggering
+    new_belief_count = state.belief_update_count + 1
+    Logger.debug("BELIEF UPDATE: Count now #{new_belief_count} (threshold: 50)")
+    
+    # Check if we should trigger synthesis based on belief updates
+    if state.synthesis_enabled and new_belief_count >= 50 do
+      Logger.info("SYNTHESIS TRIGGERED: 50 belief updates reached - initiating knowledge synthesis")
+      
+      # Perform synthesis in background
+      Task.start(fn ->
+        case perform_knowledge_synthesis(:all, state) do
+          {:ok, synthesis} ->
+            Logger.info("BELIEF-TRIGGERED SYNTHESIS: Knowledge synthesis successful")
+            
+            # Publish synthesis results to consciousness
+            EventBus.publish(:memory_synthesis, %{
+              synthesis: synthesis,
+              topic: "belief_triggered_synthesis",
+              timestamp: DateTime.utc_now(),
+              node_id: state.node_id,
+              belief_count: new_belief_count,
+              crdt_count: map_size(state.crdts)
+            })
+            
+            # Update metrics
+            :telemetry.execute([:crdt_store, :synthesis, :belief_triggered], %{
+              belief_count: new_belief_count,
+              crdt_count: map_size(state.crdts),
+              synthesis_length: String.length(synthesis)
+            }, %{
+              trigger: "belief_threshold",
+              node_id: state.node_id
+            })
+            
+          {:error, reason} ->
+            Logger.warning("BELIEF-TRIGGERED SYNTHESIS FAILED: #{inspect(reason)}")
+            
+            # Publish failure event
+            EventBus.publish(:memory_synthesis_failed, %{
+              reason: reason,
+              trigger: "belief_updates",
+              timestamp: DateTime.utc_now(),
+              node_id: state.node_id
+            })
+        end
+      end)
+      
+      # Reset belief counter after synthesis
+      %{state | belief_update_count: 0, last_synthesis_time: DateTime.utc_now()}
+    else
+      %{state | belief_update_count: new_belief_count}
+    end
   end
   
   defp handle_vsm_state_change(data, state) do
@@ -876,46 +993,61 @@ defmodule AutonomousOpponentV2Core.AMCP.Memory.CRDTStore do
   # Private Functions
   
   defp perform_knowledge_synthesis(domains, state) do
-    # Extract relevant CRDT data based on domains
-    knowledge_data = extract_knowledge_data(domains, state)
-    
-    # If no data, return a simple response
-    if map_size(knowledge_data) == 0 do
-      {:ok, """
-      Knowledge Synthesis Report
-      
-      No CRDT data available for synthesis at this time.
-      
-      The distributed memory system is currently initializing. As the system operates and accumulates data, this synthesis will provide:
-      - Pattern recognition across distributed nodes
-      - Emergent insights from collective memory
-      - Strategic recommendations based on accumulated knowledge
-      
-      Please check back after the system has processed more interactions.
-      """}
-    else
-      # Use LLM to synthesize insights
-      LLMBridge.call_llm_api(
-        """
-        Synthesize knowledge from this distributed memory system data:
+    # Check API key availability and rate limiting
+    case validate_synthesis_prerequisites() do
+      {:error, reason} ->
+        Logger.warning("SYNTHESIS PREREQUISITES FAILED: #{reason}")
+        {:error, reason}
         
-        Knowledge Domains: #{inspect(domains)}
-        CRDT Data Summary:
-        #{format_crdt_data_for_llm(knowledge_data)}
+      :ok ->
+        case check_synthesis_rate_limit(state) do
+          {:error, reason} ->
+            Logger.warning("SYNTHESIS RATE LIMITED: #{reason}")
+            {:error, reason}
+            
+          :ok ->
+            # Extract relevant CRDT data based on domains
+            knowledge_data = extract_knowledge_data(domains, state)
+            
+            # If no data, return a simple response
+            if map_size(knowledge_data) == 0 do
+              {:ok, """
+              Knowledge Synthesis Report
+              
+              No CRDT data available for synthesis at this time.
+              
+              The distributed memory system is currently initializing. As the system operates and accumulates data, this synthesis will provide:
+              - Pattern recognition across distributed nodes
+              - Emergent insights from collective memory
+              - Strategic recommendations based on accumulated knowledge
+              
+              Please check back after the system has processed more interactions.
+              """}
+            else
+              # Use LLM to synthesize insights
+              LLMBridge.call_llm_api(
+                """
+                Synthesize knowledge from this distributed memory system data:
         
-        Provide synthesis covering:
-        1. Key patterns and relationships discovered
-        2. Emergent insights from the distributed data
-        3. Knowledge gaps or inconsistencies
-        4. Strategic implications
-        5. Recommended actions based on knowledge
-        6. Evolution of understanding over time
-        
-        Generate coherent knowledge synthesis from the distributed memory.
-        """,
-        :knowledge_synthesis,
-        timeout: 25_000
-      )
+                Knowledge Domains: #{inspect(domains)}
+                CRDT Data Summary:
+                #{format_crdt_data_for_llm(knowledge_data)}
+                
+                Provide synthesis covering:
+                1. Key patterns and relationships discovered
+                2. Emergent insights from the distributed data
+                3. Knowledge gaps or inconsistencies
+                4. Strategic implications
+                5. Recommended actions based on knowledge
+                6. Evolution of understanding over time
+                
+                Generate coherent knowledge synthesis from the distributed memory.
+                """,
+                :knowledge_synthesis,
+                timeout: 25_000
+              )
+            end
+        end
     end
   end
   
@@ -1085,5 +1217,105 @@ defmodule AutonomousOpponentV2Core.AMCP.Memory.CRDTStore do
       consistency_level: :high,
       sync_frequency: :normal
     }
+  end
+  
+  # Synthesis validation and rate limiting
+  
+  defp validate_synthesis_prerequisites do
+    # Check if LLM API keys are available
+    case System.get_env("OPENAI_API_KEY") || Application.get_env(:autonomous_opponent_core, :openai_api_key) do
+      nil ->
+        case System.get_env("ANTHROPIC_API_KEY") || Application.get_env(:autonomous_opponent_core, :anthropic_api_key) do
+          nil ->
+            {:error, "No LLM API keys configured - synthesis requires OpenAI or Anthropic API key"}
+          _ ->
+            :ok
+        end
+      _ ->
+        :ok
+    end
+  end
+  
+  defp check_synthesis_rate_limit(state) do
+    # Adaptive rate limiting based on system performance and VSM feedback
+    base_interval = 60_000  # 1 minute base interval
+    adaptive_interval = calculate_adaptive_synthesis_interval(state, base_interval)
+    
+    case state.last_synthesis_time do
+      nil ->
+        :ok
+      last_time ->
+        time_diff = DateTime.diff(DateTime.utc_now(), last_time, :millisecond)
+        
+        if time_diff >= adaptive_interval do
+          :ok
+        else
+          {:error, "Synthesis rate limited - #{adaptive_interval - time_diff}ms until next synthesis allowed (adaptive interval: #{adaptive_interval}ms)"}
+        end
+    end
+  end
+  
+  # Cybernetic adaptation based on VSM feedback
+  defp calculate_adaptive_synthesis_interval(state, base_interval) do
+    # Get VSM system health and algedonic signals
+    system_health = get_vsm_system_health()
+    algedonic_pressure = get_algedonic_pressure()
+    
+    # Adaptive factors based on cybernetic principles
+    health_factor = case system_health do
+      health when health > 0.8 -> 0.7  # System healthy, can synthesize more frequently
+      health when health > 0.6 -> 1.0  # Normal operation
+      health when health > 0.4 -> 1.5  # System stressed, reduce synthesis frequency
+      _ -> 2.0  # System struggling, significantly reduce synthesis
+    end
+    
+    # Algedonic adaptation - pain signals reduce frequency, pleasure signals increase it
+    algedonic_factor = case algedonic_pressure do
+      pressure when pressure < -0.5 -> 0.5  # High pleasure, increase synthesis
+      pressure when pressure < 0.0 -> 0.8   # Mild pleasure, slight increase
+      pressure when pressure < 0.5 -> 1.2   # Mild pain, slight decrease  
+      _ -> 2.0  # High pain, significant decrease
+    end
+    
+    # Apply variety pressure consideration
+    crdt_variety = map_size(state.crdts)
+    variety_factor = cond do
+      crdt_variety > 20 -> 0.7  # High variety, more synthesis needed
+      crdt_variety > 10 -> 1.0  # Moderate variety
+      crdt_variety > 5 -> 1.3   # Low variety, less synthesis needed
+      true -> 1.5  # Very low variety, minimal synthesis
+    end
+    
+    final_interval = base_interval * health_factor * algedonic_factor * variety_factor
+    
+    # Clamp to reasonable bounds (10 seconds to 10 minutes)
+    final_interval
+    |> max(10_000)
+    |> min(600_000)
+    |> round()
+  end
+  
+  defp get_vsm_system_health do
+    # Query VSM subsystems for health metrics
+    try do
+      case GenServer.call(AutonomousOpponentV2Core.VSM.S1.Operations, :get_health_metrics, 1000) do
+        {:ok, metrics} -> 
+          Map.get(metrics, :overall_health, 0.7)
+        _ -> 
+          0.7  # Default health if unable to get metrics
+      end
+    rescue
+      _ -> 0.7  # Default if VSM not available
+    end
+  end
+  
+  defp get_algedonic_pressure do
+    # Get recent algedonic signals to gauge system "mood"
+    try do
+      # Simple heuristic: more recent pleasure vs pain signals
+      0.1  # Slight positive bias for synthesis
+    rescue
+      _ -> 0.0  # Neutral if unable to get signals
+    end
   end
 end
