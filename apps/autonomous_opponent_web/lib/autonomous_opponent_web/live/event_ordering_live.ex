@@ -1,4 +1,4 @@
-defmodule AutonomousOpponentWeb.EventOrderingLive do
+defmodule AutonomousOpponentV2Web.EventOrderingLive do
   @moduledoc """
   Live dashboard for monitoring EventBus HLC ordering metrics.
   
@@ -9,7 +9,7 @@ defmodule AutonomousOpponentWeb.EventOrderingLive do
   - Bypass events and late arrivals
   """
   
-  use AutonomousOpponentWeb, :live_view
+  use AutonomousOpponentV2Web, :live_view
   
   alias AutonomousOpponentV2Core.Telemetry.SystemTelemetry
   alias Phoenix.LiveView.JS
@@ -214,13 +214,48 @@ defmodule AutonomousOpponentWeb.EventOrderingLive do
         <!-- Buffer Depth Chart -->
         <div class="px-6 py-4 border-t border-gray-200">
           <h2 class="text-lg font-semibold text-gray-900 mb-4">Buffer Depth History</h2>
-          <div class="h-64 bg-gray-50 rounded-lg p-4">
-            <.live_component
-              module={AutonomousOpponentWeb.Components.BufferDepthChart}
-              id="buffer-depth-chart"
-              data={@buffer_history}
-              selected_subsystem={@selected_subsystem}
-            />
+          <div class="h-64 bg-gray-50 rounded-lg p-4 relative">
+            <%= if length(@buffer_history) > 0 do %>
+              <svg viewBox="0 0 800 200" class="w-full h-full">
+                <!-- Y-axis labels -->
+                <text x="10" y="20" class="text-xs fill-gray-600">100</text>
+                <text x="10" y="110" class="text-xs fill-gray-600">50</text>
+                <text x="10" y="190" class="text-xs fill-gray-600">0</text>
+                
+                <!-- Grid lines -->
+                <line x1="40" y1="20" x2="780" y2="20" stroke="#e5e7eb" stroke-dasharray="2,2"/>
+                <line x1="40" y1="110" x2="780" y2="110" stroke="#e5e7eb" stroke-dasharray="2,2"/>
+                <line x1="40" y1="190" x2="780" y2="190" stroke="#e5e7eb"/>
+                
+                <!-- Data lines -->
+                <%= for {subsystem, color} <- subsystem_colors() do %>
+                  <%= if @selected_subsystem == :all || @selected_subsystem == subsystem do %>
+                    <polyline
+                      points={calculate_points(@buffer_history, subsystem)}
+                      fill="none"
+                      stroke={color}
+                      stroke-width="2"
+                    />
+                  <% end %>
+                <% end %>
+              </svg>
+              
+              <!-- Legend -->
+              <div class="absolute bottom-2 right-2 flex flex-wrap gap-4 text-xs">
+                <%= for {subsystem, color} <- subsystem_colors() do %>
+                  <%= if @selected_subsystem == :all || @selected_subsystem == subsystem do %>
+                    <div class="flex items-center gap-1">
+                      <div class="w-3 h-3" style={"background-color: #{color}"}></div>
+                      <span><%= format_subsystem_name(subsystem) %></span>
+                    </div>
+                  <% end %>
+                <% end %>
+              </div>
+            <% else %>
+              <div class="flex items-center justify-center h-full text-gray-400">
+                <p>Collecting buffer depth data...</p>
+              </div>
+            <% end %>
           </div>
         </div>
         
@@ -457,7 +492,7 @@ defmodule AutonomousOpponentWeb.EventOrderingLive do
   defp handle_telemetry_event(_event_name, measurements, metadata, _config) do
     # Send telemetry data to connected LiveViews
     Phoenix.PubSub.broadcast(
-      AutonomousOpponentWeb.PubSub,
+      AutonomousOpponentV2Web.PubSub,
       "event_ordering_metrics",
       {:telemetry_event, measurements, metadata}
     )
@@ -467,5 +502,32 @@ defmodule AutonomousOpponentWeb.EventOrderingLive do
     # Update metrics based on telemetry events
     # This would be implemented based on specific telemetry patterns
     socket
+  end
+  
+  defp subsystem_colors do
+    [
+      {:s1_operations, "#ef4444"},      # red
+      {:s2_coordination, "#f59e0b"},    # amber
+      {:s3_control, "#10b981"},         # emerald
+      {:s4_intelligence, "#3b82f6"},    # blue
+      {:s5_policy, "#8b5cf6"},          # violet
+      {:algedonic, "#ec4899"},          # pink
+      {:meta_system, "#6b7280"}         # gray
+    ]
+  end
+  
+  defp calculate_points(history, subsystem) do
+    points = history
+    |> Enum.reverse()
+    |> Enum.with_index()
+    |> Enum.map(fn {point, index} ->
+      x = 40 + (index * 740 / max(length(history) - 1, 1))
+      depth = Map.get(point.depths, subsystem, 0)
+      y = 190 - (depth * 1.7)  # Scale to fit in 0-100 range
+      "#{x},#{y}"
+    end)
+    |> Enum.join(" ")
+    
+    points
   end
 end

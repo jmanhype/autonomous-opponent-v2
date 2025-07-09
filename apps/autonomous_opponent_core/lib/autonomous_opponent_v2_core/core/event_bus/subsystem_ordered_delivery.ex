@@ -1,4 +1,4 @@
-defmodule AutonomousOpponent.EventBus.SubsystemOrderedDelivery do
+defmodule AutonomousOpponentV2Core.EventBus.SubsystemOrderedDelivery do
   @moduledoc """
   Provides partial ordering by VSM subsystem for performance optimization.
   
@@ -27,7 +27,7 @@ defmodule AutonomousOpponent.EventBus.SubsystemOrderedDelivery do
   use GenServer
   require Logger
   
-  alias AutonomousOpponent.Telemetry.SystemTelemetry
+  alias AutonomousOpponentV2Core.Telemetry.SystemTelemetry
   
   @type subsystem :: :s1_operations | :s2_coordination | :s3_control | 
                      :s4_intelligence | :s5_policy | :algedonic | :meta_system
@@ -303,11 +303,15 @@ defmodule AutonomousOpponent.EventBus.SubsystemOrderedDelivery do
   defp deliver_immediately(event, state) do
     send(state.subscriber, {:ordered_event, event})
     
-    SystemTelemetry.record(:event_bus_delivery, %{
-      topic: event.topic,
-      ordering: :bypassed,
-      subsystem: determine_subsystem(event)
-    })
+    SystemTelemetry.emit(
+      [:event_bus, :delivery],
+      %{count: 1},
+      %{
+        topic: event.topic,
+        ordering: :bypassed,
+        subsystem: determine_subsystem(event)
+      }
+    )
   end
   
   defp buffer_event_in_subsystem(event, subsystem, state) do
@@ -457,12 +461,15 @@ defmodule AutonomousOpponent.EventBus.SubsystemOrderedDelivery do
       end
       
       if :rand.uniform() <= sample_rate do
-        SystemTelemetry.record(:event_bus_delivery_batch, %{
-          batch_size: length(batch_events),
-          ordering: :ordered,
-          subsystem: subsystem,
-          sampled: sample_rate < 1.0
-        })
+        SystemTelemetry.emit(
+          [:event_bus, :delivery_batch],
+          %{batch_size: length(batch_events)},
+          %{
+            ordering: :ordered,
+            subsystem: subsystem,
+            sampled: sample_rate < 1.0
+          }
+        )
       end
       
       count + length(batch)

@@ -1,17 +1,21 @@
-defmodule AutonomousOpponent.EventBus.OrderedDeliveryTest do
+defmodule AutonomousOpponentV2Core.EventBus.OrderedDeliveryTest do
   use ExUnit.Case, async: true
   
-  alias AutonomousOpponent.EventBus.OrderedDelivery
+  alias AutonomousOpponentV2Core.EventBus.OrderedDelivery
   alias AutonomousOpponentV2Core.VSM.Clock
   
   setup do
-    # Start HLC for event creation
-    start_supervised!({AutonomousOpponentV2Core.Core.HybridLogicalClock, []})
-    
+    # HLC is already started by the application, no need to start it again
     # Create a test subscriber process
     test_pid = self()
     
     {:ok, %{subscriber: test_pid}}
+  end
+  
+  # Helper to create events with topic field
+  defp create_test_event(type, data) do
+    {:ok, event} = Clock.create_event(:test, type, data)
+    Map.put(event, :topic, type)
   end
   
   describe "basic ordering" do
@@ -22,13 +26,13 @@ defmodule AutonomousOpponent.EventBus.OrderedDeliveryTest do
       ]})
       
       # Create events with different timestamps
-      {:ok, event1} = Clock.create_event(:test, :event1, %{data: "first"})
-      Process.sleep(10)
-      {:ok, event2} = Clock.create_event(:test, :event2, %{data: "second"})
-      Process.sleep(10)
-      {:ok, event3} = Clock.create_event(:test, :event3, %{data: "third"})
+      event1 = create_test_event(:event1, %{data: "first"})
+      Process.sleep(1)
+      event2 = create_test_event(:event2, %{data: "second"})
+      Process.sleep(1)
+      event3 = create_test_event(:event3, %{data: "third"})
       
-      # Submit events out of order
+      # Submit events out of order immediately
       OrderedDelivery.submit_event(od_pid, event3)
       OrderedDelivery.submit_event(od_pid, event1)
       OrderedDelivery.submit_event(od_pid, event2)
@@ -36,7 +40,7 @@ defmodule AutonomousOpponent.EventBus.OrderedDeliveryTest do
       # Wait for buffer window to expire
       Process.sleep(150)
       
-      # Should receive events in correct order
+      # Should receive events in correct order (as a batch)
       assert_receive {:ordered_event_batch, [^event1, ^event2, ^event3]}, 200
     end
     
@@ -47,8 +51,8 @@ defmodule AutonomousOpponent.EventBus.OrderedDeliveryTest do
         config: %{batch_size: 1}
       ]})
       
-      {:ok, event1} = Clock.create_event(:test, :event1, %{data: "first"})
-      {:ok, event2} = Clock.create_event(:test, :event2, %{data: "second"})
+      event1 = create_test_event(:event1, %{data: "first"})
+      event2 = create_test_event(:event2, %{data: "second"})
       
       OrderedDelivery.submit_event(od_pid, event1)
       OrderedDelivery.submit_event(od_pid, event2)
@@ -66,7 +70,7 @@ defmodule AutonomousOpponent.EventBus.OrderedDeliveryTest do
         buffer_window_ms: 50
       ]})
       
-      {:ok, event} = Clock.create_event(:test, :event1, %{data: "test"})
+      event = create_test_event(:event1, %{data: "test"})
       
       # Submit same event twice
       OrderedDelivery.submit_event(od_pid, event)
@@ -117,10 +121,10 @@ defmodule AutonomousOpponent.EventBus.OrderedDeliveryTest do
       ]})
       
       # Create regular event
-      {:ok, regular_event} = Clock.create_event(:test, :regular, %{data: "normal"})
+      regular_event = create_test_event(:regular, %{data: "normal"})
       
       # Create high-intensity algedonic event
-      {:ok, pain_event} = Clock.create_event(:test, :pain, %{
+      pain_event = create_test_event(:pain, %{
         data: "pain",
         metadata: %{algedonic: true, intensity: 0.99}
       })
@@ -145,7 +149,7 @@ defmodule AutonomousOpponent.EventBus.OrderedDeliveryTest do
         buffer_window_ms: 100
       ]})
       
-      {:ok, mild_pain} = Clock.create_event(:test, :mild_pain, %{
+      mild_pain = create_test_event(:mild_pain, %{
         data: "mild",
         metadata: %{algedonic: true, intensity: 0.5}
       })
@@ -175,7 +179,7 @@ defmodule AutonomousOpponent.EventBus.OrderedDeliveryTest do
       
       # Submit many out-of-order events to trigger adaptation
       for i <- 20..1 do
-        {:ok, event} = Clock.create_event(:test, :"event_#{i}", %{seq: i})
+        event = create_test_event(:"event_#{i}", %{seq: i})
         OrderedDelivery.submit_event(od_pid, event)
         Process.sleep(5)
       end
@@ -199,7 +203,7 @@ defmodule AutonomousOpponent.EventBus.OrderedDeliveryTest do
       
       # Submit more events than buffer can hold
       events = for i <- 1..15 do
-        {:ok, event} = Clock.create_event(:test, :"overflow_#{i}", %{seq: i})
+        event = create_test_event(:"overflow_#{i}", %{seq: i})
         OrderedDelivery.submit_event(od_pid, event)
         event
       end
@@ -241,7 +245,7 @@ defmodule AutonomousOpponent.EventBus.OrderedDeliveryTest do
       
       # Submit some events
       for i <- 1..5 do
-        {:ok, event} = Clock.create_event(:test, :"stat_#{i}", %{seq: i})
+        event = create_test_event(:"stat_#{i}", %{seq: i})
         OrderedDelivery.submit_event(od_pid, event)
       end
       

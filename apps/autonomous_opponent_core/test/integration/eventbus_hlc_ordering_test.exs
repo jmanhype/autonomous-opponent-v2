@@ -1,15 +1,10 @@
-defmodule AutonomousOpponent.Integration.EventBusHLCOrderingTest do
+defmodule AutonomousOpponentV2Core.Integration.EventBusHLCOrderingTest do
   use ExUnit.Case, async: false
   
   alias AutonomousOpponentV2Core.EventBus
   alias AutonomousOpponentV2Core.VSM.Clock
   
   setup do
-    # Ensure services are started
-    start_supervised!({AutonomousOpponentV2Core.Core.HybridLogicalClock, []})
-    start_supervised!(AutonomousOpponent.EventBus.OrderedDeliverySupervisor)
-    start_supervised!({AutonomousOpponentV2Core.EventBus, []})
-    
     # Clean up any existing subscriptions
     :ets.delete_all_objects(:event_bus_subscriptions)
     :ets.delete_all_objects(:event_bus_ordered_delivery)
@@ -22,8 +17,8 @@ defmodule AutonomousOpponent.Integration.EventBusHLCOrderingTest do
       # Create a mock S4 Intelligence subsystem
       test_pid = self()
       
-      # Subscribe with ordered delivery
-      EventBus.subscribe(:pattern_detected, test_pid, ordered_delivery: true, buffer_window_ms: 100)
+      # Subscribe with ordered delivery and batch mode
+      EventBus.subscribe(:pattern_detected, test_pid, ordered_delivery: true, buffer_window_ms: 100, batch_delivery: true)
       
       # Simulate pattern detection events arriving out of order
       # This might happen due to network delays or concurrent processing
@@ -44,15 +39,20 @@ defmodule AutonomousOpponent.Integration.EventBusHLCOrderingTest do
       # Wait for buffer window
       Process.sleep(150)
       
-      # Should receive all patterns in order
-      assert_receive {:ordered_event_batch, events}
+      # Collect all received events (may come as batches or individual events)
+      events = collect_ordered_events([], 10, 1000)
+      
+      # Verify we got all events
+      assert length(events) == 10
       
       # Verify ordering by HLC timestamp
       timestamps = Enum.map(events, fn event -> event.timestamp end)
       assert timestamps == Enum.sort_by(timestamps, &hlc_to_comparable/1)
       
-      # Verify all patterns received
-      assert length(events) == 10
+      # Verify patterns are in correct order
+      pattern_ids = Enum.map(events, fn event -> event.data.pattern_id end)
+      assert pattern_ids == ["pattern_1", "pattern_2", "pattern_3", "pattern_4", "pattern_5", 
+                             "pattern_6", "pattern_7", "pattern_8", "pattern_9", "pattern_10"]
     end
     
     test "algedonic signals bypass ordering when critical" do
@@ -279,6 +279,23 @@ defmodule AutonomousOpponent.Integration.EventBusHLCOrderingTest do
   end
   
   # Helper functions
+  
+  defp collect_ordered_events(collected, expected_count, timeout) when length(collected) >= expected_count do
+    Enum.take(collected, expected_count)
+  end
+  
+  defp collect_ordered_events(collected, expected_count, timeout) do
+    receive do
+      {:ordered_event, event} ->
+        collect_ordered_events(collected ++ [event], expected_count, timeout)
+        
+      {:ordered_event_batch, batch} ->
+        collect_ordered_events(collected ++ batch, expected_count, timeout)
+    after
+      timeout ->
+        collected
+    end
+  end
   
   defp receive_loop(type, events) do
     receive do

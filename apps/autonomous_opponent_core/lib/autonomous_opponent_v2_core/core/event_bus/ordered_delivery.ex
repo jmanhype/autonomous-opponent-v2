@@ -1,4 +1,4 @@
-defmodule AutonomousOpponent.EventBus.OrderedDelivery do
+defmodule AutonomousOpponentV2Core.EventBus.OrderedDelivery do
   @moduledoc """
   Provides causal ordering guarantees for EventBus delivery using HLC timestamps.
   
@@ -28,7 +28,7 @@ defmodule AutonomousOpponent.EventBus.OrderedDelivery do
   use GenServer
   require Logger
   
-  alias AutonomousOpponent.Telemetry.SystemTelemetry
+  alias AutonomousOpponentV2Core.Telemetry.SystemTelemetry
   
   @type hlc_timestamp :: %{
     physical: non_neg_integer(),
@@ -132,7 +132,7 @@ defmodule AutonomousOpponent.EventBus.OrderedDelivery do
     # Monitor subscriber to clean up if it dies
     subscriber_ref = Process.monitor(subscriber)
     
-    config = struct(@default_config, Keyword.get(opts, :config, %{}))
+    config = Map.merge(@default_config, Keyword.get(opts, :config, %{}))
     
     initial_state = %{
       subscriber: subscriber,
@@ -159,20 +159,24 @@ defmodule AutonomousOpponent.EventBus.OrderedDelivery do
     if should_bypass?(event, state.config) do
       deliver_immediately(event, state)
       
-      SystemTelemetry.record(:event_bus_ordered_delivery, %{
-        action: :bypass,
-        duration_us: System.monotonic_time(:microsecond) - start_time
-      })
+      SystemTelemetry.emit(
+        [:event_bus, :ordered_delivery],
+        %{duration_us: System.monotonic_time(:microsecond) - start_time},
+        %{action: :bypass}
+      )
       
       {:noreply, state}
     else
       new_state = buffer_event(event, state)
       
-      SystemTelemetry.record(:event_bus_ordered_delivery, %{
-        action: :buffer,
-        buffer_size: :gb_trees.size(new_state.buffer),
-        duration_us: System.monotonic_time(:microsecond) - start_time
-      })
+      SystemTelemetry.emit(
+        [:event_bus, :ordered_delivery],
+        %{
+          buffer_size: :gb_trees.size(new_state.buffer),
+          duration_us: System.monotonic_time(:microsecond) - start_time
+        },
+        %{action: :buffer}
+      )
       
       {:noreply, new_state}
     end
@@ -234,11 +238,15 @@ defmodule AutonomousOpponent.EventBus.OrderedDelivery do
     try do
       send(state.subscriber, {:ordered_event, event})
       
-      SystemTelemetry.record(:event_bus_delivery, %{
-        topic: event.topic,
-        ordering: :bypassed,
-        subscriber: inspect(state.subscriber)
-      })
+      SystemTelemetry.emit(
+        [:event_bus, :delivery],
+        %{count: 1},
+        %{
+          topic: event.topic,
+          ordering: :bypassed,
+          subscriber: inspect(state.subscriber)
+        }
+      )
     catch
       :error, :badarg ->
         Logger.warning("Failed to deliver bypassed event to dead subscriber: #{inspect(state.subscriber)}")
@@ -444,13 +452,16 @@ defmodule AutonomousOpponent.EventBus.OrderedDelivery do
       
       if :rand.uniform() <= sample_rate do
         # Record batch-level telemetry instead of per-event
-        SystemTelemetry.record(:event_bus_delivery_batch, %{
-          batch_size: length(batch),
-          topics: batch_events |> Enum.map(& &1.topic) |> Enum.uniq(),
-          ordering: :ordered,
-          subscriber: inspect(state.subscriber),
-          sampled: sample_rate < 1.0
-        })
+        SystemTelemetry.emit(
+          [:event_bus, :delivery_batch],
+          %{batch_size: length(batch)},
+          %{
+            topics: batch_events |> Enum.map(& &1.topic) |> Enum.uniq(),
+            ordering: :ordered,
+            subscriber: inspect(state.subscriber),
+            sampled: sample_rate < 1.0
+          }
+        )
       end
       
       {count + length(batch), last_event_hlc}

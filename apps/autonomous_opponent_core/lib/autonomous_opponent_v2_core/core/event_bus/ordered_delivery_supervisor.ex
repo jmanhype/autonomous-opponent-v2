@@ -1,4 +1,4 @@
-defmodule AutonomousOpponent.EventBus.OrderedDeliverySupervisor do
+defmodule AutonomousOpponentV2Core.EventBus.OrderedDeliverySupervisor do
   @moduledoc """
   Supervisor for OrderedDelivery processes.
   

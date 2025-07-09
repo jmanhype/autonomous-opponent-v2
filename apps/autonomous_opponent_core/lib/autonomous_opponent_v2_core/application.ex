@@ -22,7 +22,7 @@ defmodule AutonomousOpponentV2Core.Application do
       # Start the Hybrid Logical Clock for deterministic timestamps
       {AutonomousOpponentV2Core.Core.HybridLogicalClock, []},
       # Start the OrderedDelivery supervisor before EventBus
-      AutonomousOpponent.EventBus.OrderedDeliverySupervisor,
+      AutonomousOpponentV2Core.EventBus.OrderedDeliverySupervisor,
       # Start the EventBus
       {AutonomousOpponentV2Core.EventBus, name: AutonomousOpponentV2Core.EventBus},
       # CircuitBreaker is initialized on-demand

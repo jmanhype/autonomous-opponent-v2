@@ -61,6 +61,9 @@ defmodule AutonomousOpponentV2Core.EventBus do
     # Create causally-ordered event with HLC timestamp to prevent race conditions
     {:ok, event} = Clock.create_event(:event_bus, event_type, data)
     
+    # Add topic field to match what OrderedDelivery expects
+    event = Map.put(event, :topic, event_type)
+    
     # Emit publish telemetry synchronously before the cast
     message_size = :erlang.external_size(event.data)
     SystemTelemetry.emit(
@@ -246,7 +249,7 @@ defmodule AutonomousOpponentV2Core.EventBus do
         
         if length(ordered_entries) > 0 do
           # This is an OrderedDelivery process
-          AutonomousOpponent.EventBus.OrderedDelivery.submit_event(pid, event)
+          AutonomousOpponentV2Core.EventBus.OrderedDelivery.submit_event(pid, event)
         else
           # Regular subscriber - send directly
           send(pid, {:event_bus_hlc, event})
@@ -336,14 +339,19 @@ defmodule AutonomousOpponentV2Core.EventBus do
       buffer_window_ms: Keyword.get(opts, :buffer_window_ms, 50),
       config: %{
         batch_size: if(Keyword.get(opts, :batch_delivery, false), do: 100, else: 1),
-        adaptive_window: Keyword.get(opts, :adaptive_window, true)
+        adaptive_window: Keyword.get(opts, :adaptive_window, true),
+        max_buffer_size: 10_000,
+        max_window_ms: 100,
+        min_window_ms: 10,
+        algedonic_bypass_threshold: 0.95,
+        clock_drift_tolerance_ms: 1000
       }
     ]
     
     # Start under a simple supervisor
     case DynamicSupervisor.start_child(
-      AutonomousOpponent.EventBus.OrderedDeliverySupervisor,
-      {AutonomousOpponent.EventBus.OrderedDelivery, delivery_opts}
+      AutonomousOpponentV2Core.EventBus.OrderedDeliverySupervisor,
+      {AutonomousOpponentV2Core.EventBus.OrderedDelivery, delivery_opts}
     ) do
       {:ok, pid} ->
         {:ok, pid}
