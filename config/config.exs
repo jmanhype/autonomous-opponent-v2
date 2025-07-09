@@ -18,7 +18,8 @@ config :autonomous_opponent_web,
   metrics_endpoint_auth_enabled: false,  # Set to true in production
   metrics_endpoint_auth_token: nil,      # Set via METRICS_AUTH_TOKEN env var
   metrics_endpoint_rate_limit: 10,       # Max requests per minute
-  metrics_endpoint_cors_enabled: true    # Enable CORS for cross-origin scraping
+  metrics_endpoint_cors_enabled: true,   # Enable CORS for cross-origin scraping
+  metrics_endpoint_cors_origin: "*"      # CORS origin, use specific domain in production
 
 # Sample configuration:
 #
