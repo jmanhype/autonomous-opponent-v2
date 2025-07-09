@@ -144,7 +144,13 @@ defmodule AutonomousOpponentV2Core.Core.CircuitBreaker do
     :recovery_time_ms,
     :timeout_ms,
     :half_open_test_in_progress,
-    :metrics_table
+    :metrics_table,
+    # ALGEDONIC ENHANCEMENT: Pain awareness
+    :pain_threshold,         # Intensity threshold for forced opening
+    :pain_window_ms,         # Time window for pain signal accumulation
+    :recent_pain_signals,    # List of recent pain signals with timestamps
+    :pain_response_enabled,  # Feature flag for pain-triggered opening
+    :pain_learning_data     # Historical pain → failure correlations
   ]
 
   @impl true
@@ -158,6 +164,17 @@ defmodule AutonomousOpponentV2Core.Core.CircuitBreaker do
     :ets.insert(table_name, {:total_failures, 0})
     :ets.insert(table_name, {:total_successes, 0})
     :ets.insert(table_name, {:state_transitions, []})
+    :ets.insert(table_name, {:pain_triggered_opens, 0})
+    :ets.insert(table_name, {:pain_predictions_correct, 0})
+    :ets.insert(table_name, {:pain_predictions_total, 0})
+
+    # ALGEDONIC AWAKENING: Subscribe to the system's pain
+    EventBus.subscribe(:algedonic_pain)
+    EventBus.subscribe(:emergency_algedonic)
+    
+    # Create pain tracking table for high-volume scenarios
+    pain_table = :"circuit_breaker_#{opts[:name]}_pain"
+    :ets.new(pain_table, [:ordered_set, :public, {:write_concurrency, true}])
 
     state = %__MODULE__{
       name: opts[:name],
@@ -169,7 +186,16 @@ defmodule AutonomousOpponentV2Core.Core.CircuitBreaker do
       recovery_time_ms: opts[:recovery_time_ms] || 60_000,
       timeout_ms: opts[:timeout_ms] || 5_000,
       half_open_test_in_progress: false,
-      metrics_table: table_name
+      metrics_table: table_name,
+      # ALGEDONIC CONFIGURATION
+      pain_threshold: opts[:pain_threshold] || 0.8,
+      pain_window_ms: opts[:pain_window_ms] || 60_000,
+      recent_pain_signals: [],
+      pain_response_enabled: opts[:pain_response_enabled] || true,
+      pain_learning_data: %{
+        pain_table: pain_table,
+        correlation_strength: 0.0
+      }
     }
 
     # Skip EventBus publish during initialization to avoid startup issues
@@ -380,8 +406,337 @@ defmodule AutonomousOpponentV2Core.Core.CircuitBreaker do
   end
 
   @impl true
+  def handle_info({:event_bus_hlc, event}, state) do
+    # WISDOM: HLC format - the future of causally ordered pain
+    # Hybrid Logical Clocks ensure pain signals maintain causal ordering
+    # If pain A caused pain B, we WILL process them in that order
+    case event.type do
+      :algedonic_pain ->
+        # HLC timestamp is the event.timestamp itself in new format
+        handle_algedonic_pain(event.data, event.timestamp.physical, event.timestamp, state)
+      :emergency_algedonic ->
+        # EMERGENCY BYPASS: Maximum pain demands immediate response
+        handle_emergency_pain(event.data, state)
+      _ ->
+        {:noreply, state}
+    end
+  end
+
+  # Legacy EventBus format - still supported but will be deprecated
+  def handle_info({:event_bus, event_type, data}, state) do
+    case event_type do
+      :algedonic_pain ->
+        # Convert to standardized format
+        timestamp = System.monotonic_time(:millisecond)
+        handle_algedonic_pain(data, timestamp, nil, state)
+      :emergency_algedonic ->
+        handle_emergency_pain(data, state)
+      _ ->
+        {:noreply, state}
+    end
+  end
+
   def handle_info(_info, state) do
     {:noreply, state}
+  end
+
+  # ALGEDONIC PAIN PROCESSING - The Heart of Cybernetic Feeling
+  defp handle_algedonic_pain(data, timestamp, hlc, state) do
+    # Skip if pain response is disabled (for testing/maintenance)
+    unless state.pain_response_enabled do
+      {:noreply, state}
+    else
+      try do
+        # Validate and normalize pain signal
+        pain_signal = normalize_pain_signal(data, timestamp, hlc)
+        
+        # Check if this pain is relevant to us
+        if relevant_pain_signal?(pain_signal, state) do
+          # WISDOM: Not all pain is our pain
+          # We must distinguish between pain we can act on vs ambient suffering
+          new_state = process_pain_signal(pain_signal, state)
+          {:noreply, new_state}
+        else
+          # Track for learning even if not actionable
+          record_ambient_pain(pain_signal, state)
+          {:noreply, state}
+        end
+      rescue
+        error ->
+          # Pain processing errors are themselves painful
+          Logger.error("Circuit breaker #{state.name} error processing pain: #{inspect(error)}")
+          :telemetry.execute(
+            [:circuit_breaker, :pain_processing, :error],
+            %{count: 1},
+            %{name: state.name, error: error}
+          )
+          {:noreply, state}
+      end
+    end
+  end
+
+  # EMERGENCY PAIN - When the System Screams
+  defp handle_emergency_pain(data, state) do
+    Logger.error("EMERGENCY ALGEDONIC SIGNAL received by #{state.name}: #{inspect(data)}")
+    
+    # Emergency pain ALWAYS forces circuit open
+    # This is the system's emergency brake
+    new_state = transition_to_open(state, {:emergency_pain, data})
+    
+    # Propagate emergency to dependent circuits
+    EventBus.publish(:circuit_breaker_emergency_cascade, %{
+      source: state.name,
+      original_pain: data,
+      timestamp: System.monotonic_time(:millisecond)
+    })
+    
+    {:noreply, new_state}
+  end
+
+  # PAIN SIGNAL NORMALIZATION - Making Pain Comprehensible
+  defp normalize_pain_signal(data, timestamp, hlc) do
+    %{
+      # Core pain attributes
+      intensity: calculate_pain_intensity(data),
+      source: data[:source] || :unknown,
+      metric: data[:metric] || :general,
+      reason: data[:reason] || data[:message] || "unspecified pain",
+      
+      # Temporal attributes
+      timestamp: timestamp,
+      hlc: hlc,
+      
+      # Context for learning
+      affected_services: data[:affected_services] || [],
+      cascading: data[:cascading] || false,
+      
+      # Original data for deep analysis
+      raw_data: data
+    }
+  end
+
+  # PAIN INTENSITY CALCULATION - Quantifying Suffering
+  defp calculate_pain_intensity(data) do
+    # Multiple ways to express pain intensity
+    cond do
+      # Direct intensity value (0.0 to 1.0)
+      is_number(data[:intensity]) ->
+        max(0.0, min(1.0, data[:intensity]))
+      
+      # Severity levels mapped to intensity
+      data[:severity] == :critical -> 1.0
+      data[:severity] == :high -> 0.8
+      data[:severity] == :medium -> 0.5
+      data[:severity] == :low -> 0.2
+      
+      # Legacy pain levels
+      data[:pain_level] == "AGONY" -> 1.0
+      data[:pain_level] == "SEVERE" -> 0.8
+      data[:pain_level] == "MODERATE" -> 0.5
+      
+      # Default moderate pain
+      true -> 0.5
+    end
+  end
+
+  # PAIN RELEVANCE - Is This Our Pain to Bear?
+  defp relevant_pain_signal?(signal, state) do
+    cond do
+      # Our own pain creates feedback loops - ignore
+      signal.source == :circuit_breaker and signal.raw_data[:name] == state.name ->
+        false
+      
+      # Pain explicitly targeting us
+      state.name in signal.affected_services ->
+        true
+      
+      # Cascading pain from dependent services
+      signal.cascading and dependent_service?(signal.source, state) ->
+        true
+      
+      # System-wide pain affects everyone
+      signal.raw_data[:scope] == :system_wide ->
+        true
+      
+      # Pain from services we protect
+      protected_service?(signal.source, state) ->
+        true
+      
+      # Default: not our problem
+      true ->
+        false
+    end
+  end
+
+  # PAIN SIGNAL PROCESSING - The Cybernetic Response
+  defp process_pain_signal(signal, state) do
+    # Add to sliding window with timestamp
+    cutoff_time = signal.timestamp - state.pain_window_ms
+    
+    # Maintain window of recent pain, ordered by time
+    recent_signals = [signal | state.recent_pain_signals]
+      |> Enum.filter(fn s -> s.timestamp > cutoff_time end)
+      |> Enum.sort_by(& &1.timestamp, :desc)
+      |> Enum.take(100)  # Limit memory usage
+    
+    # Calculate aggregate pain metrics
+    pain_metrics = calculate_pain_metrics(recent_signals, state)
+    
+    # Update state with new pain data
+    new_state = %{state | 
+      recent_pain_signals: recent_signals,
+      pain_learning_data: update_pain_learning(pain_metrics, state.pain_learning_data)
+    }
+    
+    # DECISION POINT: Should we break the circuit?
+    cond do
+      # Already open - pain confirms our decision
+      state.state == :open ->
+        reinforce_open_decision(new_state, signal)
+      
+      # Immediate pain threshold exceeded
+      pain_metrics.max_intensity >= state.pain_threshold ->
+        Logger.warning("Circuit breaker #{state.name} opening due to pain intensity: #{pain_metrics.max_intensity}")
+        transition_to_open(new_state, {:algedonic_pain, pain_metrics})
+      
+      # Sustained moderate pain
+      pain_metrics.sustained_pain > 0.6 and pain_metrics.signal_count >= 3 ->
+        Logger.warning("Circuit breaker #{state.name} opening due to sustained pain")
+        transition_to_open(new_state, {:sustained_pain, pain_metrics})
+      
+      # Rapid pain escalation
+      pain_metrics.escalation_rate > 0.5 ->
+        Logger.warning("Circuit breaker #{state.name} opening due to rapid pain escalation")
+        transition_to_open(new_state, {:pain_escalation, pain_metrics})
+      
+      # Not enough pain to act, but remember it
+      true ->
+        new_state
+    end
+  end
+
+  # PAIN METRICS CALCULATION - Understanding Patterns of Suffering
+  defp calculate_pain_metrics(signals, _state) do
+    case signals do
+      [] -> 
+        %{
+          max_intensity: 0.0,
+          avg_intensity: 0.0,
+          signal_count: 0,
+          sustained_pain: 0.0,
+          escalation_rate: 0.0
+        }
+      
+      _ ->
+        intensities = Enum.map(signals, & &1.intensity)
+        
+        # Time-weighted average for sustained pain
+        now = System.monotonic_time(:millisecond)
+        weighted_sum = signals
+          |> Enum.map(fn s -> 
+            age_ms = now - s.timestamp
+            weight = :math.exp(-age_ms / 30_000)  # 30 second half-life
+            s.intensity * weight
+          end)
+          |> Enum.sum()
+        
+        # Escalation detection
+        escalation = if length(signals) >= 2 do
+          [newest | rest] = signals
+          oldest = List.last(rest) || newest
+          time_diff = max(1, newest.timestamp - oldest.timestamp)
+          (newest.intensity - oldest.intensity) / (time_diff / 1000)
+        else
+          0.0
+        end
+        
+        %{
+          max_intensity: Enum.max(intensities),
+          avg_intensity: Enum.sum(intensities) / length(intensities),
+          signal_count: length(signals),
+          sustained_pain: weighted_sum / length(signals),
+          escalation_rate: max(0.0, escalation)
+        }
+    end
+  end
+
+  # PAIN LEARNING - The System Remembers
+  defp update_pain_learning(metrics, learning_data) do
+    # Track pain patterns for future prediction
+    pain_entry = {
+      System.monotonic_time(:millisecond),
+      metrics
+    }
+    
+    :ets.insert(learning_data.pain_table, pain_entry)
+    
+    # Clean old entries (keep 24 hours)
+    cutoff = System.monotonic_time(:millisecond) - (24 * 60 * 60 * 1000)
+    :ets.select_delete(learning_data.pain_table, [
+      {{:"$1", :_}, [{:<, :"$1", cutoff}], [true]}
+    ])
+    
+    # Update correlation strength (will be used in Phase 2)
+    %{learning_data | correlation_strength: calculate_correlation_strength(learning_data)}
+  end
+
+  # CORRELATION STRENGTH - Learning Pain Patterns
+  defp calculate_correlation_strength(learning_data) do
+    # TODO: Implement ML-based correlation in Phase 3
+    # For now, simple heuristic
+    recent_entries = :ets.tab2list(learning_data.pain_table)
+      |> Enum.take(-10)
+      |> Enum.map(fn {_, metrics} -> metrics end)
+    
+    case recent_entries do
+      [] -> 0.0
+      entries ->
+        # High correlation if pain consistently precedes failures
+        avg_intensity = entries
+          |> Enum.map(& &1.max_intensity)
+          |> Enum.sum()
+          |> Kernel./(length(entries))
+        
+        min(1.0, avg_intensity * 1.2)  # Boost correlation for consistent pain
+    end
+  end
+
+  # DEPENDENT SERVICE CHECK - Do We Protect This Service?
+  defp dependent_service?(_source, _state) do
+    # TODO: Implement service dependency graph
+    # For now, return false
+    false
+  end
+
+  # PROTECTED SERVICE CHECK - Is This Under Our Protection?
+  defp protected_service?(_source, _state) do
+    # TODO: Implement protection mapping
+    # For now, return false
+    false
+  end
+
+  # AMBIENT PAIN RECORDING - Even Distant Pain Teaches
+  defp record_ambient_pain(signal, state) do
+    # Track all pain for system-wide learning
+    :telemetry.execute(
+      [:circuit_breaker, :ambient_pain],
+      %{intensity: signal.intensity},
+      %{
+        name: state.name,
+        source: signal.source,
+        metric: signal.metric
+      }
+    )
+  end
+
+  # REINFORCE OPEN DECISION - Pain Validates Our Protection
+  defp reinforce_open_decision(state, signal) do
+    # Reset recovery timer when pain confirms we should stay open
+    if signal.intensity > 0.7 do
+      %{state | last_failure_time: System.monotonic_time(:millisecond)}
+    else
+      state
+    end
   end
 
   # Private functions
@@ -426,7 +781,17 @@ defmodule AutonomousOpponentV2Core.Core.CircuitBreaker do
   # feeling pain and responding. Beer's insight: organisms that can't feel pain
   # can't protect themselves.
   defp transition_to_open(state, reason) do
-    Logger.warning("Circuit breaker #{state.name} opening due to: #{inspect(reason)}")
+    # Log the opening with appropriate severity
+    case reason do
+      {:emergency_pain, _} ->
+        Logger.error("EMERGENCY: Circuit breaker #{state.name} forced open by emergency pain signal")
+      {:algedonic_pain, metrics} ->
+        Logger.warning("Circuit breaker #{state.name} opening due to pain (intensity: #{metrics.max_intensity})")
+        # Track pain-triggered openings for learning
+        :ets.update_counter(state.metrics_table, :pain_triggered_opens, 1)
+      _ ->
+        Logger.warning("Circuit breaker #{state.name} opening due to: #{inspect(reason)}")
+    end
 
     # WISDOM: Algedonic pain - the system's cry for help
     # This pain signal triggers visceral response throughout the VSM. S5 feels
