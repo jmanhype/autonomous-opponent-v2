@@ -279,51 +279,207 @@ defmodule AutonomousOpponentV2Core.VSM.S4.Intelligence.VectorStore do
   
   defp extract_pattern_features(pattern) do
     # Extract numerical features from pattern
-    # Real implementation would vary based on pattern type
+    # Enhanced to use more dimensions with statistical moments and temporal features
     
     base_features = [
       pattern[:confidence] || 0.5,
       pattern_type_to_number(pattern[:type]),
-      pattern_subtype_to_number(pattern[:subtype])
+      pattern_subtype_to_number(pattern[:subtype]),
+      # Add timestamp features
+      extract_time_of_day_feature(pattern[:timestamp]),
+      extract_day_of_week_feature(pattern[:timestamp]),
+      extract_recency_feature(pattern[:timestamp])
     ]
     
-    # Add pattern-specific features
+    # Add pattern-specific features with enhanced statistical analysis
     specific_features = case pattern[:type] do
       :statistical ->
         [
           pattern[:mean] || 0.0,
           pattern[:variance] || 0.0,
-          pattern[:correlation] || 0.0
+          pattern[:correlation] || 0.0,
+          pattern[:skewness] || 0.0,          # Statistical moment 3
+          pattern[:kurtosis] || 0.0,          # Statistical moment 4
+          pattern[:min] || 0.0,
+          pattern[:max] || 0.0,
+          pattern[:median] || 0.0,
+          pattern[:std_dev] || 0.0,
+          pattern[:percentile_25] || 0.0,
+          pattern[:percentile_75] || 0.0,
+          pattern[:iqr] || 0.0,               # Interquartile range
+          pattern[:outlier_count] || 0.0,
+          pattern[:zero_crossing_rate] || 0.0,
+          pattern[:autocorrelation] || 0.0
         ]
         
       :temporal ->
         [
           trend_to_number(pattern[:direction]),
           pattern[:strength] || 0.0,
-          pattern[:period] || 0.0
+          pattern[:period] || 0.0,
+          pattern[:phase] || 0.0,
+          pattern[:amplitude] || 0.0,
+          pattern[:frequency] || 0.0,
+          pattern[:duty_cycle] || 0.0,
+          pattern[:rise_time] || 0.0,
+          pattern[:fall_time] || 0.0,
+          pattern[:jitter] || 0.0,
+          pattern[:drift_rate] || 0.0,
+          pattern[:acceleration] || 0.0,
+          pattern[:seasonality_strength] || 0.0,
+          pattern[:trend_break_count] || 0.0,
+          pattern[:cycle_variance] || 0.0
         ]
         
       :structural ->
         [
           pattern[:cluster_count] || 0.0,
           pattern[:density] || 0.0,
-          pattern[:levels] || 0.0
+          pattern[:levels] || 0.0,
+          pattern[:connectivity] || 0.0,
+          pattern[:modularity] || 0.0,
+          pattern[:hierarchy_depth] || 0.0,
+          pattern[:branching_factor] || 0.0,
+          pattern[:diameter] || 0.0,
+          pattern[:centrality] || 0.0,
+          pattern[:clustering_coefficient] || 0.0,
+          pattern[:path_length] || 0.0,
+          pattern[:node_count] || 0.0,
+          pattern[:edge_count] || 0.0,
+          pattern[:component_count] || 0.0,
+          pattern[:spectral_gap] || 0.0
         ]
         
       :behavioral ->
         [
           pattern[:frequency] || 0.0,
           severity_to_number(pattern[:severity]),
-          pattern[:count] || 0.0
+          pattern[:count] || 0.0,
+          pattern[:duration] || 0.0,
+          pattern[:recurrence_interval] || 0.0,
+          pattern[:burst_length] || 0.0,
+          pattern[:inter_arrival_time] || 0.0,
+          pattern[:state_transitions] || 0.0,
+          pattern[:entropy] || 0.0,
+          pattern[:predictability] || 0.0,
+          pattern[:stability] || 0.0,
+          pattern[:volatility] || 0.0,
+          pattern[:momentum] || 0.0,
+          pattern[:acceleration] || 0.0,
+          pattern[:consistency] || 0.0
         ]
         
       _ ->
-        [0.0, 0.0, 0.0]
+        # Default features for unknown types
+        List.duplicate(0.0, 15)
     end
     
+    # Add cross-pattern relationship features
+    cross_pattern_features = [
+      pattern[:correlation_with_previous] || 0.0,
+      pattern[:similarity_to_baseline] || 0.0,
+      pattern[:deviation_from_mean] || 0.0,
+      pattern[:relative_importance] || 0.0,
+      pattern[:interaction_strength] || 0.0,
+      pattern[:causality_score] || 0.0,
+      pattern[:lag_correlation] || 0.0,
+      pattern[:mutual_information] || 0.0,
+      pattern[:transfer_entropy] || 0.0,
+      pattern[:granger_causality] || 0.0
+    ]
+    
+    # Add metadata features
+    metadata_features = [
+      pattern[:source_reliability] || 0.5,
+      pattern[:data_quality] || 0.8,
+      pattern[:sample_size] || 0.0,
+      pattern[:noise_level] || 0.0,
+      pattern[:missing_data_ratio] || 0.0
+    ]
+    
+    # Combine all features
+    all_features = base_features ++ specific_features ++ cross_pattern_features ++ metadata_features
+    
     # Normalize features to [0, 1] range
-    (base_features ++ specific_features)
-    |> Enum.map(&normalize_feature/1)
+    normalized = all_features |> Enum.map(&normalize_feature/1)
+    
+    # Ensure we have exactly vector_dim features
+    # Pad with derived features if necessary
+    if length(normalized) < 100 do
+      padding_needed = 100 - length(normalized)
+      derived_features = generate_derived_features(normalized, padding_needed)
+      normalized ++ derived_features
+    else
+      Enum.take(normalized, 100)
+    end
+  end
+  
+  defp extract_time_of_day_feature(nil), do: 0.5
+  defp extract_time_of_day_feature(timestamp) do
+    # Convert timestamp to time of day (0.0 = midnight, 0.5 = noon, 1.0 = 11:59pm)
+    case timestamp do
+      %DateTime{hour: hour, minute: minute} ->
+        (hour * 60 + minute) / (24 * 60)
+      _ ->
+        0.5
+    end
+  end
+  
+  defp extract_day_of_week_feature(nil), do: 0.5
+  defp extract_day_of_week_feature(timestamp) do
+    # Convert to day of week (0.0 = Monday, 1.0 = Sunday)
+    case timestamp do
+      %DateTime{} = dt ->
+        Date.day_of_week(DateTime.to_date(dt)) / 7.0
+      _ ->
+        0.5
+    end
+  end
+  
+  defp extract_recency_feature(nil), do: 0.5
+  defp extract_recency_feature(timestamp) do
+    # Calculate recency (1.0 = now, 0.0 = very old)
+    case timestamp do
+      %DateTime{} = dt ->
+        now = DateTime.utc_now()
+        diff_seconds = DateTime.diff(now, dt)
+        # Normalize using exponential decay (half-life of 1 hour)
+        :math.exp(-diff_seconds / 3600.0)
+      _ ->
+        0.5
+    end
+  end
+  
+  defp generate_derived_features(base_features, count) do
+    # Generate additional features through combinations and transformations
+    derived = []
+    
+    # Polynomial features (squared terms)
+    squared = base_features 
+    |> Enum.take(div(count, 3))
+    |> Enum.map(fn x -> x * x end)
+    
+    # Interaction features (products of pairs)
+    interactions = for i <- 0..(length(base_features) - 2),
+                      j <- (i + 1)..(length(base_features) - 1),
+                      i < div(count, 3) do
+      Enum.at(base_features, i, 0.0) * Enum.at(base_features, j, 0.0)
+    end
+    |> Enum.take(div(count, 3))
+    
+    # Trigonometric transformations
+    trig = base_features
+    |> Enum.take(div(count, 3))
+    |> Enum.map(fn x -> :math.sin(x * :math.pi()) / 2.0 + 0.5 end)
+    
+    all_derived = squared ++ interactions ++ trig
+    
+    # Pad with zeros if still needed
+    if length(all_derived) < count do
+      all_derived ++ List.duplicate(0.0, count - length(all_derived))
+    else
+      Enum.take(all_derived, count)
+    end
   end
   
   defp pattern_type_to_number(type) do
