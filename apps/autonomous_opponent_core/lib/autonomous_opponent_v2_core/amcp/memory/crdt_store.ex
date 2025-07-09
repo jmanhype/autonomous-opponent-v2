@@ -474,9 +474,23 @@ defmodule AutonomousOpponentV2Core.AMCP.Memory.CRDTStore do
   end
   
   @impl true
+  def handle_info(:sync_peers, state) do
+    # Handle sync_peers message for ticket compliance
+    Logger.debug("CRDT sync_peers triggered - peers: #{MapSet.size(state.sync_peers)}")
+    new_state = perform_peer_sync(state)
+    {:noreply, new_state}
+  end
+  
+  @impl true
   def handle_info(:cleanup_memory, state) do
     # Clean up old merge queue items
     new_queue = cleanup_merge_queue(state.merge_queue)
+    
+    # Clean up old sync timeouts
+    new_sync_timeouts = cleanup_sync_timeouts(state.sync_timeouts)
+    
+    # Clean up old peer failures
+    new_peer_failures = cleanup_peer_failures(state.peer_failures, state.circuit_breaker_config.reset_timeout_ms)
     
     # Emit telemetry for monitoring
     :telemetry.execute(
@@ -484,12 +498,18 @@ defmodule AutonomousOpponentV2Core.AMCP.Memory.CRDTStore do
       %{
         crdt_count: map_size(state.crdts),
         peer_count: MapSet.size(state.sync_peers),
-        queue_size: :queue.len(new_queue)
+        queue_size: :queue.len(new_queue),
+        sync_timeouts_cleaned: map_size(state.sync_timeouts) - map_size(new_sync_timeouts),
+        peer_failures_cleaned: map_size(state.peer_failures) - map_size(new_peer_failures)
       },
       %{node_id: state.node_id}
     )
     
-    {:noreply, %{state | merge_queue: new_queue}}
+    {:noreply, %{state | 
+      merge_queue: new_queue,
+      sync_timeouts: new_sync_timeouts,
+      peer_failures: new_peer_failures
+    }}
   end
   
   @impl true
@@ -532,11 +552,22 @@ defmodule AutonomousOpponentV2Core.AMCP.Memory.CRDTStore do
         crdt_count: map_size(state.crdts)
       })
       
-      # Auto-add discovered peer
-      new_peers = MapSet.put(state.sync_peers, peer_id)
-      new_state = %{state | sync_peers: new_peers}
-      Logger.info("Discovered and added CRDT peer: #{peer_id}")
-      {:noreply, new_state}
+      # Validate peer before auto-adding
+      if validate_peer(peer_id, data, state) do
+        # Check if we're already at max peers
+        if MapSet.size(state.sync_peers) < state.max_peers do
+          new_peers = MapSet.put(state.sync_peers, peer_id)
+          new_state = %{state | sync_peers: new_peers}
+          Logger.info("Discovered and added CRDT peer: #{peer_id}")
+          {:noreply, new_state}
+        else
+          Logger.warning("Cannot add peer #{peer_id}: max peers (#{state.max_peers}) reached")
+          {:noreply, state}
+        end
+      else
+        Logger.warning("Peer validation failed for #{peer_id}")
+        {:noreply, state}
+      end
     else
       {:noreply, state}
     end
@@ -546,10 +577,16 @@ defmodule AutonomousOpponentV2Core.AMCP.Memory.CRDTStore do
   def handle_info({:event, :amcp_peer_discovery_response, %{node_id: peer_id} = data}, state) do
     # Add responding peer if not already known
     if peer_id != state.node_id and not MapSet.member?(state.sync_peers, peer_id) do
-      new_peers = MapSet.put(state.sync_peers, peer_id)
-      new_state = %{state | sync_peers: new_peers}
-      Logger.info("Added responding CRDT peer: #{peer_id}")
-      {:noreply, new_state}
+      # Validate peer before adding
+      if validate_peer(peer_id, data, state) and MapSet.size(state.sync_peers) < state.max_peers do
+        new_peers = MapSet.put(state.sync_peers, peer_id)
+        new_state = %{state | sync_peers: new_peers}
+        Logger.info("Added responding CRDT peer: #{peer_id}")
+        {:noreply, new_state}
+      else
+        Logger.warning("Cannot add responding peer #{peer_id}: validation failed or max peers reached")
+        {:noreply, state}
+      end
     else
       {:noreply, state}
     end
@@ -767,26 +804,34 @@ defmodule AutonomousOpponentV2Core.AMCP.Memory.CRDTStore do
     if MapSet.size(state.sync_peers) > 0 do
       # Mark sync as in progress
       state = %{state | sync_in_progress: true, last_sync_time: System.system_time(:millisecond)}
-      # Create sync digest
-      sync_digest = %{
-        type: :sync_digest,
-        node_id: state.node_id,
-        vector_clock: state.vector_clock,
-        crdt_summaries: create_crdt_summaries(state.crdts),
-        hlc_timestamp: case Clock.now() do
-          {:ok, timestamp} -> timestamp.physical
-          _ -> System.system_time(:millisecond)
-        end
-      }
       
-      # Send to all peers with circuit breaker checks
-      send_to_peers_with_state(state.sync_peers, sync_digest, state)
-      
-      # Also publish to EventBus for monitoring
-      EventBus.publish(:amcp_crdt_sync_request, sync_digest)
-      
-      new_stats = increment_stat(state.stats, :syncs)
-      %{state | stats: new_stats, sync_in_progress: false}
+      try do
+        # Create sync digest
+        sync_digest = %{
+          type: :sync_digest,
+          node_id: state.node_id,
+          vector_clock: state.vector_clock,
+          crdt_summaries: create_crdt_summaries(state.crdts),
+          hlc_timestamp: case Clock.now() do
+            {:ok, timestamp} -> timestamp.physical
+            _ -> System.system_time(:millisecond)
+          end
+        }
+        
+        # Send to all peers with circuit breaker checks
+        send_to_peers_with_state(state.sync_peers, sync_digest, state)
+        
+        # Also publish to EventBus for monitoring
+        EventBus.publish(:amcp_crdt_sync_request, sync_digest)
+        
+        new_stats = increment_stat(state.stats, :syncs)
+        %{state | stats: new_stats, sync_in_progress: false}
+      rescue
+        e ->
+          Logger.error("Error during peer sync: #{inspect(e)}")
+          # Ensure sync_in_progress is reset even on error
+          %{state | sync_in_progress: false}
+      end
     else
       state
     end
@@ -799,32 +844,42 @@ defmodule AutonomousOpponentV2Core.AMCP.Memory.CRDTStore do
   defp send_to_peers_with_state(peers, message, state) do
     # Add message size check
     message_size = :erlang.external_size(message)
-    if message_size > 1_000_000 do  # 1MB limit
-      Logger.warning("CRDT sync message too large: #{message_size} bytes")
-    end
+    max_message_size = Application.get_env(:autonomous_opponent_core, :crdt_sync)[:max_message_size] || 1_000_000
     
-    Enum.each(peers, fn peer_node_id ->
-      # Check circuit breaker if we have state
-      can_send = if state do
-        check_circuit_breaker_status(peer_node_id, state) != :open
-      else
-        true
-      end
-      
-      if can_send do
-        # Try multiple transport mechanisms
-        case send_via_transport(peer_node_id, message) do
-          :ok -> 
-            Logger.debug("Sent sync message to #{peer_node_id}")
-          {:error, reason} ->
-            Logger.warning("Failed to send to #{peer_node_id}: #{inspect(reason)}")
-            # Fallback to EventBus
-            EventBus.publish({:crdt_sync, peer_node_id}, message)
+    if message_size > max_message_size do
+      Logger.warning("CRDT sync message too large: #{message_size} bytes (max: #{max_message_size}), dropping")
+      # Emit telemetry for monitoring
+      :telemetry.execute(
+        [:crdt_store, :oversized_message, :dropped],
+        %{message_size: message_size, max_size: max_message_size},
+        %{node_id: state && state.node_id}
+      )
+      # Return early without sending
+      :ok
+    else
+      Enum.each(peers, fn peer_node_id ->
+        # Check circuit breaker if we have state
+        can_send = if state do
+          check_circuit_breaker_status(peer_node_id, state) != :open
+        else
+          true
         end
-      else
-        Logger.debug("Circuit breaker open for peer #{peer_node_id}, skipping")
-      end
-    end)
+        
+        if can_send do
+          # Try multiple transport mechanisms
+          case send_via_transport(peer_node_id, message) do
+            :ok -> 
+              Logger.debug("Sent sync message to #{peer_node_id}")
+            {:error, reason} ->
+              Logger.warning("Failed to send to #{peer_node_id}: #{inspect(reason)}")
+              # Fallback to EventBus
+              EventBus.publish({:crdt_sync, peer_node_id}, message)
+          end
+        else
+          Logger.debug("Circuit breaker open for peer #{peer_node_id}, skipping")
+        end
+      end)
+    end
   end
   
   defp send_via_transport(peer_node_id, message) do
@@ -1387,6 +1442,28 @@ defmodule AutonomousOpponentV2Core.AMCP.Memory.CRDTStore do
     |> :queue.from_list()
   end
   
+  defp cleanup_sync_timeouts(sync_timeouts) do
+    # Remove sync timeouts older than 5 minutes
+    cutoff_time = System.system_time(:millisecond) - 300_000
+    
+    sync_timeouts
+    |> Enum.filter(fn {_peer_id, %{timestamp: ts}} ->
+      ts > cutoff_time
+    end)
+    |> Map.new()
+  end
+  
+  defp cleanup_peer_failures(peer_failures, reset_timeout_ms) do
+    # Remove peer failures that have exceeded the reset timeout
+    current_time = System.system_time(:millisecond)
+    
+    peer_failures
+    |> Enum.filter(fn {_peer_id, %{last_failure: last_failure}} ->
+      current_time - last_failure < reset_timeout_ms * 2  # Keep failures for 2x reset timeout
+    end)
+    |> Map.new()
+  end
+  
   defp check_circuit_breaker_status(peer_node_id, state) do
     case Map.get(state.peer_failures, peer_node_id) do
       nil -> :closed
@@ -1428,6 +1505,32 @@ defmodule AutonomousOpponentV2Core.AMCP.Memory.CRDTStore do
         
       _ ->
         %{state | peer_failures: new_failures}
+    end
+  end
+  
+  defp validate_peer(peer_id, data, state) do
+    # Validate peer data before adding
+    cond do
+      # Check if peer_id is valid format
+      not is_binary(peer_id) or String.length(peer_id) == 0 ->
+        false
+        
+      # Check if we have received valid data
+      not is_map(data) ->
+        false
+        
+      # Check if peer is not in permanent failure state
+      Map.get(state.peer_failures, peer_id, %{count: 0}).count >= state.circuit_breaker_config.failure_threshold * 2 ->
+        false
+        
+      # Check if peer has reasonable vector clock (not too far ahead)
+      is_map(data[:vector_clock]) and map_size(data[:vector_clock]) > 1000 ->
+        Logger.warning("Peer #{peer_id} has suspiciously large vector clock: #{map_size(data[:vector_clock])}")
+        false
+        
+      # Additional validation can be added here
+      true ->
+        true
     end
   end
 end
