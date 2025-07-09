@@ -26,12 +26,12 @@ defmodule AutonomousOpponentV2Core.VSM.S4.Intelligence.VectorStore do
   
   alias AutonomousOpponentV2Core.EventBus
   alias AutonomousOpponentV2Core.VSM.S4.Intelligence.VectorStore.Quantizer
-  # alias AutonomousOpponentV2Core.VSM.S4.Intelligence.VectorStore.HNSWInterface  # Future use
+  alias AutonomousOpponentV2Core.VSM.S4.VectorStore.HNSWIndex
   
   defstruct [
     :id,
     :quantizer,
-    :index_ref,
+    :hnsw_index,
     :vector_dim,
     :pattern_vectors,
     :metrics
@@ -79,10 +79,20 @@ defmodule AutonomousOpponentV2Core.VSM.S4.Intelligence.VectorStore do
       accuracy_target: opts[:accuracy_target] || 0.9
     )
     
+    # Start HNSW index
+    hnsw_name = :"#{id}_hnsw"
+    {:ok, _} = HNSWIndex.start_link(
+      name: hnsw_name,
+      m: 16,
+      ef: 200,
+      distance_metric: :cosine,
+      persist: true
+    )
+    
     state = %__MODULE__{
       id: id,
       quantizer: quantizer,
-      index_ref: nil,  # HNSW will be initialized when implemented
+      hnsw_index: hnsw_name,
       vector_dim: vector_dim,
       pattern_vectors: %{},
       metrics: init_metrics()
@@ -122,8 +132,13 @@ defmodule AutonomousOpponentV2Core.VSM.S4.Intelligence.VectorStore do
         # Update metrics
         new_metrics = update_store_metrics(state.metrics, error)
         
-        # Future: Add to HNSW index when implemented
-        # HNSWInterface.add_vector(state.index_ref, quantized, pattern_id, state.quantizer)
+        # Add to HNSW index
+        case HNSWIndex.add_vector(state.hnsw_index, vector, pattern_id) do
+          :ok ->
+            Logger.debug("Pattern #{pattern_id} added to HNSW index")
+          error ->
+            Logger.error("Failed to add pattern to HNSW: #{inspect(error)}")
+        end
         
         new_state = %{state | 
           pattern_vectors: new_patterns,
@@ -142,16 +157,29 @@ defmodule AutonomousOpponentV2Core.VSM.S4.Intelligence.VectorStore do
     # Convert query pattern to vector
     query_vector = pattern_to_vector(query_pattern, state.vector_dim)
     
-    # For now, do brute force search until HNSW is implemented
-    similar_patterns = find_similar_brute_force(query_vector, state.pattern_vectors, k)
-    
-    # Future: Use HNSW for efficient search
-    # case HNSWInterface.search(state.index_ref, query_vector, k, state.quantizer) do
-    #   {:ok, results} -> format_search_results(results, state)
-    #   error -> error
-    # end
-    
-    {:reply, {:ok, similar_patterns}, state}
+    # Use HNSW for efficient search
+    case HNSWIndex.search(state.hnsw_index, query_vector, k) do
+      {:ok, results} ->
+        # Enrich results with pattern data
+        enriched_results = Enum.map(results, fn {pattern_id, distance} ->
+          pattern_info = Map.get(state.pattern_vectors, pattern_id)
+          %{
+            pattern_id: pattern_id,
+            distance: distance,
+            pattern: pattern_info[:pattern],
+            metadata: pattern_info[:metadata],
+            timestamp: pattern_info[:timestamp]
+          }
+        end)
+        
+        {:reply, {:ok, enriched_results}, state}
+        
+      {:error, _reason} = error ->
+        # Fallback to brute force if HNSW fails
+        Logger.warn("HNSW search failed, falling back to brute force")
+        similar_patterns = find_similar_brute_force(query_vector, state.pattern_vectors, k)
+        {:reply, {:ok, similar_patterns}, state}
+    end
   end
   
   @impl true

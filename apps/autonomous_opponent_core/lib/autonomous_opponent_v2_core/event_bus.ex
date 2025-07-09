@@ -147,7 +147,7 @@ defmodule AutonomousOpponentV2Core.EventBus do
       %{event_type: event_type, pid: pid}
     )
 
-    Logger.debug("Process #{inspect(pid)} subscribed to #{event_type}")
+    Logger.debug("Process #{inspect(pid)} subscribed to #{inspect(event_type)}")
 
     {:reply, :ok, state}
   end
@@ -165,7 +165,7 @@ defmodule AutonomousOpponentV2Core.EventBus do
       %{event_type: event_type, pid: pid}
     )
 
-    Logger.debug("Process #{inspect(pid)} unsubscribed from #{event_type}")
+    Logger.debug("Process #{inspect(pid)} unsubscribed from #{inspect(event_type)}")
 
     {:reply, :ok, state}
   end
