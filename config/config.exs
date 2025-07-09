@@ -13,6 +13,14 @@ config :autonomous_opponent_web, AutonomousOpponentV2Web.PubSub, adapter: Phoeni
 # Configure Phoenix to use Jason for JSON parsing
 config :phoenix, :json_library, Jason
 
+# Configure Prometheus metrics endpoint
+config :autonomous_opponent_web,
+  metrics_endpoint_auth_enabled: false,  # Set to true in production
+  metrics_endpoint_auth_token: nil,      # Set via METRICS_AUTH_TOKEN env var
+  metrics_endpoint_rate_limit: 10,       # Max requests per minute
+  metrics_endpoint_cors_enabled: true,   # Enable CORS for cross-origin scraping
+  metrics_endpoint_cors_origin: "*"      # CORS origin, use specific domain in production
+
 # Sample configuration:
 #
 #     config :logger, :console,
