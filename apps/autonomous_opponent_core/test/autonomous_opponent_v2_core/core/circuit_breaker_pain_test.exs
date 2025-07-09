@@ -329,5 +329,52 @@ defmodule AutonomousOpponentV2Core.Core.CircuitBreakerPainTest do
       state2 = GenServer.call(name, :get_state)
       assert state2.last_failure_time > initial_failure_time
     end
+    
+    test "circuit recovers after pain subsides", %{name: name} do
+      # Create circuit with short recovery time for testing
+      {:ok, _} = CircuitBreaker.start_link(
+        name: :recovery_test_breaker,
+        pain_threshold: 0.8,
+        pain_window_ms: 500,  # Short window for testing
+        recovery_time_ms: 1000,  # 1 second recovery
+        pain_response_enabled: true
+      )
+      
+      # Verify circuit starts closed
+      assert %{state: :closed} = CircuitBreaker.get_state(:recovery_test_breaker)
+      
+      # Send high pain to open circuit
+      EventBus.publish(:algedonic_pain, %{
+        source: :test_monitor,
+        severity: :critical,
+        metric: :error_rate,
+        reason: "High error rate",
+        scope: :system_wide
+      })
+      
+      Process.sleep(50)
+      
+      # Verify circuit opened due to pain
+      assert %{state: :open} = CircuitBreaker.get_state(:recovery_test_breaker)
+      
+      # Wait for pain window to expire (no new pain signals)
+      Process.sleep(600)
+      
+      # Wait for recovery time
+      Process.sleep(1100)
+      
+      # Attempt a call - should transition to half-open
+      result = CircuitBreaker.call(:recovery_test_breaker, fn -> :ok end)
+      assert result == {:error, :circuit_open}
+      
+      # Check state is now half-open
+      assert %{state: :half_open} = CircuitBreaker.get_state(:recovery_test_breaker)
+      
+      # Successful call should close the circuit
+      assert {:ok, :success} = CircuitBreaker.call(:recovery_test_breaker, fn -> :success end)
+      
+      # Verify circuit is closed again
+      assert %{state: :closed} = CircuitBreaker.get_state(:recovery_test_breaker)
+    end
   end
 end

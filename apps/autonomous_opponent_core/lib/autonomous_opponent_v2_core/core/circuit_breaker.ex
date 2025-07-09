@@ -45,6 +45,16 @@ defmodule AutonomousOpponentV2Core.Core.CircuitBreaker do
 
   alias AutonomousOpponentV2Core.EventBus
 
+  # Configuration constants to avoid magic numbers
+  @max_pain_signals 100
+  @pain_decay_half_life_ms 30_000  # 30 seconds
+  @pain_history_retention_ms 24 * 60 * 60 * 1000  # 24 hours
+  @default_pain_threshold 0.8
+  @default_pain_window_ms 60_000  # 1 minute
+  @default_failure_threshold 5
+  @default_recovery_time_ms 60_000  # 1 minute
+  @default_timeout_ms 5_000  # 5 seconds
+
   # Client API
 
   @doc """
@@ -148,9 +158,10 @@ defmodule AutonomousOpponentV2Core.Core.CircuitBreaker do
     # ALGEDONIC ENHANCEMENT: Pain awareness
     :pain_threshold,         # Intensity threshold for forced opening
     :pain_window_ms,         # Time window for pain signal accumulation
-    :recent_pain_signals,    # List of recent pain signals with timestamps
     :pain_response_enabled,  # Feature flag for pain-triggered opening
-    :pain_learning_data     # Historical pain → failure correlations
+    :pain_learning_data,     # Historical pain → failure correlations
+    :error_count,           # Count of consecutive pain processing errors
+    :degraded_mode          # Whether circuit is in degraded mode due to errors
   ]
 
   @impl true
@@ -174,7 +185,10 @@ defmodule AutonomousOpponentV2Core.Core.CircuitBreaker do
     
     # Create pain tracking table for high-volume scenarios
     pain_table = :"circuit_breaker_#{opts[:name]}_pain"
-    :ets.new(pain_table, [:ordered_set, :public, {:write_concurrency, true}])
+    case :ets.info(pain_table) do
+      :undefined -> :ets.new(pain_table, [:ordered_set, :public, {:write_concurrency, true}])
+      _ -> pain_table  # Table already exists (e.g., after GenServer restart)
+    end
 
     state = %__MODULE__{
       name: opts[:name],
@@ -182,20 +196,21 @@ defmodule AutonomousOpponentV2Core.Core.CircuitBreaker do
       failure_count: 0,
       success_count: 0,
       last_failure_time: nil,
-      failure_threshold: opts[:failure_threshold] || 5,
-      recovery_time_ms: opts[:recovery_time_ms] || 60_000,
-      timeout_ms: opts[:timeout_ms] || 5_000,
+      failure_threshold: opts[:failure_threshold] || @default_failure_threshold,
+      recovery_time_ms: opts[:recovery_time_ms] || @default_recovery_time_ms,
+      timeout_ms: opts[:timeout_ms] || @default_timeout_ms,
       half_open_test_in_progress: false,
       metrics_table: table_name,
       # ALGEDONIC CONFIGURATION
-      pain_threshold: opts[:pain_threshold] || 0.8,
-      pain_window_ms: opts[:pain_window_ms] || 60_000,
-      recent_pain_signals: [],
+      pain_threshold: opts[:pain_threshold] || @default_pain_threshold,
+      pain_window_ms: opts[:pain_window_ms] || @default_pain_window_ms,
       pain_response_enabled: opts[:pain_response_enabled] || true,
       pain_learning_data: %{
         pain_table: pain_table,
         correlation_strength: 0.0
-      }
+      },
+      error_count: 0,
+      degraded_mode: false
     }
 
     # Skip EventBus publish during initialization to avoid startup issues
@@ -218,6 +233,12 @@ defmodule AutonomousOpponentV2Core.Core.CircuitBreaker do
   # we capture ALL failure modes, not just exceptions. Every failure is data.
   @impl true
   def handle_call({:call, fun}, _from, %{state: :closed} = state) do
+    # Check if we're in degraded mode
+    if state.degraded_mode do
+      # In degraded mode, be more conservative
+      Logger.warning("Circuit breaker #{state.name} operating in degraded mode")
+    end
+    
     # Circuit is closed, execute the function with timeout protection
     task =
       Task.async(fn ->
@@ -455,7 +476,15 @@ defmodule AutonomousOpponentV2Core.Core.CircuitBreaker do
           # WISDOM: Not all pain is our pain
           # We must distinguish between pain we can act on vs ambient suffering
           new_state = process_pain_signal(pain_signal, state)
-          {:noreply, new_state}
+          
+          # Clear error count on successful processing
+          final_state = if new_state.error_count > 0 do
+            %{new_state | error_count: 0, degraded_mode: false}
+          else
+            new_state
+          end
+          
+          {:noreply, final_state}
         else
           # Track for learning even if not actionable
           record_ambient_pain(pain_signal, state)
@@ -463,14 +492,28 @@ defmodule AutonomousOpponentV2Core.Core.CircuitBreaker do
         end
       rescue
         error ->
-          # Pain processing errors are themselves painful
+          # Pain processing errors trigger degraded mode
           Logger.error("Circuit breaker #{state.name} error processing pain: #{inspect(error)}")
           :telemetry.execute(
             [:circuit_breaker, :pain_processing, :error],
             %{count: 1},
             %{name: state.name, error: error}
           )
-          {:noreply, state}
+          
+          # Increment error count and check for degraded mode
+          new_error_count = state.error_count + 1
+          degraded = new_error_count >= 3  # Three strikes
+          
+          if degraded and not state.degraded_mode do
+            Logger.warning("Circuit breaker #{state.name} entering degraded mode due to pain processing errors")
+            EventBus.publish(:circuit_breaker_degraded, %{
+              name: state.name,
+              reason: :pain_processing_errors,
+              error_count: new_error_count
+            })
+          end
+          
+          {:noreply, %{state | error_count: new_error_count, degraded_mode: degraded}}
       end
     end
   end
@@ -570,21 +613,31 @@ defmodule AutonomousOpponentV2Core.Core.CircuitBreaker do
 
   # PAIN SIGNAL PROCESSING - The Cybernetic Response
   defp process_pain_signal(signal, state) do
-    # Add to sliding window with timestamp
+    # Use ETS for efficient pain signal storage
+    pain_table = state.pain_learning_data.pain_table
     cutoff_time = signal.timestamp - state.pain_window_ms
     
-    # Maintain window of recent pain, ordered by time
-    recent_signals = [signal | state.recent_pain_signals]
-      |> Enum.filter(fn s -> s.timestamp > cutoff_time end)
-      |> Enum.sort_by(& &1.timestamp, :desc)
-      |> Enum.take(100)  # Limit memory usage
+    # Store signal in ETS with timestamp as key
+    signal_id = {signal.timestamp, :erlang.unique_integer([:monotonic])}
+    :ets.insert(pain_table, {signal_id, signal})
+    
+    # Clean old signals atomically
+    :ets.select_delete(pain_table, [
+      {{{:"$1", :_}, :_}, [{:<, :"$1", cutoff_time}], [true]}
+    ])
+    
+    # Get recent signals for metrics calculation
+    recent_signals = :ets.select(pain_table, [
+      {{{:"$1", :_}, :"$2"}, [{:>=, :"$1", cutoff_time}], [:"$2"]}
+    ])
+    |> Enum.sort_by(& &1.timestamp, :desc)
+    |> Enum.take(@max_pain_signals)
     
     # Calculate aggregate pain metrics
     pain_metrics = calculate_pain_metrics(recent_signals, state)
     
     # Update state with new pain data
     new_state = %{state | 
-      recent_pain_signals: recent_signals,
       pain_learning_data: update_pain_learning(pain_metrics, state.pain_learning_data)
     }
     
@@ -635,7 +688,7 @@ defmodule AutonomousOpponentV2Core.Core.CircuitBreaker do
         weighted_sum = signals
           |> Enum.map(fn s -> 
             age_ms = now - s.timestamp
-            weight = :math.exp(-age_ms / 30_000)  # 30 second half-life
+            weight = :math.exp(-age_ms / @pain_decay_half_life_ms)
             s.intensity * weight
           end)
           |> Enum.sum()
@@ -670,8 +723,8 @@ defmodule AutonomousOpponentV2Core.Core.CircuitBreaker do
     
     :ets.insert(learning_data.pain_table, pain_entry)
     
-    # Clean old entries (keep 24 hours)
-    cutoff = System.monotonic_time(:millisecond) - (24 * 60 * 60 * 1000)
+    # Clean old entries
+    cutoff = System.monotonic_time(:millisecond) - @pain_history_retention_ms
     :ets.select_delete(learning_data.pain_table, [
       {{:"$1", :_}, [{:<, :"$1", cutoff}], [true]}
     ])
@@ -702,17 +755,34 @@ defmodule AutonomousOpponentV2Core.Core.CircuitBreaker do
   end
 
   # DEPENDENT SERVICE CHECK - Do We Protect This Service?
-  defp dependent_service?(_source, _state) do
-    # TODO: Implement service dependency graph
-    # For now, return false
-    false
+  defp dependent_service?(source, state) do
+    # Check if the source is a known dependent service
+    # This could be expanded with a proper dependency graph
+    case {source, state.name} do
+      # Common patterns: database depends on connection pool
+      {:database, :connection_pool} -> true
+      {:api_gateway, :auth_service} -> true
+      {:web_server, :database} -> true
+      # Service-specific dependencies could be configured
+      _ -> 
+        # Check if explicitly configured as dependent
+        dependent_services = Application.get_env(:autonomous_opponent_core, :circuit_dependencies, %{})
+        source in Map.get(dependent_services, state.name, [])
+    end
   end
 
   # PROTECTED SERVICE CHECK - Is This Under Our Protection?
-  defp protected_service?(_source, _state) do
-    # TODO: Implement protection mapping
-    # For now, return false
-    false
+  defp protected_service?(source, state) do
+    # Services that this circuit breaker explicitly protects
+    case state.name do
+      :external_api_breaker -> source in [:openai, :anthropic, :google_ai]
+      :database_breaker -> source in [:postgres, :redis, :elasticsearch]
+      :messaging_breaker -> source in [:amqp, :kafka, :pubsub]
+      _ ->
+        # Check configuration for additional protected services
+        protected = Application.get_env(:autonomous_opponent_core, :protected_services, %{})
+        source in Map.get(protected, state.name, [])
+    end
   end
 
   # AMBIENT PAIN RECORDING - Even Distant Pain Teaches
