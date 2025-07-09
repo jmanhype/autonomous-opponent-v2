@@ -289,10 +289,9 @@ defmodule AutonomousOpponent.EventBus.SubsystemOrderedDelivery do
     case subsystem do
       :algedonic ->
         # Bypass buffering for high-intensity algedonic signals
-        case event do
-          %{metadata: %{intensity: intensity}} when intensity >= 0.95 -> true
-          %{metadata: %{bypass_all: true}} -> true
-          _ -> false
+        case get_in(event, [:metadata, :intensity]) do
+          intensity when is_number(intensity) and intensity >= 0.95 -> true
+          _ -> get_in(event, [:metadata, :bypass_all]) == true
         end
         
       _ ->
@@ -436,7 +435,7 @@ defmodule AutonomousOpponent.EventBus.SubsystemOrderedDelivery do
   
   defp deliver_events_in_batches(events, subscriber, batch_size, subsystem) do
     events
-    |> Enum.chunk_every(batch_size)
+    |> Stream.chunk_every(batch_size)
     |> Enum.reduce(0, fn batch, count ->
       batch_events = Enum.map(batch, fn {_key, event} -> event end)
       
@@ -448,15 +447,23 @@ defmodule AutonomousOpponent.EventBus.SubsystemOrderedDelivery do
         send(subscriber, {:ordered_event_batch, batch_events})
       end
       
-      # Track telemetry
-      Enum.each(batch_events, fn event ->
-        SystemTelemetry.record(:event_bus_delivery, %{
-          topic: event.topic,
+      # Sample telemetry for high-frequency subsystems
+      sample_rate = case subsystem do
+        :s1_operations -> 0.05  # Very high frequency, sample 5%
+        :s2_coordination -> 0.1 # High frequency, sample 10%
+        :s3_control -> 0.2      # Medium frequency, sample 20%
+        :algedonic -> 1.0       # Always track pain signals
+        _ -> 0.5                # Default 50% sampling
+      end
+      
+      if :rand.uniform() <= sample_rate do
+        SystemTelemetry.record(:event_bus_delivery_batch, %{
+          batch_size: length(batch_events),
           ordering: :ordered,
           subsystem: subsystem,
-          batch_size: length(batch_events)
+          sampled: sample_rate < 1.0
         })
-      end)
+      end
       
       count + length(batch)
     end)

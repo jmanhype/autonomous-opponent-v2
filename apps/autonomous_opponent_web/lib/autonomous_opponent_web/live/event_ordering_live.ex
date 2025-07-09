@@ -274,90 +274,112 @@ defmodule AutonomousOpponentWeb.EventOrderingLive do
   
   defp fetch_metrics do
     # Aggregate metrics from all OrderedDelivery processes
-    processes = :ets.match(:event_bus_ordered_delivery, {:_, :"$1"})
+    children = DynamicSupervisor.which_children(AutonomousOpponent.EventBus.OrderedDeliverySupervisor)
     
-    stats = Enum.reduce(processes, %{}, fn [pid], acc ->
-      if Process.alive?(pid) do
-        try do
-          stats = AutonomousOpponent.EventBus.OrderedDelivery.get_stats(pid)
-          merge_stats(acc, stats)
-        catch
-          _, _ -> acc
+    {stats, active_count} = children
+    |> Enum.filter(fn {_, pid, _, _} -> is_pid(pid) && Process.alive?(pid) end)
+    |> Enum.reduce({%{}, 0}, fn {_, pid, _, _}, {acc_stats, count} ->
+      try do
+        case Process.info(pid, :dictionary) do
+          {:dictionary, dict} ->
+            module = case Keyword.get(dict, :"$initial_call") do
+              {AutonomousOpponent.EventBus.OrderedDelivery, :init, 1} ->
+                AutonomousOpponent.EventBus.OrderedDelivery
+              {AutonomousOpponent.EventBus.SubsystemOrderedDelivery, :init, 1} ->
+                AutonomousOpponent.EventBus.SubsystemOrderedDelivery
+              _ ->
+                nil
+            end
+            
+            if module do
+              stats = apply(module, :get_stats, [pid])
+              {merge_stats(acc_stats, stats), count + 1}
+            else
+              {acc_stats, count}
+            end
+          _ ->
+            {acc_stats, count}
         end
-      else
-        acc
+      catch
+        _, _ -> {acc_stats, count}
       end
     end)
     
     %{
       total_events_ordered: Map.get(stats, :events_delivered, 0),
       avg_reorder_ratio: Map.get(stats, :last_reorder_ratio, 0.0),
-      active_buffers: length(processes),
+      active_buffers: active_count,
       bypass_rate: calculate_bypass_rate(stats)
     }
   end
   
   defp fetch_subsystem_stats do
-    # Get stats broken down by subsystem
-    # This would query SubsystemOrderedDelivery processes
-    %{
-      s1_operations: %{
-        current_window_ms: 50,
-        current_buffer_size: :rand.uniform(100),
-        events_buffered: :rand.uniform(10000),
-        events_delivered: :rand.uniform(50000),
-        reorder_ratio: :rand.uniform() * 0.1,
-        adaptive: true
-      },
-      s2_coordination: %{
-        current_window_ms: 75,
-        current_buffer_size: :rand.uniform(50),
-        events_buffered: :rand.uniform(5000),
-        events_delivered: :rand.uniform(25000),
-        reorder_ratio: :rand.uniform() * 0.05,
-        adaptive: true
-      },
-      s3_control: %{
-        current_window_ms: 50,
-        current_buffer_size: :rand.uniform(75),
-        events_buffered: :rand.uniform(7500),
-        events_delivered: :rand.uniform(35000),
-        reorder_ratio: :rand.uniform() * 0.08,
-        adaptive: true
-      },
-      s4_intelligence: %{
-        current_window_ms: 100,
-        current_buffer_size: :rand.uniform(200),
-        events_buffered: :rand.uniform(15000),
-        events_delivered: :rand.uniform(60000),
-        reorder_ratio: :rand.uniform() * 0.15,
-        adaptive: true
-      },
-      s5_policy: %{
-        current_window_ms: 100,
-        current_buffer_size: :rand.uniform(20),
-        events_buffered: :rand.uniform(1000),
-        events_delivered: :rand.uniform(5000),
-        reorder_ratio: :rand.uniform() * 0.02,
-        adaptive: false
-      },
-      algedonic: %{
-        current_window_ms: 10,
-        current_buffer_size: :rand.uniform(5),
-        events_buffered: :rand.uniform(500),
-        events_delivered: :rand.uniform(4500),
-        reorder_ratio: :rand.uniform() * 0.01,
-        adaptive: false
-      },
-      meta_system: %{
-        current_window_ms: 75,
-        current_buffer_size: :rand.uniform(100),
-        events_buffered: :rand.uniform(8000),
-        events_delivered: :rand.uniform(40000),
-        reorder_ratio: :rand.uniform() * 0.12,
-        adaptive: true
-      }
+    # Get stats from actual SubsystemOrderedDelivery processes
+    children = DynamicSupervisor.which_children(AutonomousOpponent.EventBus.OrderedDeliverySupervisor)
+    
+    # Find SubsystemOrderedDelivery processes and get their stats
+    subsystem_stats = children
+    |> Enum.filter(fn {_, pid, _, _} -> is_pid(pid) && Process.alive?(pid) end)
+    |> Enum.map(fn {_, pid, _, _} ->
+      # Check if this is a SubsystemOrderedDelivery process
+      case Process.info(pid, :dictionary) do
+        {:dictionary, dict} ->
+          if Keyword.get(dict, :"$initial_call") == {AutonomousOpponent.EventBus.SubsystemOrderedDelivery, :init, 1} do
+            try do
+              AutonomousOpponent.EventBus.SubsystemOrderedDelivery.get_stats(pid)
+            catch
+              :exit, _ -> nil
+            end
+          else
+            nil
+          end
+        _ -> nil
+      end
+    end)
+    |> Enum.reject(&is_nil/1)
+    |> merge_subsystem_stats()
+    
+    # Provide default stats for subsystems without active processes
+    default_stats = %{
+      current_window_ms: 50,
+      current_buffer_size: 0,
+      events_buffered: 0,
+      events_delivered: 0,
+      reorder_ratio: 0.0,
+      adaptive: true
     }
+    
+    %{
+      s1_operations: Map.get(subsystem_stats, :s1_operations, default_stats),
+      s2_coordination: Map.get(subsystem_stats, :s2_coordination, default_stats),
+      s3_control: Map.get(subsystem_stats, :s3_control, default_stats),
+      s4_intelligence: Map.get(subsystem_stats, :s4_intelligence, default_stats),
+      s5_policy: Map.get(subsystem_stats, :s5_policy, Map.put(default_stats, :adaptive, false)),
+      algedonic: Map.get(subsystem_stats, :algedonic, Map.put(default_stats, :adaptive, false)),
+      meta_system: Map.get(subsystem_stats, :meta_system, default_stats)
+    }
+  end
+  
+  defp merge_subsystem_stats(stats_list) do
+    # Merge stats from multiple processes by subsystem
+    stats_list
+    |> Enum.flat_map(&Map.to_list/1)
+    |> Enum.group_by(fn {subsystem, _} -> subsystem end, fn {_, stats} -> stats end)
+    |> Enum.map(fn {subsystem, stats_for_subsystem} ->
+      # Sum up stats for each subsystem
+      merged = Enum.reduce(stats_for_subsystem, %{}, fn stat, acc ->
+        %{
+          current_window_ms: stat[:current_window_ms] || acc[:current_window_ms] || 50,
+          current_buffer_size: (acc[:current_buffer_size] || 0) + (stat[:current_buffer_size] || 0),
+          events_buffered: (acc[:events_buffered] || 0) + (stat[:events_buffered] || 0),
+          events_delivered: (acc[:events_delivered] || 0) + (stat[:events_delivered] || 0),
+          reorder_ratio: max(acc[:reorder_ratio] || 0.0, stat[:last_reorder_ratio] || 0.0),
+          adaptive: stat[:adaptive] != false
+        }
+      end)
+      {subsystem, merged}
+    end)
+    |> Enum.into(%{})
   end
   
   defp update_buffer_history(socket) do

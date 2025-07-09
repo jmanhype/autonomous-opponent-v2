@@ -73,7 +73,8 @@ defmodule AutonomousOpponent.EventBus.OrderedDelivery do
     min_window_ms: non_neg_integer(),
     adaptive_window: boolean(),
     batch_size: non_neg_integer(),
-    algedonic_bypass_threshold: float()
+    algedonic_bypass_threshold: float(),
+    clock_drift_tolerance_ms: non_neg_integer()
   }
   
   # Default configuration
@@ -83,7 +84,8 @@ defmodule AutonomousOpponent.EventBus.OrderedDelivery do
     min_window_ms: 10,
     adaptive_window: true,
     batch_size: 100,
-    algedonic_bypass_threshold: 0.95
+    algedonic_bypass_threshold: 0.95,
+    clock_drift_tolerance_ms: 1000  # 1 second default tolerance
   }
   
   @doc """
@@ -217,22 +219,30 @@ defmodule AutonomousOpponent.EventBus.OrderedDelivery do
   
   defp should_bypass?(event, config) do
     # Algedonic signals above threshold bypass ordering
-    case event do
-      %{metadata: %{algedonic: true, intensity: intensity}} 
-        when intensity >= config.algedonic_bypass_threshold -> true
-      %{metadata: %{bypass_all: true}} -> true
-      _ -> false
+    metadata = Map.get(event, :metadata, %{})
+    
+    cond do
+      get_in(metadata, [:algedonic]) == true and 
+        is_number(get_in(metadata, [:intensity])) and
+        get_in(metadata, [:intensity]) >= config.algedonic_bypass_threshold -> true
+      get_in(metadata, [:bypass_all]) == true -> true
+      true -> false
     end
   end
   
   defp deliver_immediately(event, state) do
-    send(state.subscriber, {:ordered_event, event})
-    
-    SystemTelemetry.record(:event_bus_delivery, %{
-      topic: event.topic,
-      ordering: :bypassed,
-      subscriber: inspect(state.subscriber)
-    })
+    try do
+      send(state.subscriber, {:ordered_event, event})
+      
+      SystemTelemetry.record(:event_bus_delivery, %{
+        topic: event.topic,
+        ordering: :bypassed,
+        subscriber: inspect(state.subscriber)
+      })
+    catch
+      :error, :badarg ->
+        Logger.warning("Failed to deliver bypassed event to dead subscriber: #{inspect(state.subscriber)}")
+    end
   end
   
   defp buffer_event(event, state) do
@@ -271,7 +281,7 @@ defmodule AutonomousOpponent.EventBus.OrderedDelivery do
     
     cond do
       # Event is from the future (clock drift?)
-      event_time > now + 1000 -> :future
+      event_time > now + state.config.clock_drift_tolerance_ms -> :future
       
       # Event is older than our buffer window
       now - event_time > state.buffer_window_ms -> :late
@@ -329,7 +339,7 @@ defmodule AutonomousOpponent.EventBus.OrderedDelivery do
     {ready, remaining} = split_ready_events(state.buffer, cutoff_time)
     
     # Deliver events in batches
-    delivered_count = deliver_events_in_batches(ready, state)
+    {delivered_count, last_hlc} = deliver_events_in_batches(ready, state)
     
     # Update stats
     buffer_size = :gb_trees.size(state.buffer)
@@ -358,7 +368,8 @@ defmodule AutonomousOpponent.EventBus.OrderedDelivery do
       buffer: remaining,
       stats: new_stats,
       buffer_window_ms: new_window,
-      delivery_timer: nil
+      delivery_timer: nil,
+      last_delivered_hlc: last_hlc
     }
     
     if :gb_trees.size(remaining) > 0 do
@@ -371,7 +382,7 @@ defmodule AutonomousOpponent.EventBus.OrderedDelivery do
   defp deliver_all_events(state) do
     # Convert tree to list and deliver all
     events = :gb_trees.to_list(state.buffer)
-    delivered_count = deliver_events_in_batches(events, state)
+    {delivered_count, last_hlc} = deliver_events_in_batches(events, state)
     
     # Update stats
     new_stats = %{state.stats |
@@ -384,7 +395,8 @@ defmodule AutonomousOpponent.EventBus.OrderedDelivery do
     %{state | 
       buffer: :gb_trees.empty(),
       stats: new_stats,
-      delivery_timer: nil
+      delivery_timer: nil,
+      last_delivered_hlc: last_hlc
     }
   end
   
@@ -404,32 +416,47 @@ defmodule AutonomousOpponent.EventBus.OrderedDelivery do
   end
   
   defp deliver_events_in_batches(events, state) do
-    events
-    |> Enum.chunk_every(state.config.batch_size)
-    |> Enum.reduce(0, fn batch, count ->
+    # Use Stream for better memory efficiency
+    {delivered_count, last_hlc} = events
+    |> Stream.chunk_every(state.config.batch_size)
+    |> Enum.reduce({0, state.last_delivered_hlc}, fn batch, {count, _last_hlc} ->
       # Extract just the events (not the keys)
       batch_events = Enum.map(batch, fn {_key, event} -> event end)
       
-      # Send batch to subscriber
-      send(state.subscriber, {:ordered_event_batch, batch_events})
-      
-      # Update last delivered HLC
-      if last_event = List.last(batch_events) do
-        Process.put(:last_delivered_hlc, last_event.timestamp)
+      # Send batch to subscriber with error handling
+      try do
+        send(state.subscriber, {:ordered_event_batch, batch_events})
+      catch
+        :error, :badarg ->
+          # Subscriber process is dead
+          Logger.warning("Failed to deliver batch to dead subscriber: #{inspect(state.subscriber)}")
       end
       
-      # Track each delivery
-      Enum.each(batch_events, fn event ->
-        SystemTelemetry.record(:event_bus_delivery, %{
-          topic: event.topic,
+      # Get last HLC from this batch
+      last_event_hlc = if last_event = List.last(batch_events) do
+        last_event.timestamp
+      else
+        state.last_delivered_hlc
+      end
+      
+      # Sample telemetry for high-frequency events (record only 10%)
+      sample_rate = if length(batch) > 50, do: 0.1, else: 1.0
+      
+      if :rand.uniform() <= sample_rate do
+        # Record batch-level telemetry instead of per-event
+        SystemTelemetry.record(:event_bus_delivery_batch, %{
+          batch_size: length(batch),
+          topics: batch_events |> Enum.map(& &1.topic) |> Enum.uniq(),
           ordering: :ordered,
           subscriber: inspect(state.subscriber),
-          buffer_depth: length(batch)
+          sampled: sample_rate < 1.0
         })
-      end)
+      end
       
-      count + length(batch)
+      {count + length(batch), last_event_hlc}
     end)
+    
+    {delivered_count, last_hlc}
   end
   
   defp calculate_reorder_ratio(events) do

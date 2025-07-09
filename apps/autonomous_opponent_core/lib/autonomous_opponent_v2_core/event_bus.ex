@@ -346,8 +346,6 @@ defmodule AutonomousOpponentV2Core.EventBus do
       {AutonomousOpponent.EventBus.OrderedDelivery, delivery_opts}
     ) do
       {:ok, pid} ->
-        # Mark process for identification
-        Process.put(:ordered_delivery, true)
         {:ok, pid}
         
       error ->
