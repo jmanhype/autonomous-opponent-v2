@@ -8,8 +8,7 @@ config :autonomous_opponent_core, ecto_repos: [AutonomousOpponentV2Core.Repo]
 config :autonomous_opponent_web, ecto_repos: [AutonomousOpponentV2Web.Repo]
 
 # Configure Phoenix PubSub
-config :autonomous_opponent_web, AutonomousOpponentV2Web.PubSub,
-  adapter: Phoenix.PubSub.PG2
+config :autonomous_opponent_web, AutonomousOpponentV2Web.PubSub, adapter: Phoenix.PubSub.PG2
 
 # Configure Phoenix to use Jason for JSON parsing
 config :phoenix, :json_library, Jason
