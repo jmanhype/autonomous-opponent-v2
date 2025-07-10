@@ -435,7 +435,9 @@ defmodule AutonomousOpponentV2Core.AMCP.Memory.CRDTStore do
       crdt_count: map_size(state.crdts),
       peer_count: MapSet.size(state.sync_peers),
       node_id: state.node_id,
-      vector_clock: state.vector_clock
+      vector_clock: state.vector_clock,
+      active_synthesis_count: state.active_synthesis_count,
+      max_concurrent_synthesis: state.max_concurrent_synthesis
     })
     {:reply, stats, state}
   end
@@ -485,6 +487,30 @@ defmodule AutonomousOpponentV2Core.AMCP.Memory.CRDTStore do
     Logger.info("CRDT peer discovery initiated")
     {:noreply, state}
   end
+
+  @impl true
+  def handle_cast({:synthesis_completed, synthesis_time}, state) do
+    # Reset belief counter and decrement active synthesis count after successful synthesis
+    new_state = %{state | 
+      belief_update_count: 0, 
+      last_synthesis_time: synthesis_time,
+      active_synthesis_count: max(0, state.active_synthesis_count - 1)
+    }
+    
+    Logger.debug("Synthesis completed - belief counter reset, active count: #{new_state.active_synthesis_count}")
+    {:noreply, new_state}
+  end
+
+  @impl true
+  def handle_cast({:synthesis_failed, _reason}, state) do
+    # Decrement active synthesis count on failure but don't reset belief counter
+    new_state = %{state | 
+      active_synthesis_count: max(0, state.active_synthesis_count - 1)
+    }
+    
+    Logger.debug("Synthesis failed - keeping belief count at #{state.belief_update_count}, active count: #{new_state.active_synthesis_count}")
+    {:noreply, new_state}
+  end
   
   @impl true
   def handle_info(:periodic_sync, state) do
@@ -525,46 +551,66 @@ defmodule AutonomousOpponentV2Core.AMCP.Memory.CRDTStore do
     
     # Check if synthesis is enabled and system is ready
     if state.synthesis_enabled and map_size(state.crdts) > 0 do
-      # Perform synthesis in background to avoid blocking
-      Task.start(fn ->
-        case perform_knowledge_synthesis(:all, state) do
-          {:ok, synthesis} ->
-            Logger.info("SYNTHESIS COMPLETE: Knowledge synthesis successful")
-            
-            # Publish synthesis results to consciousness
-            EventBus.publish(:memory_synthesis, %{
-              synthesis: synthesis,
-              topic: "periodic_synthesis",
-              timestamp: DateTime.utc_now(),
-              node_id: state.node_id,
-              crdt_count: map_size(state.crdts)
-            })
-            
-            # Update metrics
-            :telemetry.execute([:crdt_store, :synthesis, :completed], %{
-              duration: 0,
-              crdt_count: map_size(state.crdts),
-              synthesis_length: String.length(synthesis)
-            }, %{
-              trigger: "periodic",
-              node_id: state.node_id
-            })
-            
-          {:error, reason} ->
-            Logger.warning("SYNTHESIS FAILED: #{inspect(reason)}")
-            
-            # Publish failure event
-            EventBus.publish(:memory_synthesis_failed, %{
-              reason: reason,
-              timestamp: DateTime.utc_now(),
-              node_id: state.node_id
-            })
-        end
-      end)
-      
-      # Update last synthesis time
-      new_state = %{state | last_synthesis_time: DateTime.utc_now()}
-      {:noreply, new_state}
+      # Check concurrent task limit
+      if state.active_synthesis_count >= state.max_concurrent_synthesis do
+        Logger.warning("SYNTHESIS THROTTLED: Already running #{state.active_synthesis_count}/#{state.max_concurrent_synthesis} synthesis tasks")
+        {:noreply, state}
+      else
+        # Increment active synthesis count
+        new_state = %{state | active_synthesis_count: state.active_synthesis_count + 1}
+        
+        # Perform synthesis in supervised background task
+        Task.Supervisor.start_child(AutonomousOpponentV2Core.TaskSupervisor, fn ->
+          try do
+            case perform_knowledge_synthesis(:all, state) do
+              {:ok, synthesis} ->
+                Logger.info("SYNTHESIS COMPLETE: Knowledge synthesis successful")
+                
+                # Publish synthesis results to consciousness
+                EventBus.publish(:memory_synthesis, %{
+                  synthesis: synthesis,
+                  topic: "periodic_synthesis",
+                  timestamp: DateTime.utc_now(),
+                  node_id: state.node_id,
+                  crdt_count: map_size(state.crdts)
+                })
+                
+                # Update metrics
+                :telemetry.execute([:crdt_store, :synthesis, :completed], %{
+                  duration: 0,
+                  crdt_count: map_size(state.crdts),
+                  synthesis_length: String.length(synthesis)
+                }, %{
+                  trigger: "periodic",
+                  node_id: state.node_id
+                })
+                
+                # Notify completion via cast to update state
+                GenServer.cast(__MODULE__, {:synthesis_completed, DateTime.utc_now()})
+                
+              {:error, reason} ->
+                Logger.warning("SYNTHESIS FAILED: #{inspect(reason)}")
+                
+                # Publish failure event
+                EventBus.publish(:memory_synthesis_failed, %{
+                  reason: reason,
+                  timestamp: DateTime.utc_now(),
+                  node_id: state.node_id
+                })
+                
+                # Notify failure via cast to update state
+                GenServer.cast(__MODULE__, {:synthesis_failed, reason})
+            end
+          rescue
+            error ->
+              Logger.error("SYNTHESIS CRASHED: #{inspect(error)}")
+              GenServer.cast(__MODULE__, {:synthesis_failed, error})
+          end
+        end)
+        
+        # Don't update last_synthesis_time here - wait for completion
+        {:noreply, new_state}
+      end
     else
       Logger.debug("SYNTHESIS SKIPPED: Not enabled or no CRDTs available")
       {:noreply, state}
@@ -1149,49 +1195,73 @@ defmodule AutonomousOpponentV2Core.AMCP.Memory.CRDTStore do
     
     # Check if we should trigger synthesis based on belief updates
     if state.synthesis_enabled and new_belief_count >= 50 do
-      Logger.info("SYNTHESIS TRIGGERED: 50 belief updates reached - initiating knowledge synthesis")
-      
-      # Perform synthesis in background
-      Task.start(fn ->
-        case perform_knowledge_synthesis(:all, state) do
-          {:ok, synthesis} ->
-            Logger.info("BELIEF-TRIGGERED SYNTHESIS: Knowledge synthesis successful")
-            
-            # Publish synthesis results to consciousness
-            EventBus.publish(:memory_synthesis, %{
-              synthesis: synthesis,
-              topic: "belief_triggered_synthesis",
-              timestamp: DateTime.utc_now(),
-              node_id: state.node_id,
-              belief_count: new_belief_count,
-              crdt_count: map_size(state.crdts)
-            })
-            
-            # Update metrics
-            :telemetry.execute([:crdt_store, :synthesis, :belief_triggered], %{
-              belief_count: new_belief_count,
-              crdt_count: map_size(state.crdts),
-              synthesis_length: String.length(synthesis)
-            }, %{
-              trigger: "belief_threshold",
-              node_id: state.node_id
-            })
-            
-          {:error, reason} ->
-            Logger.warning("BELIEF-TRIGGERED SYNTHESIS FAILED: #{inspect(reason)}")
-            
-            # Publish failure event
-            EventBus.publish(:memory_synthesis_failed, %{
-              reason: reason,
-              trigger: "belief_updates",
-              timestamp: DateTime.utc_now(),
-              node_id: state.node_id
-            })
-        end
-      end)
-      
-      # Reset belief counter after synthesis
-      %{state | belief_update_count: 0, last_synthesis_time: DateTime.utc_now()}
+      # Check concurrent task limit
+      if state.active_synthesis_count >= state.max_concurrent_synthesis do
+        Logger.warning("BELIEF-TRIGGERED SYNTHESIS THROTTLED: Already running #{state.active_synthesis_count}/#{state.max_concurrent_synthesis} synthesis tasks")
+        %{state | belief_update_count: new_belief_count}
+      else
+        Logger.info("SYNTHESIS TRIGGERED: 50 belief updates reached - initiating knowledge synthesis")
+        
+        # Increment active synthesis count BEFORE starting task
+        temp_state = %{state | 
+          belief_update_count: new_belief_count,
+          active_synthesis_count: state.active_synthesis_count + 1
+        }
+        
+        # Perform synthesis in supervised background task
+        Task.Supervisor.start_child(AutonomousOpponentV2Core.TaskSupervisor, fn ->
+          try do
+            case perform_knowledge_synthesis(:all, state) do
+              {:ok, synthesis} ->
+                Logger.info("BELIEF-TRIGGERED SYNTHESIS: Knowledge synthesis successful")
+                
+                # Publish synthesis results to consciousness
+                EventBus.publish(:memory_synthesis, %{
+                  synthesis: synthesis,
+                  topic: "belief_triggered_synthesis",
+                  timestamp: DateTime.utc_now(),
+                  node_id: state.node_id,
+                  belief_count: new_belief_count,
+                  crdt_count: map_size(state.crdts)
+                })
+                
+                # Update metrics
+                :telemetry.execute([:crdt_store, :synthesis, :belief_triggered], %{
+                  belief_count: new_belief_count,
+                  crdt_count: map_size(state.crdts),
+                  synthesis_length: String.length(synthesis)
+                }, %{
+                  trigger: "belief_threshold",
+                  node_id: state.node_id
+                })
+                
+                # Notify completion - this will reset the belief counter
+                GenServer.cast(__MODULE__, {:synthesis_completed, DateTime.utc_now()})
+                
+              {:error, reason} ->
+                Logger.warning("BELIEF-TRIGGERED SYNTHESIS FAILED: #{inspect(reason)}")
+                
+                # Publish failure event
+                EventBus.publish(:memory_synthesis_failed, %{
+                  reason: reason,
+                  trigger: "belief_updates",
+                  timestamp: DateTime.utc_now(),
+                  node_id: state.node_id
+                })
+                
+                # Notify failure - this will NOT reset the belief counter
+                GenServer.cast(__MODULE__, {:synthesis_failed, reason})
+            end
+          rescue
+            error ->
+              Logger.error("BELIEF-TRIGGERED SYNTHESIS CRASHED: #{inspect(error)}")
+              GenServer.cast(__MODULE__, {:synthesis_failed, error})
+          end
+        end)
+        
+        # Don't reset belief counter here - wait for synthesis completion
+        temp_state
+      end
     else
       %{state | belief_update_count: new_belief_count}
     end
@@ -1590,8 +1660,10 @@ defmodule AutonomousOpponentV2Core.AMCP.Memory.CRDTStore do
   
   defp get_vsm_system_health do
     # Query VSM subsystems for health metrics
+    timeout = Application.get_env(:autonomous_opponent_core, :vsm_health_timeout_ms, 1000)
+    
     try do
-      case GenServer.call(AutonomousOpponentV2Core.VSM.S1.Operations, :get_health_metrics, 1000) do
+      case GenServer.call(AutonomousOpponentV2Core.VSM.S1.Operations, :get_health_metrics, timeout) do
         {:ok, metrics} -> 
           Map.get(metrics, :overall_health, 0.7)
         _ -> 
