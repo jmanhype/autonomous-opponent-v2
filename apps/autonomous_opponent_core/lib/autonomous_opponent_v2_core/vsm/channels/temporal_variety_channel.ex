@@ -610,18 +610,378 @@ defmodule AutonomousOpponentV2Core.VSM.Channels.TemporalVarietyChannel do
   end
   
   # Placeholder implementations for complex algorithms
-  defp calculate_attenuation_factor(_processed_data, _state), do: 0.5
-  defp calculate_amplification_factor(_processed_data, _state), do: 1.5
-  defp calculate_processing_effectiveness(_processed_data), do: 0.8
-  defp update_memory_with_decay(memory, _entry), do: memory
-  defp detect_variety_pattern(_processed_data, _pattern_spec, _state), do: false
-  defp update_temporal_buffers(processed_data, _variety_data, state), do: state
-  defp perform_variety_learning(state), do: state
-  defp calculate_current_variety_pressure(_state), do: 0.5
-  defp attenuation_active?(_state), do: false
-  defp amplification_active?(_state), do: false
-  defp get_temporal_window_status(_state), do: %{}
-  defp calculate_variety_flow_rate(_state), do: 1.0
+  defp calculate_attenuation_factor(processed_data, state) do
+    pressure_level = processed_data.pressure_level
+    current_pressure = processed_data.pressure
+    threshold = processed_data.threshold
+    
+    # Base factor from pressure level
+    base_factor = case pressure_level do
+      :critical -> 0.1   # Aggressive attenuation
+      :high -> 0.3
+      :medium -> 0.5
+      :low -> 0.7
+      _ -> 1.0
+    end
+    
+    # Adjust based on how far over threshold
+    if current_pressure > threshold do
+      overage_ratio = current_pressure / threshold
+      adjustment = max(0.1, 1.0 / overage_ratio)
+      base_factor * adjustment
+    else
+      base_factor
+    end
+  end
+  defp calculate_amplification_factor(processed_data, state) do
+    pressure_level = processed_data.pressure_level
+    current_pressure = processed_data.pressure
+    amplification_threshold = state.amplification_rules.amplification_threshold
+    
+    # Base factor from pressure level
+    base_factor = case pressure_level do
+      :minimal -> 3.0   # Maximum amplification
+      :low -> 2.0
+      :medium -> 1.5
+      :high -> 1.2
+      _ -> 1.0
+    end
+    
+    # Adjust based on how far under threshold
+    if current_pressure < amplification_threshold do
+      shortage_ratio = current_pressure / amplification_threshold
+      adjustment = 2.0 - shortage_ratio  # More shortage = more amplification
+      min(base_factor * adjustment, state.amplification_rules.max_amplification_factor)
+    else
+      1.0
+    end
+  end
+  defp calculate_processing_effectiveness(processed_data) do
+    # Measure how well the processing reduced variety pressure
+    initial_pressure = processed_data[:pressure] || 1.0
+    
+    attenuation_applied = processed_data[:attenuation_applied] || 1.0
+    amplification_applied = processed_data[:amplification_applied] || 1.0
+    
+    # Perfect effectiveness = pressure normalized to optimal range [0.3, 0.7]
+    final_pressure = initial_pressure * attenuation_applied * amplification_applied
+    
+    effectiveness = cond do
+      final_pressure >= 0.3 and final_pressure <= 0.7 -> 1.0
+      final_pressure < 0.3 -> 0.3 / max(0.1, final_pressure)  # Over-attenuated
+      final_pressure > 0.7 -> 0.7 / final_pressure  # Under-attenuated
+      true -> 0.5
+    end
+    
+    min(1.0, effectiveness)
+  end
+  defp update_memory_with_decay(memory, entry) do
+    # Add new entry to appropriate memory tier
+    short_term = add_to_memory_tier(memory.short_term, entry, 1.0)
+    
+    # Promote significant entries to medium term
+    medium_term = if entry.effectiveness > 0.8 do
+      add_to_memory_tier(memory.medium_term, entry, 0.8)
+    else
+      memory.medium_term
+    end
+    
+    # Promote exceptional entries to long term
+    long_term = if entry.effectiveness > 0.95 do
+      add_to_memory_tier(memory.long_term, entry, 0.6)
+    else
+      memory.long_term
+    end
+    
+    # Apply decay to all tiers
+    %{memory |
+      short_term: apply_memory_decay(short_term, memory.decay_rate),
+      medium_term: apply_memory_decay(medium_term, memory.decay_rate * 0.5),
+      long_term: apply_memory_decay(long_term, memory.decay_rate * 0.1)
+    }
+  end
+  
+  defp add_to_memory_tier(tier, entry, weight) do
+    weighted_entry = Map.put(entry, :weight, weight)
+    new_entries = [weighted_entry | tier.entries]
+    
+    # Keep only most recent entries up to capacity
+    trimmed_entries = Enum.take(new_entries, tier.capacity)
+    
+    %{tier | entries: trimmed_entries}
+  end
+  
+  defp apply_memory_decay(tier, decay_rate) do
+    decayed_entries = tier.entries
+    |> Enum.map(fn entry ->
+      Map.update(entry, :weight, 1.0, & &1 * (1 - decay_rate))
+    end)
+    |> Enum.filter(fn entry -> entry.weight > 0.01 end)  # Remove negligible entries
+    
+    %{tier | entries: decayed_entries}
+  end
+  defp detect_variety_pattern(processed_data, pattern_spec, state) do
+    case pattern_spec.type do
+      :variety_overload ->
+        detect_variety_overload_pattern(processed_data, pattern_spec)
+        
+      :temporal_oscillation ->
+        detect_temporal_oscillation_pattern(processed_data, pattern_spec, state)
+        
+      :variety_starvation ->
+        detect_variety_starvation_pattern(processed_data, pattern_spec)
+        
+      :cross_subsystem_interference ->
+        detect_cross_subsystem_interference_pattern(processed_data, pattern_spec, state)
+        
+      _ ->
+        false
+    end
+  end
+  
+  defp detect_variety_overload_pattern(processed_data, pattern_spec) do
+    threshold_multiplier = pattern_spec.threshold_multiplier
+    
+    processed_data.pressure > (processed_data.threshold * threshold_multiplier)
+  end
+  
+  defp detect_temporal_oscillation_pattern(processed_data, pattern_spec, state) do
+    # Check recent variety flow history for oscillations
+    history = :queue.to_list(state.variety_flow_history)
+    
+    if length(history) >= pattern_spec.frequency_threshold * 2 do
+      pressures = Enum.map(history, fn h -> h[:pressure] || 0 end)
+      oscillations = count_oscillations(pressures, pattern_spec.amplitude_threshold)
+      
+      oscillations >= pattern_spec.frequency_threshold
+    else
+      false
+    end
+  end
+  
+  defp detect_variety_starvation_pattern(processed_data, pattern_spec) do
+    processed_data.pressure < pattern_spec.minimum_variety
+  end
+  
+  defp detect_cross_subsystem_interference_pattern(_processed_data, _pattern_spec, _state) do
+    # Would need cross-subsystem data to implement properly
+    false
+  end
+  
+  defp count_oscillations(values, amplitude_threshold) do
+    if length(values) < 3 do
+      0
+    else
+      values
+      |> Enum.chunk_every(3, 1, :discard)
+      |> Enum.count(fn [a, b, c] ->
+        # Peak or trough with sufficient amplitude
+        (b > a and b > c and (b - min(a, c)) > amplitude_threshold) or
+        (b < a and b < c and (max(a, c) - b) > amplitude_threshold)
+      end)
+    end
+  end
+  defp update_temporal_buffers(processed_data, variety_data, state) do
+    timestamp = Clock.now()
+    
+    # Create buffer entry
+    buffer_entry = %{
+      timestamp: timestamp,
+      variety_data: variety_data,
+      pressure: processed_data.pressure,
+      processing_result: processed_data
+    }
+    
+    # Update each temporal buffer
+    updated_buffers = %{
+      operational: update_buffer(state.temporal_buffers.operational, buffer_entry),
+      pattern: update_buffer(state.temporal_buffers.pattern, buffer_entry),
+      learning: update_buffer(state.temporal_buffers.learning, buffer_entry)
+    }
+    
+    # Update variety flow history
+    history_entry = %{
+      timestamp: timestamp,
+      pressure: processed_data.pressure,
+      attenuation: processed_data[:attenuation_applied],
+      amplification: processed_data[:amplification_applied]
+    }
+    
+    new_history = :queue.in(history_entry, state.variety_flow_history)
+    # Keep only recent history (last 100 entries)
+    trimmed_history = if :queue.len(new_history) > 100 do
+      {_, rest} = :queue.out(new_history)
+      rest
+    else
+      new_history
+    end
+    
+    %{state |
+      temporal_buffers: updated_buffers,
+      variety_flow_history: trimmed_history
+    }
+  end
+  
+  defp update_buffer(buffer, entry) do
+    # Add entry to ETS table with timestamp as key
+    :ets.insert(buffer.table, {entry.timestamp.physical, entry})
+    
+    # Clean old entries
+    case Clock.now() do
+      {:ok, current_time} ->
+        cutoff_time = current_time.physical - buffer.window_ms
+        :ets.select_delete(buffer.table, [{{:"$1", :_}, [{:<, :"$1", cutoff_time}], [true]}])
+        %{buffer | last_cleanup: current_time}
+        
+      {:error, _} ->
+        buffer
+    end
+  end
+  defp perform_variety_learning(state) do
+    # Analyze memory patterns for learning
+    patterns = extract_learning_patterns(state.variety_memory)
+    
+    # Update attenuation rules based on effectiveness
+    new_attenuation_rules = adapt_attenuation_rules(state.attenuation_rules, patterns)
+    
+    # Update amplification rules based on effectiveness  
+    new_amplification_rules = adapt_amplification_rules(state.amplification_rules, patterns)
+    
+    # Update learning state
+    new_learning_state = %{state.learning_state |
+      progress: calculate_learning_progress(patterns),
+      adaptation_rate: adjust_learning_rate(state.learning_state, patterns),
+      pattern_recognition_accuracy: calculate_pattern_accuracy(patterns),
+      last_learning_update: Clock.now()
+    }
+    
+    %{state |
+      attenuation_rules: new_attenuation_rules,
+      amplification_rules: new_amplification_rules,
+      learning_state: new_learning_state
+    }
+  end
+  
+  defp extract_learning_patterns(variety_memory) do
+    # Combine patterns from all memory tiers
+    all_entries = variety_memory.short_term.entries ++
+                  variety_memory.medium_term.entries ++
+                  variety_memory.long_term.entries
+    
+    # Group by effectiveness ranges
+    Enum.group_by(all_entries, fn entry ->
+      cond do
+        entry.effectiveness >= 0.9 -> :excellent
+        entry.effectiveness >= 0.7 -> :good
+        entry.effectiveness >= 0.5 -> :average
+        true -> :poor
+      end
+    end)
+  end
+  
+  defp adapt_attenuation_rules(rules, patterns) do
+    excellent_patterns = Map.get(patterns, :excellent, [])
+    poor_patterns = Map.get(patterns, :poor, [])
+    
+    # Adjust threshold based on patterns
+    threshold_adjustment = if length(excellent_patterns) > length(poor_patterns) do
+      0.95  # Lower threshold slightly if doing well
+    else
+      1.05  # Raise threshold if struggling
+    end
+    
+    %{rules | pressure_threshold: rules.pressure_threshold * threshold_adjustment}
+  end
+  
+  defp adapt_amplification_rules(rules, patterns) do
+    # Similar adaptation for amplification
+    rules
+  end
+  
+  defp calculate_learning_progress(patterns) do
+    total = Enum.reduce(patterns, 0, fn {_, entries}, acc -> acc + length(entries) end)
+    excellent = length(Map.get(patterns, :excellent, []))
+    
+    if total > 0, do: excellent / total, else: 0.0
+  end
+  
+  defp adjust_learning_rate(learning_state, patterns) do
+    # Increase learning rate if patterns are stable
+    learning_state.adaptation_rate
+  end
+  
+  defp calculate_pattern_accuracy(patterns) do
+    # Measure how well we're predicting variety patterns
+    0.7  # Simplified for now
+  end
+  defp calculate_current_variety_pressure(state) do
+    # Get recent events from operational buffer
+    recent_entries = get_buffer_entries(state.temporal_buffers.operational, 1000)
+    
+    if length(recent_entries) > 0 do
+      # Average recent pressure readings
+      pressures = Enum.map(recent_entries, fn {_, entry} -> entry.pressure end)
+      Enum.sum(pressures) / length(pressures)
+    else
+      0.0
+    end
+  end
+  
+  defp get_buffer_entries(buffer, window_ms) do
+    case Clock.now() do
+      {:ok, current_time} ->
+        cutoff = current_time.physical - window_ms
+        :ets.select(buffer.table, [{{:"$1", :"$2"}, [{:>=, :"$1", cutoff}], [{{:"$1", :"$2"}}]}])
+        
+      {:error, _} ->
+        []
+    end
+  end
+  defp attenuation_active?(state) do
+    current_pressure = calculate_current_variety_pressure(state)
+    current_pressure > state.attenuation_rules.pressure_threshold
+  end
+  defp amplification_active?(state) do
+    current_pressure = calculate_current_variety_pressure(state)
+    current_pressure < state.amplification_rules.amplification_threshold
+  end
+  defp get_temporal_window_status(state) do
+    %{
+      operational: get_window_status(state.temporal_buffers.operational),
+      pattern: get_window_status(state.temporal_buffers.pattern),
+      learning: get_window_status(state.temporal_buffers.learning)
+    }
+  end
+  
+  defp get_window_status(buffer) do
+    size = :ets.info(buffer.table, :size) || 0
+    
+    %{
+      window_ms: buffer.window_ms,
+      current_size: size,
+      last_cleanup: buffer.last_cleanup,
+      fullness_ratio: size / max(1, buffer.window_ms / 100)  # Rough estimate
+    }
+  end
+  defp calculate_variety_flow_rate(state) do
+    # Calculate rate of variety flow through the channel
+    history = :queue.to_list(state.variety_flow_history)
+    
+    if length(history) >= 2 do
+      first = hd(history)
+      last = List.last(history)
+      
+      time_diff = last.timestamp.physical - first.timestamp.physical
+      if time_diff > 0 do
+        # Events per second
+        length(history) / (time_diff / 1000)
+      else
+        0.0
+      end
+    else
+      0.0
+    end
+  end
   defp handle_temporal_pattern_detection(_pattern_data, state), do: state
   defp handle_variety_pressure_change(_pressure_data, state), do: state
   defp process_event_variety(_variety_data, state), do: state

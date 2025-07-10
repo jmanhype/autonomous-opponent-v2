@@ -427,7 +427,7 @@ defmodule AutonomousOpponentV2Core.AMCP.Temporal.AlgedonicIntegration do
       total_responses: state.emergency_response_state.total_responses + 1
     }
     
-    Logger.critical("EMERGENCY TEMPORAL ALGEDONIC RESPONSE: #{pattern.pattern_type} - #{pain_signal.intensity}")
+    Logger.error("EMERGENCY TEMPORAL ALGEDONIC RESPONSE: #{pattern.pattern_type} - #{pain_signal.intensity}")
     
     %{state | emergency_response_state: new_emergency_state}
   end
@@ -586,21 +586,303 @@ defmodule AutonomousOpponentV2Core.AMCP.Temporal.AlgedonicIntegration do
       total_responses: state.emergency_response_state.total_responses + 1
     }
     
-    Logger.critical("EMERGENCY ALGEDONIC RESPONSE: #{emergency_type}")
+    Logger.error("EMERGENCY ALGEDONIC RESPONSE: #{emergency_type}")
     
     %{state | emergency_response_state: new_emergency_state}
   end
-
-  # Placeholder implementations for complex calculations
-  defp calculate_current_pain_level(_state), do: 0.0
-  defp calculate_current_pleasure_level(_state), do: 0.0
-  defp get_recent_algedonic_patterns(_state), do: []
-  defp calculate_average_response_time(_state), do: 0.0
-  defp calculate_pain_escalation_factor(_state), do: 1.0
-  defp calculate_pleasure_saturation_factor(_state), do: 1.0
-  defp calculate_learning_adjustment(_pattern, _state, _type), do: 1.0
-  defp update_pain_history(pain_signal, _pattern, state), do: state
-  defp update_pleasure_history(pleasure_signal, _pattern, state), do: state
+  
+  # Implemented calculation functions
+  
+  defp calculate_current_pain_level(state) do
+    # Calculate weighted average of recent pain signals
+    recent_pain = Enum.take(state.algedonic_history.pain_signals, 10)
+    
+    if length(recent_pain) > 0 do
+      # Apply temporal decay to older signals
+      weighted_pain = recent_pain
+      |> Enum.with_index()
+      |> Enum.map(fn {signal, index} ->
+        decay_factor = :math.pow(1 - state.adaptive_thresholds.temporal_decay_rate, index)
+        signal.intensity * decay_factor
+      end)
+      
+      Enum.sum(weighted_pain) / length(weighted_pain)
+    else
+      0.0
+    end
+  end
+  
+  defp calculate_current_pleasure_level(state) do
+    # Calculate weighted average of recent pleasure signals
+    recent_pleasure = Enum.take(state.algedonic_history.pleasure_signals, 10)
+    
+    if length(recent_pleasure) > 0 do
+      # Apply temporal decay and saturation
+      weighted_pleasure = recent_pleasure
+      |> Enum.with_index()
+      |> Enum.map(fn {signal, index} ->
+        decay_factor = :math.pow(1 - state.adaptive_thresholds.temporal_decay_rate, index)
+        saturation_factor = 1 - (state.algedonic_history.pleasure_saturation_level * 0.2)
+        signal.intensity * decay_factor * saturation_factor
+      end)
+      
+      Enum.sum(weighted_pleasure) / length(weighted_pleasure)
+    else
+      0.0
+    end
+  end
+  
+  defp get_recent_algedonic_patterns(state) do
+    # Get patterns from the last 5 minutes
+    case Clock.now() do
+      {:ok, current_time} ->
+        cutoff = current_time.physical - 300_000  # 5 minutes
+        
+        pain_patterns = state.algedonic_history.pain_signals
+        |> Enum.filter(fn signal -> 
+          signal.timestamp && signal.timestamp.physical >= cutoff
+        end)
+        |> Enum.map(fn signal ->
+          %{
+            type: :pain,
+            pattern: signal.pattern_type,
+            intensity: signal.intensity,
+            timestamp: signal.timestamp
+          }
+        end)
+        
+        pleasure_patterns = state.algedonic_history.pleasure_signals
+        |> Enum.filter(fn signal ->
+          signal.timestamp && signal.timestamp.physical >= cutoff
+        end)
+        |> Enum.map(fn signal ->
+          %{
+            type: :pleasure,
+            pattern: signal.pattern_type,
+            intensity: signal.intensity,
+            timestamp: signal.timestamp
+          }
+        end)
+        
+        pain_patterns ++ pleasure_patterns
+        
+      {:error, _} ->
+        []
+    end
+  end
+  
+  defp calculate_average_response_time(state) do
+    # Calculate average time between pattern detection and algedonic response
+    response_times = :ets.tab2list(state.pattern_correlation_cache)
+    |> Enum.map(fn {{_type, _name}, reinforcement} ->
+      # Estimate response time from reinforcement data
+      if reinforcement[:response_time_ms] do
+        reinforcement.response_time_ms
+      else
+        1000  # Default 1 second if not measured
+      end
+    end)
+    
+    if length(response_times) > 0 do
+      Enum.sum(response_times) / length(response_times)
+    else
+      0.0
+    end
+  end
+  
+  defp calculate_pain_escalation_factor(state) do
+    recent_pain = Enum.take(state.algedonic_history.pain_signals, 5)
+    
+    if length(recent_pain) >= 2 do
+      # Calculate rate of pain increase
+      intensities = Enum.map(recent_pain, & &1.intensity)
+      first_intensity = List.last(intensities)  # Oldest
+      last_intensity = hd(intensities)  # Newest
+      
+      if first_intensity > 0 do
+        escalation = last_intensity / first_intensity
+        # Clamp to reasonable range
+        max(0.5, min(2.0, escalation))
+      else
+        1.0
+      end
+    else
+      1.0
+    end
+  end
+  
+  defp calculate_pleasure_saturation_factor(state) do
+    saturation_level = state.algedonic_history.pleasure_saturation_level
+    max_saturation = state.adaptive_thresholds.pleasure_saturation_level
+    
+    if saturation_level >= max_saturation do
+      # Diminishing returns kick in
+      0.5 - (saturation_level - max_saturation) * 0.3
+    else
+      # Normal returns
+      1.0 - (saturation_level / max_saturation) * 0.2
+    end
+  end
+  
+  defp calculate_learning_adjustment(pattern, state, type) do
+    # Look up historical success rate for this pattern type
+    pattern_key = {pattern.pattern_type, type}
+    success_rate = Map.get(state.learning_state.pattern_success_rate, pattern_key, 0.5)
+    
+    # Adjust based on learning
+    base_adjustment = cond do
+      success_rate > 0.7 ->
+        0.9  # Reduce intensity for well-understood patterns
+      success_rate < 0.3 ->
+        1.1  # Increase intensity for poorly handled patterns
+      true ->
+        1.0
+    end
+    
+    # Apply learning rate
+    learning_influence = state.learning_state.current_learning_rate
+    1.0 + (base_adjustment - 1.0) * learning_influence
+  end
+  
+  defp update_pain_history(pain_signal, pattern, state) do
+    # Add new pain signal to history
+    new_pain_signals = [pain_signal | state.algedonic_history.pain_signals]
+    |> Enum.take(100)  # Keep last 100 signals
+    
+    # Update pain escalation rate
+    new_escalation_rate = if length(new_pain_signals) >= 2 do
+      calculate_escalation_rate(new_pain_signals)
+    else
+      state.algedonic_history.pain_escalation_rate
+    end
+    
+    # Update pattern success tracking
+    pattern_key = {pattern.pattern_type, :pain}
+    new_success_rate = update_pattern_success_rate(
+      state.learning_state.pattern_success_rate,
+      pattern_key,
+      pain_signal.intensity < 0.7  # Success if pain is manageable
+    )
+    
+    new_history = %{state.algedonic_history |
+      pain_signals: new_pain_signals,
+      total_pain_signals: state.algedonic_history.total_pain_signals + 1,
+      last_pain_time: pain_signal.timestamp,
+      pain_escalation_rate: new_escalation_rate
+    }
+    
+    new_learning = %{state.learning_state |
+      pattern_success_rate: new_success_rate
+    }
+    
+    %{state |
+      algedonic_history: new_history,
+      learning_state: new_learning
+    }
+  end
+  
+  defp calculate_escalation_rate(signals) do
+    # Simple linear regression on recent signals
+    recent = Enum.take(signals, 5)
+    if length(recent) >= 2 do
+      intensities = Enum.map(recent, & &1.intensity)
+      indices = Enum.to_list(0..(length(intensities) - 1))
+      
+      # Calculate slope
+      n = length(intensities)
+      sum_x = Enum.sum(indices)
+      sum_y = Enum.sum(intensities)
+      sum_xy = Enum.zip(indices, intensities) |> Enum.map(fn {x, y} -> x * y end) |> Enum.sum()
+      sum_x2 = Enum.map(indices, fn x -> x * x end) |> Enum.sum()
+      
+      numerator = (n * sum_xy) - (sum_x * sum_y)
+      denominator = (n * sum_x2) - (sum_x * sum_x)
+      
+      if denominator != 0 do
+        numerator / denominator
+      else
+        0.0
+      end
+    else
+      0.0
+    end
+  end
+  
+  defp update_pattern_success_rate(current_rates, pattern_key, success) do
+    current_rate = Map.get(current_rates, pattern_key, 0.5)
+    # Exponential moving average
+    alpha = 0.1
+    new_rate = current_rate * (1 - alpha) + (if success, do: 1.0, else: 0.0) * alpha
+    Map.put(current_rates, pattern_key, new_rate)
+  end
+  
+  defp update_pleasure_history(pleasure_signal, pattern, state) do
+    # Add new pleasure signal to history
+    new_pleasure_signals = [pleasure_signal | state.algedonic_history.pleasure_signals]
+    |> Enum.take(100)  # Keep last 100 signals
+    
+    # Update pleasure saturation level
+    new_saturation = calculate_pleasure_saturation(new_pleasure_signals)
+    
+    # Update pattern success tracking for pleasure
+    pattern_key = {pattern.pattern_type, :pleasure}
+    new_success_rate = update_pattern_success_rate(
+      state.learning_state.pattern_success_rate,
+      pattern_key,
+      pleasure_signal.intensity > 0.5  # Success if pleasure is significant
+    )
+    
+    new_history = %{state.algedonic_history |
+      pleasure_signals: new_pleasure_signals,
+      total_pleasure_signals: state.algedonic_history.total_pleasure_signals + 1,
+      last_pleasure_time: pleasure_signal.timestamp,
+      pleasure_saturation_level: new_saturation
+    }
+    
+    new_learning = %{state.learning_state |
+      pattern_success_rate: new_success_rate,
+      adaptation_progress: update_adaptation_progress(state.learning_state, pleasure_signal)
+    }
+    
+    %{state |
+      algedonic_history: new_history,
+      learning_state: new_learning
+    }
+  end
+  
+  defp calculate_pleasure_saturation(signals) do
+    if length(signals) >= 5 do
+      # Check recent pleasure levels
+      recent_intensities = signals
+      |> Enum.take(5)
+      |> Enum.map(& &1.intensity)
+      
+      avg_intensity = Enum.sum(recent_intensities) / length(recent_intensities)
+      
+      # Saturation increases with sustained high pleasure
+      if avg_intensity > 0.7 do
+        min(1.0, avg_intensity * 1.2)
+      else
+        max(0.0, avg_intensity * 0.8)
+      end
+    else
+      0.0
+    end
+  end
+  
+  defp update_adaptation_progress(learning_state, pleasure_signal) do
+    # Pleasure signals indicate successful adaptation
+    current_progress = learning_state.adaptation_progress
+    
+    if pleasure_signal.learning_opportunity do
+      # Increase progress based on pleasure intensity
+      increment = pleasure_signal.intensity * 0.01
+      min(1.0, current_progress + increment)
+    else
+      current_progress
+    end
+  end
+  
   defp record_pain_response_time(_start_time, state), do: state
   defp record_pleasure_response_time(_start_time, state), do: state
   defp process_variety_pattern_for_algedonic_response(_pattern_data, state), do: state
