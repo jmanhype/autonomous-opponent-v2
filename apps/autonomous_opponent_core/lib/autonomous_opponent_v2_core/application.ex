@@ -71,7 +71,40 @@ defmodule AutonomousOpponentV2Core.Application do
   # Start VSM in all environments including test
   defp vsm_children do
     if Application.get_env(:autonomous_opponent_core, :start_vsm, true) do
-      [AutonomousOpponentV2Core.VSM.Supervisor]
+      [
+        # VSM Registry for dynamic process lookup
+        AutonomousOpponentV2Core.VSM.Registry,
+        
+        # VSM Core Supervisor
+        AutonomousOpponentV2Core.VSM.Supervisor,
+        
+        # Temporal Pattern Detection System
+        AutonomousOpponentV2Core.AMCP.Temporal.EventStore,
+        AutonomousOpponentV2Core.AMCP.Temporal.PatternDetector,
+        AutonomousOpponentV2Core.AMCP.Temporal.AlgedonicIntegration,
+        
+        # Temporal Variety Channels for each VSM subsystem
+        Supervisor.child_spec(
+          {AutonomousOpponentV2Core.VSM.Channels.TemporalVarietyChannel, subsystem: :s1},
+          id: :temporal_variety_s1
+        ),
+        Supervisor.child_spec(
+          {AutonomousOpponentV2Core.VSM.Channels.TemporalVarietyChannel, subsystem: :s2},
+          id: :temporal_variety_s2
+        ),
+        Supervisor.child_spec(
+          {AutonomousOpponentV2Core.VSM.Channels.TemporalVarietyChannel, subsystem: :s3},
+          id: :temporal_variety_s3
+        ),
+        Supervisor.child_spec(
+          {AutonomousOpponentV2Core.VSM.Channels.TemporalVarietyChannel, subsystem: :s4},
+          id: :temporal_variety_s4
+        ),
+        Supervisor.child_spec(
+          {AutonomousOpponentV2Core.VSM.Channels.TemporalVarietyChannel, subsystem: :s5},
+          id: :temporal_variety_s5
+        )
+      ]
     else
       []
     end
