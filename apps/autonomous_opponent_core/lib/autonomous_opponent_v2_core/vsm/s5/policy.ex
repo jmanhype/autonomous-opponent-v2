@@ -249,6 +249,14 @@ defmodule AutonomousOpponentV2Core.VSM.S5.Policy do
   end
   
   @impl true
+  @doc """
+  Handle algedonic signal intervention from cluster bridge.
+  Called when distributed algedonic signals are received.
+  """
+  def algedonic_intervention(package) do
+    GenServer.cast(__MODULE__, {:algedonic_intervention, package})
+  end
+
   def handle_info({:event, :emergency_algedonic, emergency}, state) do
     Logger.error("S5 received EMERGENCY algedonic signal: #{inspect(emergency)}")
     
@@ -273,6 +281,41 @@ defmodule AutonomousOpponentV2Core.VSM.S5.Policy do
       
       {:noreply, state}
     end
+  end
+
+  @impl true
+  def handle_cast({:algedonic_intervention, package}, state) do
+    Logger.warn("S5 Policy: Received distributed algedonic signal - #{package.id}")
+    
+    # Process based on VSM directive
+    case package.vsm_directive do
+      :immediate_intervention_required ->
+        # High severity - trigger emergency response
+        emergency_response = %{
+          type: :distributed_emergency,
+          source: package.source_node,
+          severity: package.severity,
+          data: package.data,
+          distributed: true
+        }
+        
+        EventBus.publish(:all_subsystems, {:s5_emergency_override, emergency_response})
+        
+      :policy_review_required ->
+        # Medium severity - schedule policy review
+        Process.send_after(self(), {:policy_review, package}, 100)
+        
+      :maintain_current_state ->
+        # Positive signal - record success
+        new_health = Map.update!(state.health_metrics, :successful_governance, &(&1 + 1))
+        state = %{state | health_metrics: new_health}
+        
+      :monitor_closely ->
+        # Low severity - just log and monitor
+        Logger.info("S5 Policy: Monitoring algedonic signal from #{package.source_node}")
+    end
+    
+    {:noreply, state}
   end
   
   @impl true

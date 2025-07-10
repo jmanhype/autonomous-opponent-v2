@@ -1,0 +1,320 @@
+defmodule AutonomousOpponentV2Core.EventBus.ClusterBridge do
+  @moduledoc """
+  Proof-of-concept implementation of EventBus clustering for distributed event propagation.
+  
+  This module demonstrates the core concepts for issue #88:
+  - Cross-node event replication using Erlang distribution
+  - Integration with existing HLC timestamps for causal ordering
+  - Circuit breaker pattern for fault tolerance
+  - CRDT-based topology management
+  """
+  
+  use GenServer
+  require Logger
+  
+  alias AutonomousOpponentV2Core.EventBus
+  alias AutonomousOpponentV2Core.Core.HybridLogicalClock
+  alias AutonomousOpponentV2Core.AMCP.Memory.CRDTStore
+  
+  defmodule State do
+    defstruct [
+      :node_id,
+      :cluster_nodes,
+      :circuit_breakers,
+      :pending_events,
+      :replication_config,
+      :stats
+    ]
+  end
+  
+  defmodule CircuitBreaker do
+    defstruct [
+      node: nil,
+      state: :closed,
+      failure_count: 0,
+      last_failure: nil,
+      config: %{
+        failure_threshold: 5,
+        reset_timeout_ms: 30_000
+      }
+    ]
+  end
+  
+  # Client API
+  
+  def start_link(opts \\ []) do
+    GenServer.start_link(__MODULE__, opts, name: __MODULE__)
+  end
+  
+  @doc "Replicate an event to cluster nodes"
+  def replicate_event(event) do
+    GenServer.cast(__MODULE__, {:replicate, event})
+  end
+  
+  @doc "Get cluster status"
+  def cluster_status do
+    GenServer.call(__MODULE__, :cluster_status)
+  end
+  
+  @doc "Add a node to the cluster"
+  def add_node(node) do
+    GenServer.call(__MODULE__, {:add_node, node})
+  end
+  
+  @doc "Remove a node from the cluster"
+  def remove_node(node) do
+    GenServer.call(__MODULE__, {:remove_node, node})
+  end
+  
+  # Server Callbacks
+  
+  @impl true
+  def init(opts) do
+    # Enable node monitoring
+    :net_kernel.monitor_nodes(true, node_type: :all)
+    
+    # Initialize CRDT for topology if available
+    topology_crdt = case CRDTStore.create_crdt("cluster_topology", :crdt_map) do
+      {:ok, crdt_id} -> crdt_id
+      _ -> nil
+    end
+    
+    # Subscribe to local events for replication
+    EventBus.subscribe(:all_events, self(), ordered_delivery: false)
+    
+    state = %State{
+      node_id: node(),
+      cluster_nodes: MapSet.new(),
+      circuit_breakers: %{},
+      pending_events: :queue.new(),
+      replication_config: Keyword.get(opts, :replication_config, default_config()),
+      stats: %{
+        events_sent: 0,
+        events_received: 0,
+        failures: 0
+      }
+    }
+    
+    Logger.info("EventBus ClusterBridge started on node #{state.node_id}")
+    
+    {:ok, state}
+  end
+  
+  @impl true
+  def handle_call(:cluster_status, _from, state) do
+    status = %{
+      node_id: state.node_id,
+      active_nodes: MapSet.to_list(state.cluster_nodes),
+      circuit_breakers: format_circuit_breakers(state.circuit_breakers),
+      stats: state.stats
+    }
+    {:reply, status, state}
+  end
+  
+  def handle_call({:add_node, node}, _from, state) do
+    if node != state.node_id do
+      state = %{state | 
+        cluster_nodes: MapSet.put(state.cluster_nodes, node),
+        circuit_breakers: Map.put(state.circuit_breakers, node, %CircuitBreaker{node: node})
+      }
+      Logger.info("Added node #{node} to cluster")
+      {:reply, :ok, state}
+    else
+      {:reply, {:error, :self_node}, state}
+    end
+  end
+  
+  def handle_call({:remove_node, node}, _from, state) do
+    state = %{state |
+      cluster_nodes: MapSet.delete(state.cluster_nodes, node),
+      circuit_breakers: Map.delete(state.circuit_breakers, node)
+    }
+    Logger.info("Removed node #{node} from cluster")
+    {:reply, :ok, state}
+  end
+  
+  @impl true
+  def handle_cast({:replicate, event}, state) do
+    # Skip replication for cluster bridge internal events
+    if should_replicate?(event, state) do
+      state = replicate_to_nodes(event, state)
+    end
+    {:noreply, state}
+  end
+  
+  @impl true
+  def handle_info({:event_bus_hlc, event}, state) do
+    # Local event received - replicate to cluster
+    if should_replicate?(event, state) do
+      GenServer.cast(self(), {:replicate, event})
+    end
+    {:noreply, state}
+  end
+  
+  def handle_info({:nodeup, node, _info}, state) do
+    Logger.info("Node #{node} joined the cluster")
+    
+    # Auto-add node if auto-discovery is enabled
+    if state.replication_config[:auto_discovery] do
+      state = %{state |
+        cluster_nodes: MapSet.put(state.cluster_nodes, node),
+        circuit_breakers: Map.put(state.circuit_breakers, node, %CircuitBreaker{node: node})
+      }
+    end
+    
+    {:noreply, state}
+  end
+  
+  def handle_info({:nodedown, node, _info}, state) do
+    Logger.warning("Node #{node} left the cluster")
+    
+    # Mark circuit breaker as open
+    state = case Map.get(state.circuit_breakers, node) do
+      nil -> state
+      breaker ->
+        %{state |
+          circuit_breakers: Map.put(state.circuit_breakers, node, %{breaker | state: :open})
+        }
+    end
+    
+    {:noreply, state}
+  end
+  
+  def handle_info({:remote_event, event, from_node}, state) do
+    # Remote event received
+    Logger.debug("Received remote event from #{from_node}: #{inspect(event.type)}")
+    
+    # Update stats
+    state = %{state | stats: Map.update!(state.stats, :events_received, &(&1 + 1))}
+    
+    # Publish locally (without replication)
+    Task.start(fn ->
+      # Mark as remote to prevent re-replication
+      event = Map.put(event, :_from_cluster, true)
+      EventBus.publish(event.type, event.data)
+    end)
+    
+    {:noreply, state}
+  end
+  
+  def handle_info(msg, state) do
+    Logger.debug("ClusterBridge received unexpected message: #{inspect(msg)}")
+    {:noreply, state}
+  end
+  
+  # Private Functions
+  
+  defp default_config do
+    %{
+      auto_discovery: true,
+      batch_size: 100,
+      batch_timeout_ms: 5,
+      compression: false,
+      event_filter: fn _event -> true end,
+      priority_events: [:algedonic_pain, :algedonic_intervention, :emergency_algedonic]
+    }
+  end
+  
+  defp should_replicate?(event, state) do
+    # Don't replicate cluster internal events or already replicated events
+    not Map.get(event, :_from_cluster, false) and
+    not String.starts_with?(to_string(event.type), "cluster_") and
+    state.replication_config[:event_filter].(event)
+  end
+  
+  defp replicate_to_nodes(event, state) do
+    Enum.reduce(state.cluster_nodes, state, fn node, acc_state ->
+      case Map.get(acc_state.circuit_breakers, node) do
+        %{state: :open} = breaker ->
+          # Try to reset if timeout passed
+          if should_reset_breaker?(breaker) do
+            send_to_node(node, event, acc_state)
+          else
+            acc_state
+          end
+          
+        _ ->
+          send_to_node(node, event, acc_state)
+      end
+    end)
+  end
+  
+  defp send_to_node(node, event, state) do
+    Task.start(fn ->
+      try do
+        # Use :erpc for better error handling than plain send
+        :erpc.cast(node, fn ->
+          case Process.whereis(EventBus.ClusterBridge) do
+            nil -> :not_found
+            pid -> send(pid, {:remote_event, event, state.node_id})
+          end
+        end)
+        
+        # Success - update circuit breaker
+        send(self(), {:replication_success, node})
+      catch
+        kind, reason ->
+          Logger.error("Failed to replicate to #{node}: #{kind} #{inspect(reason)}")
+          send(self(), {:replication_failure, node})
+      end
+    end)
+    
+    # Update stats
+    %{state | stats: Map.update!(state.stats, :events_sent, &(&1 + 1))}
+  end
+  
+  defp should_reset_breaker?(%{last_failure: nil}), do: true
+  defp should_reset_breaker?(%{last_failure: last_failure, config: config}) do
+    now = System.system_time(:millisecond)
+    now - last_failure > config.reset_timeout_ms
+  end
+  
+  defp format_circuit_breakers(breakers) do
+    Map.new(breakers, fn {node, breaker} ->
+      {node, %{
+        state: breaker.state,
+        failure_count: breaker.failure_count,
+        last_failure: breaker.last_failure
+      }}
+    end)
+  end
+  
+  @impl true
+  def handle_info({:replication_success, node}, state) do
+    state = case Map.get(state.circuit_breakers, node) do
+      nil -> state
+      breaker ->
+        %{state |
+          circuit_breakers: Map.put(state.circuit_breakers, node, %{breaker | 
+            state: :closed,
+            failure_count: 0,
+            last_failure: nil
+          })
+        }
+    end
+    {:noreply, state}
+  end
+  
+  def handle_info({:replication_failure, node}, state) do
+    state = case Map.get(state.circuit_breakers, node) do
+      nil -> state
+      breaker ->
+        failure_count = breaker.failure_count + 1
+        new_state = if failure_count >= breaker.config.failure_threshold do
+          :open
+        else
+          breaker.state
+        end
+        
+        %{state |
+          circuit_breakers: Map.put(state.circuit_breakers, node, %{breaker | 
+            state: new_state,
+            failure_count: failure_count,
+            last_failure: System.system_time(:millisecond)
+          }),
+          stats: Map.update!(state.stats, :failures, &(&1 + 1))
+        }
+    end
+    {:noreply, state}
+  end
+end

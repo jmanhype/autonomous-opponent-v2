@@ -59,6 +59,8 @@ defmodule AutonomousOpponentV2.MixProject do
       {:cloak_ecto, "~> 1.2"},
       {:vaultex, "~> 1.0"},
       {:pbkdf2_elixir, "~> 2.0"},
+      # Clustering for distributed EventBus
+      {:libcluster, "~> 3.3"},
       # Benchmarking
       {:benchee, "~> 1.3", only: [:dev, :test]},
       {:benchee_html, "~> 1.0", only: [:dev, :test]},
