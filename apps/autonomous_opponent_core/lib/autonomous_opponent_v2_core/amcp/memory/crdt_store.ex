@@ -477,14 +477,21 @@ defmodule AutonomousOpponentV2Core.AMCP.Memory.CRDTStore do
   
   @impl true
   def handle_cast(:discover_peers, state) do
-    # Discover peers through EventBus broadcast
-    EventBus.publish(:amcp_peer_discovery_request, %{
-      node_id: state.node_id,
-      vector_clock: state.vector_clock,
-      crdt_count: map_size(state.crdts)
-    })
+    # Use EPMD-based discovery (Issue #89)
+    if Code.ensure_loaded?(AutonomousOpponentV2Core.AMCP.Memory.EPMDDiscovery) do
+      # Trigger EPMD discovery
+      AutonomousOpponentV2Core.AMCP.Memory.EPMDDiscovery.discover_now()
+      Logger.info("CRDT peer discovery initiated via EPMD")
+    else
+      # Fallback to EventBus broadcast
+      EventBus.publish(:amcp_peer_discovery_request, %{
+        node_id: state.node_id,
+        vector_clock: state.vector_clock,
+        crdt_count: map_size(state.crdts)
+      })
+      Logger.info("CRDT peer discovery initiated via EventBus (EPMD not available)")
+    end
     
-    Logger.info("CRDT peer discovery initiated")
     {:noreply, state}
   end
 
