@@ -696,15 +696,14 @@ defmodule AutonomousOpponentV2Core.VSM.S4.VectorStore.HNSWIndex do
   end
   
   defp persist_index_internal(state) do
+    # Define variables outside if block so they're accessible in rescue
+    start_time = System.monotonic_time(:millisecond)
+    variety_pressure = calculate_variety_pressure(state)
+    
     if state.persist_path do
       alias AutonomousOpponentV2Core.VSM.S4.VectorStore.Persistence
       
       try do
-        # Track persistence start time
-        start_time = System.monotonic_time(:millisecond)
-        
-        # Check variety pressure before persistence
-        variety_pressure = calculate_variety_pressure(state)
         
         if variety_pressure > state.variety_pressure_limit do
           Logger.warning("🧠 VSM S4: High variety pressure (#{variety_pressure}), triggering emergency cleanup")

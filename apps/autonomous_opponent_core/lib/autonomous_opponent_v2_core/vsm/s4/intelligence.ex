@@ -1153,8 +1153,8 @@ defmodule AutonomousOpponentV2Core.VSM.S4.Intelligence do
       process_utilization: process_count / process_limit,
       memory_mb: total_memory / 1_048_576,
       gc_runs: memory_info[:garbage_collection][:number_of_gcs] || 0,
-      io_input: elem(io_info[:input], 0),
-      io_output: elem(io_info[:output], 0),
+      io_input: elem(elem(io_info, 0), 1),
+      io_output: elem(elem(io_info, 1), 1),
       timestamp: DateTime.utc_now()
     }
   end
