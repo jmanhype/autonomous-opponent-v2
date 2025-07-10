@@ -982,16 +982,387 @@ defmodule AutonomousOpponentV2Core.VSM.Channels.TemporalVarietyChannel do
       0.0
     end
   end
-  defp handle_temporal_pattern_detection(_pattern_data, state), do: state
-  defp handle_variety_pressure_change(_pressure_data, state), do: state
-  defp process_event_variety(_variety_data, state), do: state
-  defp apply_priority_attenuation(variety_data, _factor), do: variety_data
-  defp apply_statistical_sampling_attenuation(variety_data, _factor), do: variety_data
-  defp reduce_variety_simple(variety_data, _factor), do: variety_data
-  defp apply_pattern_highlighting_amplification(variety_data, _factor), do: variety_data
-  defp apply_temporal_acceleration_amplification(variety_data, _factor), do: variety_data
-  defp apply_importance_weighting_amplification(variety_data, _factor), do: variety_data
-  defp amplify_variety_simple(variety_data, _factor), do: variety_data
-  defp group_events_temporally(events, _window), do: [events]
-  defp sample_grouped_events(grouped_events, _factor), do: List.flatten(grouped_events)
+  defp handle_temporal_pattern_detection(pattern_data, state) do
+    # Update variety channel state based on detected temporal patterns
+    pattern_type = pattern_data[:pattern_type] || :unknown
+    severity = pattern_data[:severity] || :low
+    
+    # Update learning state based on pattern
+    new_learning_state = %{state.learning_state |
+      pattern_recognition_accuracy: update_pattern_accuracy(
+        state.learning_state.pattern_recognition_accuracy,
+        pattern_type,
+        severity
+      ),
+      last_learning_update: Clock.now()
+    }
+    
+    # Adjust attenuation rules if necessary
+    new_attenuation_rules = if severity in [:high, :critical] do
+      %{state.attenuation_rules |
+        pressure_threshold: state.attenuation_rules.pressure_threshold * 0.9,
+        max_attenuation_factor: min(0.05, state.attenuation_rules.max_attenuation_factor * 0.8)
+      }
+    else
+      state.attenuation_rules
+    end
+    
+    # Update variety flow history
+    flow_entry = %{
+      pattern_type: pattern_type,
+      severity: severity,
+      timestamp: Clock.now(),
+      response: :pattern_based_adjustment
+    }
+    
+    new_flow_history = :queue.in(flow_entry, state.variety_flow_history)
+    
+    %{state |
+      learning_state: new_learning_state,
+      attenuation_rules: new_attenuation_rules,
+      variety_flow_history: new_flow_history
+    }
+  end
+  
+  defp update_pattern_accuracy(current_accuracy, _pattern_type, severity) do
+    # Improve accuracy based on pattern detection success
+    adjustment = case severity do
+      :critical -> 0.05
+      :high -> 0.03
+      :medium -> 0.02
+      :low -> 0.01
+      _ -> 0.005
+    end
+    
+    min(1.0, current_accuracy + adjustment)
+  end
+  defp handle_variety_pressure_change(pressure_data, state) do
+    # React to variety pressure changes from other subsystems
+    new_pressure = pressure_data[:pressure] || 0.5
+    source_subsystem = pressure_data[:source] || :unknown
+    
+    # Update temporal buffers with pressure event
+    pressure_event = %{
+      type: :variety_pressure_change,
+      pressure: new_pressure,
+      source: source_subsystem,
+      timestamp: Clock.now()
+    }
+    
+    # Store in operational buffer
+    :ets.insert(state.temporal_buffers.operational.table, {
+      Clock.now(), pressure_event
+    })
+    
+    # Adjust learning rate based on pressure volatility
+    pressure_history = get_recent_pressure_history(state, 300_000)  # 5 minutes
+    volatility = calculate_pressure_volatility(pressure_history ++ [new_pressure])
+    
+    new_learning_state = %{state.learning_state |
+      adaptation_rate: adjust_adaptation_rate(state.learning_state.adaptation_rate, volatility)
+    }
+    
+    %{state | learning_state: new_learning_state}
+  end
+  
+  defp get_recent_pressure_history(state, window_ms) do
+    case Clock.now() do
+      {:ok, current_time} ->
+        cutoff = current_time.physical - window_ms
+        
+        :ets.select(state.temporal_buffers.pattern.table, [{
+          {:'$1', :'$2'},
+          [{:'>=', {:element, :physical, :'$1'}, cutoff}],
+          [:'$2']
+        }])
+        |> Enum.filter(&(&1[:type] == :variety_pressure_change))
+        |> Enum.map(&(&1[:pressure]))
+        
+      _ -> []
+    end
+  end
+  
+  defp calculate_pressure_volatility(pressures) when length(pressures) < 2, do: 0.0
+  defp calculate_pressure_volatility(pressures) do
+    mean = Enum.sum(pressures) / length(pressures)
+    
+    variance = pressures
+    |> Enum.map(fn p -> :math.pow(p - mean, 2) end)
+    |> Enum.sum()
+    |> Kernel./(length(pressures))
+    
+    :math.sqrt(variance)
+  end
+  
+  defp adjust_adaptation_rate(current_rate, volatility) do
+    # Higher volatility = faster adaptation needed
+    if volatility > 0.3 do
+      min(0.1, current_rate * 1.2)
+    else
+      max(0.001, current_rate * 0.95)
+    end
+  end
+  defp process_event_variety(variety_data, state) do
+    # Process individual event variety contributions
+    event_type = variety_data[:type] || :unknown
+    importance = variety_data[:importance] || 0.5
+    
+    # Update variety memory with event
+    memory_entry = %{
+      event_type: event_type,
+      importance: importance,
+      timestamp: Clock.now(),
+      subsystem: state.subsystem
+    }
+    
+    # Add to appropriate memory tier
+    new_variety_memory = add_to_memory_tier(state.variety_memory, memory_entry, importance)
+    
+    # Check if this creates a new pattern
+    recent_events = extract_recent_events(new_variety_memory, 1000)  # 1 second
+    if length(recent_events) > 5 do
+      # Emit potential pattern for detection
+      EventBus.publish(:variety_pattern_candidate, %{
+        subsystem: state.subsystem,
+        events: recent_events,
+        pattern_strength: calculate_pattern_strength(recent_events)
+      })
+    end
+    
+    %{state | variety_memory: new_variety_memory}
+  end
+  
+  defp add_to_memory_tier(memory, entry, importance) do
+    cond do
+      importance > 0.8 ->
+        update_in(memory.long_term.entries, &([entry | &1] |> Enum.take(memory.long_term.capacity)))
+      importance > 0.5 ->
+        update_in(memory.medium_term.entries, &([entry | &1] |> Enum.take(memory.medium_term.capacity)))
+      true ->
+        update_in(memory.short_term.entries, &([entry | &1] |> Enum.take(memory.short_term.capacity)))
+    end
+  end
+  
+  defp extract_recent_events(memory, window_ms) do
+    all_entries = memory.short_term.entries ++ 
+                  memory.medium_term.entries ++ 
+                  memory.long_term.entries
+    
+    case Clock.now() do
+      {:ok, current_time} ->
+        cutoff = current_time.physical - window_ms
+        Enum.filter(all_entries, fn entry ->
+          entry[:timestamp] && entry[:timestamp].physical >= cutoff
+        end)
+      _ -> []
+    end
+  end
+  
+  defp calculate_pattern_strength(events) do
+    # Simple pattern strength based on event clustering
+    if length(events) == 0 do
+      0.0
+    else
+      type_frequencies = events
+      |> Enum.map(&(&1[:event_type]))
+      |> Enum.frequencies()
+      |> Map.values()
+      
+      max_frequency = Enum.max(type_frequencies)
+      max_frequency / length(events)
+    end
+  end
+  defp apply_priority_attenuation(variety_data, factor) do
+    # Filter events based on priority thresholds
+    priority_cutoff = 1.0 - factor  # Higher factor = stricter filtering
+    
+    Map.update(variety_data, :events, [], fn events ->
+      events
+      |> Enum.filter(fn event ->
+        priority = event[:priority] || event[:importance] || 0.5
+        priority >= priority_cutoff
+      end)
+      |> Enum.sort_by(&(&1[:priority] || &1[:importance] || 0.5), :desc)
+    end)
+  end
+  defp apply_statistical_sampling_attenuation(variety_data, factor) do
+    # Use reservoir sampling to reduce variety while maintaining statistical properties
+    sample_size = max(1, round(length(Map.get(variety_data, :events, [])) * factor))
+    
+    Map.update(variety_data, :events, [], fn events ->
+      reservoir_sample(events, sample_size)
+    end)
+  end
+  
+  defp reservoir_sample(events, k) when length(events) <= k, do: events
+  defp reservoir_sample(events, k) do
+    # Knuth's Algorithm R for reservoir sampling
+    {reservoir, rest} = Enum.split(events, k)
+    
+    {final_reservoir, _} = Enum.reduce(rest, {reservoir, k + 1}, fn event, {res, i} ->
+      j = :rand.uniform(i)
+      new_res = if j <= k do
+        List.replace_at(res, j - 1, event)
+      else
+        res
+      end
+      {new_res, i + 1}
+    end)
+    
+    final_reservoir
+  end
+  defp reduce_variety_simple(variety_data, factor) do
+    # Simple reduction by taking only a percentage of events
+    Map.update(variety_data, :events, [], fn events ->
+      take_count = max(1, round(length(events) * factor))
+      Enum.take(events, take_count)
+    end)
+  end
+  defp apply_pattern_highlighting_amplification(variety_data, factor) do
+    # Amplify events that are part of recognized patterns
+    Map.update(variety_data, :events, [], fn events ->
+      events
+      |> Enum.map(fn event ->
+        if event[:part_of_pattern] do
+          # Boost weight and importance for pattern events
+          event
+          |> Map.update(:weight, 1.0, &(&1 * factor))
+          |> Map.update(:importance, 0.5, &(min(1.0, &1 * factor)))
+          |> Map.put(:amplified, true)
+        else
+          event
+        end
+      end)
+    end)
+  end
+  defp apply_temporal_acceleration_amplification(variety_data, factor) do
+    # Accelerate processing of time-sensitive events
+    Map.update(variety_data, :events, [], fn events ->
+      events
+      |> Enum.map(fn event ->
+        if event[:time_sensitive] || event[:urgency] == :high do
+          # Adjust timestamps to simulate acceleration
+          case event[:timestamp] do
+            %{physical: physical} = timestamp ->
+              accelerated_time = round(physical / factor)
+              %{event | 
+                timestamp: %{timestamp | physical: accelerated_time},
+                processing_priority: :immediate,
+                acceleration_factor: factor
+              }
+            _ -> event
+          end
+        else
+          event
+        end
+      end)
+      |> Enum.sort_by(&(&1[:processing_priority] == :immediate), :desc)
+    end)
+  end
+  defp apply_importance_weighting_amplification(variety_data, factor) do
+    # Weight events by importance scores
+    Map.update(variety_data, :events, [], fn events ->
+      # Calculate importance distribution
+      importances = Enum.map(events, &(&1[:importance] || 0.5))
+      avg_importance = if length(importances) > 0 do
+        Enum.sum(importances) / length(importances)
+      else
+        0.5
+      end
+      
+      events
+      |> Enum.map(fn event ->
+        importance = event[:importance] || 0.5
+        if importance > avg_importance do
+          # Amplify above-average importance events
+          weight_boost = 1.0 + ((importance - avg_importance) * factor)
+          Map.update(event, :weight, 1.0, &(&1 * weight_boost))
+        else
+          event
+        end
+      end)
+    end)
+  end
+  defp amplify_variety_simple(variety_data, factor) do
+    # Simple amplification by duplicating important events
+    Map.update(variety_data, :events, [], fn events ->
+      events
+      |> Enum.flat_map(fn event ->
+        importance = event[:importance] || 0.5
+        if importance > 0.7 && factor > 1.0 do
+          # Duplicate high-importance events based on factor
+          duplicate_count = min(round(factor), 3)  # Cap at 3 duplicates
+          List.duplicate(Map.put(event, :amplified_copy, true), duplicate_count)
+        else
+          [event]
+        end
+      end)
+    end)
+  end
+  defp group_events_temporally(events, window_ms) do
+    # Group events into temporal windows
+    if length(events) == 0 do
+      []
+    else
+      events
+      |> Enum.sort_by(fn event ->
+        case event[:timestamp] do
+          %{physical: physical} -> physical
+          _ -> 0
+        end
+      end)
+      |> Enum.reduce([], fn event, groups ->
+        event_time = case event[:timestamp] do
+          %{physical: physical} -> physical
+          _ -> 0
+        end
+        
+        case groups do
+          [] -> [[event]]
+          [current_group | rest] ->
+            last_event = List.last(current_group)
+            last_time = case last_event[:timestamp] do
+              %{physical: physical} -> physical
+              _ -> 0
+            end
+            
+            if event_time - last_time <= window_ms do
+              # Add to current group
+              [[event | current_group] | rest]
+            else
+              # Start new group
+              [[event] | groups]
+            end
+        end
+      end)
+      |> Enum.map(&Enum.reverse/1)
+      |> Enum.reverse()
+    end
+  end
+  defp sample_grouped_events(grouped_events, factor) do
+    # Sample representatives from each temporal group
+    grouped_events
+    |> Enum.flat_map(fn group ->
+      group_size = length(group)
+      sample_size = max(1, round(group_size * factor))
+      
+      if sample_size >= group_size do
+        group
+      else
+        # Take evenly distributed samples from the group
+        indices = if sample_size == 1 do
+          [div(group_size, 2)]  # Take middle element
+        else
+          step = group_size / sample_size
+          Enum.map(0..(sample_size - 1), fn i ->
+            round(i * step)
+          end)
+        end
+        
+        indices
+        |> Enum.map(&Enum.at(group, &1))
+        |> Enum.filter(&(&1 != nil))
+      end
+    end)
+  end
 end

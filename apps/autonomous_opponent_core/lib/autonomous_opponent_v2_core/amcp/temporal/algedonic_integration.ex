@@ -883,8 +883,202 @@ defmodule AutonomousOpponentV2Core.AMCP.Temporal.AlgedonicIntegration do
     end
   end
   
-  defp record_pain_response_time(_start_time, state), do: state
-  defp record_pleasure_response_time(_start_time, state), do: state
-  defp process_variety_pattern_for_algedonic_response(_pattern_data, state), do: state
-  defp process_algedonic_feedback(_feedback_data, state), do: state
+  defp record_pain_response_time(start_time, state) do
+    # Record how long it took to respond to pain signal
+    response_time = System.monotonic_time(:microsecond) - start_time
+    
+    # Update response time history
+    new_history = update_in(state.algedonic_history, fn history ->
+      pain_response_times = Map.get(history, :pain_response_times, [])
+      
+      # Keep last 100 response times
+      updated_times = [response_time | pain_response_times] |> Enum.take(100)
+      
+      Map.put(history, :pain_response_times, updated_times)
+    end)
+    
+    # Calculate moving average
+    avg_response_time = if length(new_history.pain_response_times) > 0 do
+      Enum.sum(new_history.pain_response_times) / length(new_history.pain_response_times)
+    else
+      response_time
+    end
+    
+    # Emit metrics
+    Metrics.histogram(__MODULE__, "pain_response_time_us", response_time)
+    Metrics.gauge(__MODULE__, "avg_pain_response_time_us", avg_response_time)
+    
+    # Check if response time is degrading
+    if avg_response_time > 10_000 do  # 10ms threshold
+      Logger.warning("Pain response time degrading: #{round(avg_response_time / 1000)}ms average")
+    end
+    
+    %{state | algedonic_history: new_history}
+  end
+  defp record_pleasure_response_time(start_time, state) do
+    # Record how long it took to process pleasure signal
+    response_time = System.monotonic_time(:microsecond) - start_time
+    
+    # Update response time history
+    new_history = update_in(state.algedonic_history, fn history ->
+      pleasure_response_times = Map.get(history, :pleasure_response_times, [])
+      
+      # Keep last 100 response times
+      updated_times = [response_time | pleasure_response_times] |> Enum.take(100)
+      
+      Map.put(history, :pleasure_response_times, updated_times)
+    end)
+    
+    # Emit metrics
+    Metrics.histogram(__MODULE__, "pleasure_response_time_us", response_time)
+    
+    # Pleasure responses can be slower, log only if extremely slow
+    if response_time > 100_000 do  # 100ms threshold
+      Logger.info("Slow pleasure response: #{round(response_time / 1000)}ms")
+    end
+    
+    %{state | algedonic_history: new_history}
+  end
+  defp process_variety_pattern_for_algedonic_response(pattern_data, state) do
+    # Convert variety patterns into algedonic signals
+    pattern_name = pattern_data[:pattern_name]
+    severity = pattern_data[:severity] || :low
+    subsystem = pattern_data[:subsystem]
+    
+    # Map variety patterns to algedonic responses
+    algedonic_mapping = %{
+      variety_flood: {:pain, 0.9, :immediate},
+      variety_drought: {:pain, 0.7, :delayed},
+      variety_oscillation: {:pain, 0.8, :immediate},
+      variety_balance: {:pleasure, 0.7, :reinforcement},
+      variety_optimization: {:pleasure, 0.8, :reinforcement}
+    }
+    
+    case Map.get(algedonic_mapping, pattern_name) do
+      {signal_type, base_intensity, response_type} ->
+        # Adjust intensity based on severity
+        intensity_multiplier = case severity do
+          :critical -> 1.2
+          :high -> 1.1
+          :medium -> 1.0
+          :low -> 0.9
+          _ -> 0.8
+        end
+        
+        final_intensity = min(1.0, base_intensity * intensity_multiplier)
+        
+        # Create algedonic signal
+        signal = %{
+          type: signal_type,
+          source: :variety_pattern,
+          pattern_name: pattern_name,
+          subsystem: subsystem,
+          intensity: final_intensity,
+          response_type: response_type,
+          timestamp: Clock.now()
+        }
+        
+        # Emit the signal
+        emit_algedonic_signal(signal)
+        
+        # Update pattern correlation cache
+        correlation_key = {pattern_name, signal_type}
+        correlation_data = %{
+          last_occurrence: Clock.now(),
+          occurrences: get_correlation_count(state, correlation_key) + 1,
+          average_intensity: update_average_intensity(state, correlation_key, final_intensity)
+        }
+        
+        :ets.insert(state.pattern_correlation_cache, {correlation_key, correlation_data})
+        
+        state
+        
+      nil ->
+        # Unknown pattern, no algedonic response
+        state
+    end
+  end
+  
+  defp get_correlation_count(state, key) do
+    case :ets.lookup(state.pattern_correlation_cache, key) do
+      [{^key, data}] -> data[:occurrences] || 0
+      _ -> 0
+    end
+  end
+  
+  defp update_average_intensity(state, key, new_intensity) do
+    case :ets.lookup(state.pattern_correlation_cache, key) do
+      [{^key, data}] ->
+        old_avg = data[:average_intensity] || new_intensity
+        count = data[:occurrences] || 0
+        (old_avg * count + new_intensity) / (count + 1)
+      _ ->
+        new_intensity
+    end
+  end
+  defp process_algedonic_feedback(feedback_data, state) do
+    # Process feedback about algedonic signal effectiveness
+    signal_id = feedback_data[:signal_id]
+    effectiveness = feedback_data[:effectiveness] || 0.5
+    outcome = feedback_data[:outcome] || :neutral
+    
+    # Update learning state based on feedback
+    pattern_type = feedback_data[:pattern_type]
+    if pattern_type do
+      # Update success rate for this pattern type
+      new_learning_state = update_in(
+        state.learning_state.pattern_success_rate,
+        [pattern_type],
+        fn current_rate ->
+          if current_rate do
+            # Running average
+            (current_rate * 0.9) + (effectiveness * 0.1)
+          else
+            effectiveness
+          end
+        end
+      )
+      
+      # Adjust thresholds if pattern consistently effective or ineffective
+      success_rate = new_learning_state.pattern_success_rate[pattern_type]
+      
+      threshold_adjustment = cond do
+        success_rate > 0.8 && outcome == :positive ->
+          # Pattern is very effective, can be more sensitive
+          %{state.adaptive_thresholds | 
+            pain_escalation_rate: state.adaptive_thresholds.pain_escalation_rate * 0.95}
+          
+        success_rate < 0.3 && outcome == :negative ->
+          # Pattern is ineffective, need to be less sensitive
+          %{state.adaptive_thresholds |
+            pain_escalation_rate: state.adaptive_thresholds.pain_escalation_rate * 1.05}
+          
+        true ->
+          state.adaptive_thresholds
+      end
+      
+      # Log significant learning events
+      if abs(success_rate - 0.5) > 0.3 do
+        Logger.info("Algedonic learning: #{pattern_type} effectiveness = #{Float.round(success_rate, 2)}")
+      end
+      
+      %{state |
+        learning_state: %{state.learning_state |
+          pattern_success_rate: new_learning_state.pattern_success_rate,
+          correlation_accuracy: update_correlation_accuracy(
+            state.learning_state.correlation_accuracy,
+            effectiveness
+          )
+        },
+        adaptive_thresholds: threshold_adjustment
+      }
+    else
+      state
+    end
+  end
+  
+  defp update_correlation_accuracy(current_accuracy, effectiveness) do
+    # Weighted average favoring recent effectiveness
+    (current_accuracy * 0.95) + (effectiveness * 0.05)
+  end
 end

@@ -912,8 +912,6 @@ defmodule AutonomousOpponentV2Core.AMCP.Temporal.PatternDetector do
     end
   end
   
-  defp detect_pattern_break_anomaly(_events, _pattern_name, _pattern_spec, _state), do: []
-  defp detect_timing_anomaly(_events, _pattern_name, _pattern_spec), do: []
   defp detect_coordination_breakdown(events, pattern_name, pattern_spec, state) do
     s2_failure_rate = pattern_spec[:s2_failure_rate] || 0.7
     s1_overload_correlation = pattern_spec[:s1_overload_correlation] || true
@@ -1589,6 +1587,135 @@ defmodule AutonomousOpponentV2Core.AMCP.Temporal.PatternDetector do
     end
   end
   
-  defp detect_pattern_break_anomaly(_events, _pattern_name, _pattern_spec, _state), do: []
-  defp detect_timing_anomaly(_events, _pattern_name, _pattern_spec), do: []
+  defp detect_pattern_break_anomaly(events, pattern_name, pattern_spec, state) do
+    # Detect when an established pattern suddenly stops occurring
+    expected_pattern = pattern_spec[:expected_pattern] || :unknown
+    min_occurrences = pattern_spec[:min_occurrences] || 5
+    break_threshold_ms = pattern_spec[:break_threshold_ms] || 30_000
+    
+    # Get historical pattern data from state
+    pattern_history = Map.get(state.pattern_history, expected_pattern, [])
+    
+    if length(pattern_history) >= min_occurrences do
+      # Calculate average interval between pattern occurrences
+      intervals = pattern_history
+      |> Enum.chunk_every(2, 1, :discard)
+      |> Enum.map(fn [a, b] -> 
+        case {a[:timestamp], b[:timestamp]} do
+          {%{physical: t1}, %{physical: t2}} -> abs(t2 - t1)
+          _ -> 0
+        end
+      end)
+      |> Enum.filter(&(&1 > 0))
+      
+      if length(intervals) > 0 do
+        avg_interval = Enum.sum(intervals) / length(intervals)
+        expected_interval = avg_interval * 1.5  # Allow 50% variance
+        
+        # Check if pattern hasn't occurred recently
+        case {Clock.now(), List.first(pattern_history)} do
+          {{:ok, current_time}, %{timestamp: last_occurrence}} ->
+            time_since_last = current_time.physical - last_occurrence.physical
+            
+            if time_since_last > max(expected_interval, break_threshold_ms) do
+              [%{
+                pattern_type: :pattern_break_anomaly,
+                pattern_name: pattern_name,
+                expected_pattern: expected_pattern,
+                average_interval_ms: round(avg_interval),
+                time_since_last_ms: time_since_last,
+                break_severity: calculate_break_severity(time_since_last, avg_interval),
+                historical_occurrences: length(pattern_history),
+                timestamp: current_time
+              }]
+            else
+              []
+            end
+            
+          _ -> []
+        end
+      else
+        []
+      end
+    else
+      []
+    end
+  end
+  
+  defp calculate_break_severity(time_since_last, avg_interval) do
+    ratio = time_since_last / avg_interval
+    cond do
+      ratio >= 10.0 -> :critical
+      ratio >= 5.0 -> :high
+      ratio >= 3.0 -> :medium
+      ratio >= 2.0 -> :low
+      true -> :minimal
+    end
+  end
+  
+  defp detect_timing_anomaly(events, pattern_name, pattern_spec) do
+    # Detect when event timing deviates from expected patterns
+    event_type = pattern_spec[:event_type] || :any
+    expected_interval_ms = pattern_spec[:expected_interval_ms] || 1_000
+    tolerance_percent = pattern_spec[:tolerance_percent] || 20
+    min_events = pattern_spec[:min_events] || 3
+    
+    # Filter relevant events
+    filtered_events = if event_type == :any do
+      events
+    else
+      Enum.filter(events, fn event -> event[:type] == event_type end)
+    end
+    
+    if length(filtered_events) >= min_events do
+      # Order events by timestamp
+      ordered_events = Clock.order_events(filtered_events)
+      
+      # Calculate intervals between consecutive events
+      timing_anomalies = ordered_events
+      |> Enum.chunk_every(2, 1, :discard)
+      |> Enum.map(fn [a, b] ->
+        case {a[:timestamp], b[:timestamp]} do
+          {%{physical: t1}, %{physical: t2}} ->
+            interval = t2 - t1
+            deviation = abs(interval - expected_interval_ms)
+            deviation_percent = (deviation / expected_interval_ms) * 100
+            
+            if deviation_percent > tolerance_percent do
+              %{
+                pattern_type: :timing_anomaly,
+                pattern_name: pattern_name,
+                event_type: event_type,
+                expected_interval_ms: expected_interval_ms,
+                actual_interval_ms: interval,
+                deviation_percent: round(deviation_percent),
+                anomaly_type: categorize_timing_anomaly(interval, expected_interval_ms),
+                events: [a, b],
+                timestamp: b[:timestamp]
+              }
+            else
+              nil
+            end
+            
+          _ -> nil
+        end
+      end)
+      |> Enum.filter(&(&1 != nil))
+      
+      timing_anomalies
+    else
+      []
+    end
+  end
+  
+  defp categorize_timing_anomaly(actual, expected) do
+    ratio = actual / expected
+    cond do
+      ratio < 0.5 -> :too_fast
+      ratio > 2.0 -> :too_slow
+      ratio < 0.8 -> :slightly_fast
+      ratio > 1.2 -> :slightly_slow
+      true -> :normal
+    end
+  end
 end
