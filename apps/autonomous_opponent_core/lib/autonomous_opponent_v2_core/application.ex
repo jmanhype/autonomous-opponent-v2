@@ -51,6 +51,8 @@ defmodule AutonomousOpponentV2Core.Application do
       AutonomousOpponentV2Core.AMCP.Memory.CRDTStore,
       # CRDT Sync Monitor for safe peer synchronization
       AutonomousOpponentV2Core.AMCP.Memory.CRDTSyncMonitor,
+      # EPMD-based CRDT peer discovery (Issue #89)
+      AutonomousOpponentV2Core.AMCP.Memory.EPMDDiscovery,
       # LLM Response Cache (must start before LLMBridge)
       AutonomousOpponentV2Core.AMCP.Bridges.LLMCache,
       # LLM Bridge for multi-provider AI integration - RE-ENABLED

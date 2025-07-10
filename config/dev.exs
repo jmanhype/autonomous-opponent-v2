@@ -170,3 +170,20 @@ config :autonomous_opponent_core,
   redis_circuit_failure_threshold: 5,
   redis_circuit_recovery_time_ms: 30_000,
   redis_circuit_timeout_ms: 5_000
+
+
+# EPMD-based CRDT Node Discovery (Issue #89)
+config :autonomous_opponent_core, AutonomousOpponentV2Core.AMCP.Memory.EPMDDiscovery,
+  enabled: true,
+  discovery_interval: 10_000,  # 10 seconds as per issue requirement
+  max_peers: 100,
+  stability_threshold: 3,  # Node must be seen this many times before being added as peer
+  sync_cooldown_ms: 1_000,  # Minimum milliseconds between sync operations (prevents sync storms)
+  # Node filter - only accept nodes with 'autonomous' prefix by default
+  node_filter: fn node ->
+    node_str = to_string(node)
+    String.contains?(node_str, "autonomous") or 
+    String.contains?(node_str, "crdt") or
+    String.contains?(node_str, "test")
+  end
+
