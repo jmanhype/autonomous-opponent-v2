@@ -96,8 +96,12 @@ defmodule AutonomousOpponentV2Core.VSM.S4.VectorStore.Persistence do
         binary = File.read!(path)
         persistence_data = :erlang.binary_to_term(binary)
         
-        # Version check and migration
-        index_version = persistence_data[:version] || persistence_data[:legacy_version] || 1
+        # Version check and migration - handle both Map and Keyword list formats
+        index_version = cond do
+          is_map(persistence_data) -> persistence_data[:version] || persistence_data[:legacy_version] || 1
+          Keyword.keyword?(persistence_data) -> Keyword.get(persistence_data, :version, Keyword.get(persistence_data, :legacy_version, 1))
+          true -> 1
+        end
         
         cond do
           index_version > @index_version ->
@@ -190,7 +194,24 @@ defmodule AutonomousOpponentV2Core.VSM.S4.VectorStore.Persistence do
   end
   
   defp load_ets_table(table, path) do
-    {:ok, ^table} = :ets.file2tab(String.to_charlist(path), [{:verify, true}])
+    case :ets.file2tab(String.to_charlist(path), [{:verify, true}]) do
+      {:ok, loaded_table} ->
+        # Copy data from loaded table to our table
+        :ets.foldl(
+          fn item, acc ->
+            :ets.insert(table, item)
+            acc
+          end,
+          :ok,
+          loaded_table
+        )
+        # Delete the temporary loaded table
+        :ets.delete(loaded_table)
+        :ok
+      
+      {:error, _} = error ->
+        error
+    end
   end
   
   defp graph_path(base_path), do: base_path <> ".graph"
@@ -249,24 +270,33 @@ defmodule AutonomousOpponentV2Core.VSM.S4.VectorStore.Persistence do
     data_table = :ets.new(:hnsw_data_loaded, [:set, :protected])
     level_table = :ets.new(:hnsw_levels_loaded, [:set, :protected])
     
-    # Load ETS data
-    load_ets_table(graph, graph_path(path))
-    load_ets_table(data_table, data_path(path))
-    load_ets_table(level_table, level_path(path))
-    
-    # Add timestamps to metadata if missing (for pattern expiry)
-    maybe_add_timestamps(data_table)
-    
-    # Reconstruct state
-    state = Map.merge(persistence_data.index_state, %{
-      graph: graph,
-      data_table: data_table,
-      level_table: level_table,
-      distance_fn: get_distance_function(persistence_data.metadata.distance_metric)
-    })
-    
-    Logger.info("HNSW index loaded from #{path} (#{state.node_count} nodes, v#{@index_version})")
-    {:ok, state}
+    # Load ETS data with error handling
+    with :ok <- load_ets_table(graph, graph_path(path)),
+         :ok <- load_ets_table(data_table, data_path(path)),
+         :ok <- load_ets_table(level_table, level_path(path)) do
+      
+      # Add timestamps to metadata if missing (for pattern expiry)
+      maybe_add_timestamps(data_table)
+      
+      # Reconstruct state
+      state = Map.merge(persistence_data.index_state, %{
+        graph: graph,
+        data_table: data_table,
+        level_table: level_table,
+        distance_fn: get_distance_function(persistence_data.metadata.distance_metric)
+      })
+      
+      Logger.info("HNSW index loaded from #{path} (#{state.node_count} nodes, v#{@index_version})")
+      {:ok, state}
+    else
+      {:error, reason} = error ->
+        # Clean up tables on error
+        :ets.delete(graph)
+        :ets.delete(data_table)
+        :ets.delete(level_table)
+        Logger.error("Failed to load ETS tables: #{inspect(reason)}")
+        error
+    end
   end
   
   defp load_migrated_index(migrated_data, path) do

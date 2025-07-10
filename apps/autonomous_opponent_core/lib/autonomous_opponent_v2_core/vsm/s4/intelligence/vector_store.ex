@@ -26,7 +26,7 @@ defmodule AutonomousOpponentV2Core.VSM.S4.Intelligence.VectorStore do
   
   alias AutonomousOpponentV2Core.EventBus
   alias AutonomousOpponentV2Core.VSM.S4.Intelligence.VectorStore.Quantizer
-  # alias AutonomousOpponentV2Core.VSM.S4.Intelligence.VectorStore.HNSWInterface  # Future use
+  alias AutonomousOpponentV2Core.VSM.S4.VectorStore.HNSWIndex
   
   defstruct [
     :id,
@@ -79,10 +79,44 @@ defmodule AutonomousOpponentV2Core.VSM.S4.Intelligence.VectorStore do
       accuracy_target: opts[:accuracy_target] || 0.9
     )
     
+    # Start HNSW index with persistence if configured
+    hnsw_ref = if opts[:hnsw_enabled] do
+      hnsw_name = :"#{id}_hnsw"
+      persist_path = opts[:persist_path] || "priv/vector_store/#{id}_hnsw"
+      
+      {:ok, hnsw_pid} = HNSWIndex.start_link(
+        name: hnsw_name,
+        m: opts[:hnsw_m] || 16,
+        ef: opts[:hnsw_ef] || 200,
+        distance_metric: :cosine,
+        persist_path: persist_path,
+        persist_interval: opts[:persist_interval] || :timer.minutes(5),
+        persist_on_shutdown: opts[:persist_on_shutdown] || true,
+        persist_async: opts[:persist_async] || true,
+        max_patterns: opts[:max_patterns] || 100_000,
+        pattern_confidence_threshold: opts[:pattern_confidence_threshold] || 0.7,
+        variety_pressure_limit: opts[:variety_pressure_limit] || 0.8,
+        pain_pattern_retention: opts[:pain_pattern_retention] || :timer.days(7),
+        eventbus_integration: opts[:eventbus_integration] || true,
+        circuitbreaker_protection: opts[:circuitbreaker_protection] || true,
+        telemetry_enabled: opts[:telemetry_enabled] || true,
+        algedonic_integration: opts[:algedonic_integration] || true,
+        backup_retention: opts[:backup_retention] || 3,
+        corruption_recovery: opts[:corruption_recovery] || true,
+        prune_interval: opts[:prune_interval] || :timer.hours(1),
+        prune_max_age: opts[:prune_max_age] || :timer.hours(24),
+        prune_low_confidence_age: opts[:prune_low_confidence_age] || :timer.hours(6),
+        checkpoint_size_threshold: opts[:checkpoint_size_threshold] || 50_000_000
+      )
+      hnsw_pid
+    else
+      nil
+    end
+    
     state = %__MODULE__{
       id: id,
       quantizer: quantizer,
-      index_ref: nil,  # HNSW will be initialized when implemented
+      index_ref: hnsw_ref,
       vector_dim: vector_dim,
       pattern_vectors: %{},
       metrics: init_metrics()
