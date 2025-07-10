@@ -79,6 +79,8 @@ defmodule AutonomousOpponentV2Web.Router do
   # Prometheus metrics endpoint (no CSRF protection needed)
   scope "/", AutonomousOpponentV2Web do
     get "/metrics", MetricsController, :index
+    get "/metrics/cluster", MetricsController, :cluster
+    get "/metrics/vsm_health", MetricsController, :vsm_health
   end
   
   # Health check endpoint
