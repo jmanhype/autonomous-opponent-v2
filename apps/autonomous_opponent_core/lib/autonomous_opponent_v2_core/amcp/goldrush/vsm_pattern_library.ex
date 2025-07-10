@@ -12,7 +12,6 @@ defmodule AutonomousOpponentV2Core.AMCP.Goldrush.VSMPatternLibrary do
   - Response: algedonic signals, recovery strategies
   """
   
-  alias AutonomousOpponentV2Core.VSM.Clock
   
   # ============================================================================
   # CYBERNETIC FAILURE PATTERNS (Beer's VSM Theory)
@@ -475,23 +474,9 @@ defmodule AutonomousOpponentV2Core.AMCP.Goldrush.VSMPatternLibrary do
   @doc """
   Convert pattern to PatternMatcher format.
   """
-  def to_pattern_matcher_format(pattern_name, pattern) do
-    %{
-      name: pattern_name,
-      type: pattern.type,
-      description: pattern.description,
-      metadata: %{
-        domain: pattern.domain,
-        severity: pattern.severity,
-        detection: pattern.detection,
-        algedonic_response: Map.get(pattern, :algedonic_response),
-        mitigation: Map.get(pattern, :mitigation),
-        variety_engineering: Map.get(pattern, :variety_engineering),
-        vsm_impact: Map.get(pattern, :vsm_impact),
-        technical_details: Map.get(pattern, :technical_details)
-      },
-      conditions: build_conditions(pattern)
-    }
+  def to_pattern_matcher_format(_pattern_name, pattern) do
+    # Return the conditions directly - PatternMatcher expects this format
+    build_conditions(pattern)
   end
   
   @doc """
@@ -513,37 +498,57 @@ defmodule AutonomousOpponentV2Core.AMCP.Goldrush.VSMPatternLibrary do
   # ============================================================================
   
   defp build_conditions(pattern) do
-    detection = pattern.detection
-    
-    base_conditions = []
-    
-    # Add threshold conditions
-    conditions1 = if threshold = detection[:threshold] do
-      [{:threshold, threshold} | base_conditions]
-    else
-      base_conditions
-    end
-    
-    # Add indicator conditions
-    conditions2 = if indicators = detection[:indicators] do
-      [{:indicators, indicators} | conditions1]
-    else
-      conditions1
-    end
-    
-    # Add specific pattern conditions based on type
+    # Build conditions that PatternMatcher can understand
+    # For now, return a simple pattern based on type
     case pattern.type do
       :variety_overflow ->
-        [{:variety_ratio, "> 1.5"} | conditions2]
+        %{
+          and: [
+            %{variety_ratio: %{gte: 1.5}},
+            %{s1_variety_buffer: %{gt: 1000}},
+            %{processing_latency: %{gt: 1000}},
+            %{message_queue_length: %{gt: 10_000}}
+          ]
+        }
       
       :control_loop_oscillation ->
-        [{:oscillation_detected, true}, {:frequency, "> 0.5"} | conditions2]
-      
-      :circuit_breaker_pain_loop ->
-        [{:pain_correlation, "> 0.7"}, {:feedback_detected, true} | conditions2]
-      
+        %{
+          and: [
+            %{type: :s3_control},
+            %{frequency: %{gte: 0.5}},
+            %{amplitude: %{gte: 0.3}}
+          ]
+        }
+        
+      :metasystemic_cascade ->
+        %{
+          and: [
+            %{type: :subsystem_failure},
+            %{failure_rate: %{gte: 0.7}}
+          ]
+        }
+        
+      :genserver_mailbox_overflow ->
+        %{
+          and: [
+            %{message_queue_len: %{gt: 10_000}},
+            %{process_memory: %{gt: 100_000_000}}
+          ]
+        }
+        
+      :ets_table_overflow ->
+        %{
+          table_size: %{gt: 1_000_000}
+        }
+        
+      :supervisor_cascade_failure ->
+        %{
+          restarts: %{gt: 10}
+        }
+        
       _ ->
-        conditions2
+        # Default simple pattern matching on type
+        %{type: pattern.type}
     end
   end
 end
