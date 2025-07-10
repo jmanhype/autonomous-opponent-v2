@@ -94,8 +94,9 @@ defmodule AutonomousOpponentV2Core.AMCP.Goldrush.PatternRegistry do
     GenServer.call(__MODULE__, {:evaluate_event, event})
   end
   
-  def evaluate_event(_invalid_event) do
-    {:ok, []}
+  def evaluate_event(invalid_event) do
+    Logger.warning("Invalid event passed to evaluate_event: #{inspect(invalid_event)}")
+    {:error, :invalid_event}
   end
   
   @doc """
@@ -381,7 +382,7 @@ defmodule AutonomousOpponentV2Core.AMCP.Goldrush.PatternRegistry do
       severity = get_pattern_severity(pattern)
       
       new_active = MapSet.put(state.active_patterns, pattern_name)
-      new_order = update_evaluation_order(state.evaluation_order, pattern_name, severity)
+      new_order = update_evaluation_order(state.evaluation_order, pattern_name, severity, state)
       
       new_state = %{state |
         active_patterns: new_active,
@@ -491,7 +492,7 @@ defmodule AutonomousOpponentV2Core.AMCP.Goldrush.PatternRegistry do
   end
   
   
-  defp update_evaluation_order(current_order, pattern_name, severity) do
+  defp update_evaluation_order(current_order, pattern_name, severity, state) do
     # Remove if already present
     filtered = List.delete(current_order, pattern_name)
     
@@ -508,7 +509,14 @@ defmodule AutonomousOpponentV2Core.AMCP.Goldrush.PatternRegistry do
     case priority_index do
       0 -> [pattern_name | filtered]  # Critical goes first
       1 -> 
-        {critical, rest} = Enum.split_with(filtered, &String.contains?(to_string(&1), "critical"))
+        # Split patterns based on their severity
+        {critical, rest} = Enum.split_with(filtered, fn name ->
+          # Look up the pattern's severity from the stored patterns in state
+          case Map.get(state.patterns, name) do
+            nil -> false
+            pattern -> get_pattern_severity(pattern) == :critical
+          end
+        end)
         critical ++ [pattern_name | rest]
       _ -> filtered ++ [pattern_name]  # Others go at end
     end

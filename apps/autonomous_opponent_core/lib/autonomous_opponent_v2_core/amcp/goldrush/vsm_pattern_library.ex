@@ -475,8 +475,10 @@ defmodule AutonomousOpponentV2Core.AMCP.Goldrush.VSMPatternLibrary do
   Convert pattern to PatternMatcher format.
   """
   def to_pattern_matcher_format(_pattern_name, pattern) do
-    # Return the conditions directly - PatternMatcher expects this format
-    build_conditions(pattern)
+    # PatternMatcher expects just the pattern conditions for compilation
+    pattern_data = build_conditions(pattern)
+    # Extract only the conditions part for PatternMatcher
+    pattern_data.conditions
   end
   
   @doc """
@@ -492,15 +494,42 @@ defmodule AutonomousOpponentV2Core.AMCP.Goldrush.VSMPatternLibrary do
     end)
     |> Enum.into(%{})
   end
+
+  @doc """
+  Get a specific pattern by domain and name, supporting aliases.
+  """
+  def get_pattern(domain, name) when domain in [:cybernetic, :integration, :technical, :distributed] do
+    # First check for aliases
+    resolved_name = resolve_pattern_alias(name)
+    
+    # Then look up the pattern
+    patterns = Map.get(all_patterns(), domain, %{})
+    Map.get(patterns, resolved_name)
+  end
+
+  @doc """
+  Pattern aliases for issue #86 compliance.
+  Maps alternative names to canonical pattern names.
+  """
+  def pattern_aliases do
+    %{
+      system_overload: :variety_overflow,
+      resource_starvation: :rate_limiter_variety_starvation
+    }
+  end
   
   # ============================================================================
   # PRIVATE FUNCTIONS
   # ============================================================================
+
+  defp resolve_pattern_alias(name) do
+    Map.get(pattern_aliases(), name, name)
+  end
   
   defp build_conditions(pattern) do
     # Build conditions that PatternMatcher can understand
-    # For now, return a simple pattern based on type
-    case pattern.type do
+    # Return consistent structure for all patterns
+    conditions = case pattern.type do
       :variety_overflow ->
         %{
           and: [
@@ -538,17 +567,31 @@ defmodule AutonomousOpponentV2Core.AMCP.Goldrush.VSMPatternLibrary do
         
       :ets_table_overflow ->
         %{
-          table_size: %{gt: 1_000_000}
+          and: [
+            %{table_size: %{gt: 1_000_000}}
+          ]
         }
         
       :supervisor_cascade_failure ->
         %{
-          restarts: %{gt: 10}
+          and: [
+            %{restarts: %{gt: 10}}
+          ]
         }
         
       _ ->
-        # Default simple pattern matching on type
-        %{type: pattern.type}
+        # Default pattern with consistent structure
+        %{
+          and: [
+            %{type: pattern.type}
+          ]
+        }
     end
+    
+    # Return standardized format with type and conditions
+    %{
+      type: pattern.type,
+      conditions: conditions
+    }
   end
 end

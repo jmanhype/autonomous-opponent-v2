@@ -1,11 +1,22 @@
 #!/usr/bin/env elixir
 
 # Demo script showing VSM Pattern Library in action
+#
+# Prerequisites:
+# 1. Ensure RabbitMQ is running (or set AMQP_ENABLED=false)
+# 2. Run: mix compile
+# 3. Execute: mix run demo_vsm_patterns.exs
 
 IO.puts("\n=== VSM PATTERN LIBRARY DEMO ===\n")
 
-# Load the application
-{:ok, _} = Application.ensure_all_started(:autonomous_opponent_core)
+# Load the application with error handling
+case Application.ensure_all_started(:autonomous_opponent_core) do
+  {:ok, _} -> 
+    IO.puts("✓ Application started successfully")
+  {:error, reason} -> 
+    IO.puts("✗ Failed to start: #{inspect(reason)}")
+    System.halt(1)
+end
 
 # Give the system time to initialize
 Process.sleep(1000)
@@ -40,21 +51,33 @@ EventBus.subscribe(:vsm_events)
 EventBus.subscribe(:algedonic_signals)
 EventBus.subscribe(:pattern_matches)
 
-# Monitor in background
+# Monitor in background with statistics tracking
+event_count = :counters.new(1, [])
+pattern_match_count = :counters.new(1, [])
+algedonic_count = :counters.new(1, [])
+start_time = System.monotonic_time(:millisecond)
+
 monitor_task = Task.async(fn ->
   IO.puts("   [Monitor] Starting event monitoring...")
   
   Enum.each(1..30, fn _ ->
     receive do
       {:event_bus, %{type: :algedonic_signal} = signal} ->
-        IO.puts("   🚨 ALGEDONIC: #{signal.source} - Pain: #{signal.intensity}")
+        severity = case signal.intensity do
+          i when i >= 0.8 -> "CRITICAL"
+          i when i >= 0.6 -> "HIGH"
+          _ -> "MEDIUM"
+        end
+        IO.puts("   🚨 #{severity} ALGEDONIC: #{signal.source} - Pain: #{signal.intensity}")
+        :counters.add(algedonic_count, 1, 1)
         
       {:event_bus, %{type: :pattern_match} = match} ->
         IO.puts("   ✓ PATTERN DETECTED: #{match.pattern_name}")
+        :counters.add(pattern_match_count, 1, 1)
         
-      {:event_bus, event} ->
+      {:event_bus, _event} ->
         # Count but don't display all events
-        :ok
+        :counters.add(event_count, 1, 1)
     after
       100 -> :ok
     end
@@ -100,6 +123,19 @@ warnings = VSMPatternLibrary.early_warning_patterns()
 Enum.each(warnings, fn {pattern, threshold} ->
   IO.puts("   #{pattern}: #{threshold}")
 end)
+
+IO.puts("\n6. Demo Statistics:")
+IO.puts("===================")
+end_time = System.monotonic_time(:millisecond)
+total_events = :counters.get(event_count, 1)
+total_patterns = :counters.get(pattern_match_count, 1)
+total_algedonic = :counters.get(algedonic_count, 1)
+avg_time = if total_patterns > 0, do: div(end_time - start_time, total_patterns), else: 0
+
+IO.puts("   Total events processed: #{total_events}")
+IO.puts("   Patterns triggered: #{total_patterns}")
+IO.puts("   Algedonic signals sent: #{total_algedonic}")
+IO.puts("   Average detection time: #{avg_time}ms")
 
 IO.puts("\n=== DEMO COMPLETE ===\n")
 IO.puts("The VSM Pattern Library provides #{map_size(critical)} critical patterns")
