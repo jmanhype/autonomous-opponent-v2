@@ -66,7 +66,10 @@ defmodule AutonomousOpponentV2Core.MixProject do
       
       # Encryption library
       {:cloak, "~> 1.1"},
-      {:cloak_ecto, "~> 1.3"}
+      {:cloak_ecto, "~> 1.3"},
+      
+      # Redis client for distributed rate limiting
+      {:redix, "~> 1.5"}
     ]
   end
 

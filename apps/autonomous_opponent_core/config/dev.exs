@@ -69,3 +69,8 @@ config :autonomous_opponent_core, :connection_pools,
 
 # Enable debug logging for connection pools in development
 config :logger, level: :debug
+
+# Disable OpenTelemetry in development if no endpoint configured
+if System.get_env("OTEL_EXPORTER_OTLP_ENDPOINT") in [nil, ""] do
+  config :opentelemetry, traces_exporter: :none
+end

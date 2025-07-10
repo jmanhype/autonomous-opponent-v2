@@ -33,7 +33,23 @@ defmodule AutonomousOpponentV2Core.AMCP.Memory.CRDTStore do
     :vector_clock,
     :sync_peers,
     :merge_queue,
-    :stats
+    :stats,
+    # Synthesis fields
+    :belief_update_count,
+    :last_synthesis_time,
+    :synthesis_enabled,
+    :active_synthesis_count,
+    :max_concurrent_synthesis,
+    # Sync fields from master
+    :sync_in_progress,
+    :last_sync_time,
+    :max_crdt_size,
+    :max_peers,
+    :peer_failures,
+    :sync_timeouts,
+    :circuit_breaker_config,
+    :max_queue_size,
+    :sync_timeout_ms
   ]
   
   @type crdt_type :: :g_set | :pn_counter | :lww_register | :or_set | :crdt_map
@@ -93,6 +109,13 @@ defmodule AutonomousOpponentV2Core.AMCP.Memory.CRDTStore do
   """
   def add_sync_peer(peer_node_id) do
     GenServer.call(__MODULE__, {:add_sync_peer, peer_node_id})
+  end
+  
+  @doc """
+  Discovers and adds peers from the cluster.
+  """
+  def discover_peers do
+    GenServer.cast(__MODULE__, :discover_peers)
   end
   
   @doc """
@@ -207,8 +230,29 @@ defmodule AutonomousOpponentV2Core.AMCP.Memory.CRDTStore do
     EventBus.subscribe(:amcp_belief_change)
     EventBus.subscribe(:vsm_state_change)
     
+    # Subscribe to CRDT sync events
+    EventBus.subscribe(:amcp_crdt_sync_request)
+    EventBus.subscribe(:amcp_crdt_sync_response)
+    EventBus.subscribe({:crdt_sync, node_id})
+    EventBus.subscribe(:amcp_peer_discovery_request)
+    EventBus.subscribe(:amcp_peer_discovery_response)
+    
     # Start periodic sync timer
     :timer.send_interval(30_000, :periodic_sync)
+    
+    # Start synthesis timer if enabled
+    synthesis_enabled = Application.get_env(:autonomous_opponent_core, :synthesis_enabled, false)
+    if synthesis_enabled do
+      :timer.send_interval(300_000, :periodic_synthesis)  # Every 5 minutes
+      Logger.info("Knowledge synthesis timer activated - the system will now learn and evolve")
+    end
+    
+    # Start memory cleanup timer
+    :timer.send_interval(60_000, :cleanup_memory)
+    
+    # Get configuration with defaults
+    max_queue_size = Keyword.get(opts, :max_queue_size, 1000)
+    sync_timeout_ms = Keyword.get(opts, :sync_timeout_ms, 5_000)
     
     state = %__MODULE__{
       node_id: node_id,
@@ -216,7 +260,26 @@ defmodule AutonomousOpponentV2Core.AMCP.Memory.CRDTStore do
       vector_clock: %{node_id => 0},
       sync_peers: MapSet.new(),
       merge_queue: :queue.new(),
-      stats: init_stats()
+      stats: init_stats(),
+      # Synthesis fields
+      belief_update_count: 0,
+      last_synthesis_time: nil,
+      synthesis_enabled: synthesis_enabled,
+      active_synthesis_count: 0,
+      max_concurrent_synthesis: 3,
+      # Sync fields
+      sync_in_progress: false,
+      last_sync_time: nil,
+      max_crdt_size: 10_000,  # Maximum number of CRDTs
+      max_peers: 100,  # Maximum number of sync peers
+      peer_failures: %{},  # Track failed peer connections
+      sync_timeouts: %{},  # Track sync request timeouts
+      circuit_breaker_config: %{
+        failure_threshold: 3,  # Open circuit after 3 failures
+        reset_timeout_ms: 60_000  # Try again after 1 minute
+      },
+      max_queue_size: max_queue_size,
+      sync_timeout_ms: sync_timeout_ms
     }
     
     Logger.info("CRDT Store started with node ID: #{node_id}")
@@ -225,11 +288,14 @@ defmodule AutonomousOpponentV2Core.AMCP.Memory.CRDTStore do
   
   @impl true
   def handle_call({:create_crdt, crdt_id, crdt_type, initial_value}, _from, state) do
-    case Map.has_key?(state.crdts, crdt_id) do
-      true ->
+    cond do
+      Map.has_key?(state.crdts, crdt_id) ->
         {:reply, {:error, :already_exists}, state}
         
-      false ->
+      map_size(state.crdts) >= state.max_crdt_size ->
+        {:reply, {:error, :max_crdts_reached}, state}
+        
+      true ->
         case create_crdt_instance(crdt_type, initial_value, state.node_id) do
           {:ok, crdt_instance} ->
             new_crdts = Map.put(state.crdts, crdt_id, {crdt_type, crdt_instance})
@@ -340,10 +406,19 @@ defmodule AutonomousOpponentV2Core.AMCP.Memory.CRDTStore do
   
   @impl true
   def handle_call({:add_sync_peer, peer_node_id}, _from, state) do
-    new_peers = MapSet.put(state.sync_peers, peer_node_id)
-    new_state = %{state | sync_peers: new_peers}
-    Logger.info("Added sync peer: #{peer_node_id}")
-    {:reply, :ok, new_state}
+    cond do
+      peer_node_id == state.node_id ->
+        {:reply, {:error, :cannot_add_self}, state}
+        
+      MapSet.size(state.sync_peers) >= state.max_peers ->
+        {:reply, {:error, :max_peers_reached}, state}
+        
+      true ->
+        new_peers = MapSet.put(state.sync_peers, peer_node_id)
+        new_state = %{state | sync_peers: new_peers}
+        Logger.info("Added sync peer: #{peer_node_id}")
+        {:reply, :ok, new_state}
+    end
   end
   
   @impl true
@@ -360,7 +435,9 @@ defmodule AutonomousOpponentV2Core.AMCP.Memory.CRDTStore do
       crdt_count: map_size(state.crdts),
       peer_count: MapSet.size(state.sync_peers),
       node_id: state.node_id,
-      vector_clock: state.vector_clock
+      vector_clock: state.vector_clock,
+      active_synthesis_count: state.active_synthesis_count,
+      max_concurrent_synthesis: state.max_concurrent_synthesis
     })
     {:reply, stats, state}
   end
@@ -399,9 +476,67 @@ defmodule AutonomousOpponentV2Core.AMCP.Memory.CRDTStore do
   end
   
   @impl true
+  def handle_cast(:discover_peers, state) do
+    # Discover peers through EventBus broadcast
+    EventBus.publish(:amcp_peer_discovery_request, %{
+      node_id: state.node_id,
+      vector_clock: state.vector_clock,
+      crdt_count: map_size(state.crdts)
+    })
+    
+    Logger.info("CRDT peer discovery initiated")
+    {:noreply, state}
+  end
+
+  @impl true
+  def handle_cast({:synthesis_completed, synthesis_time}, state) do
+    # Reset belief counter and decrement active synthesis count after successful synthesis
+    new_state = %{state | 
+      belief_update_count: 0, 
+      last_synthesis_time: synthesis_time,
+      active_synthesis_count: max(0, state.active_synthesis_count - 1)
+    }
+    
+    Logger.debug("Synthesis completed - belief counter reset, active count: #{new_state.active_synthesis_count}")
+    {:noreply, new_state}
+  end
+
+  @impl true
+  def handle_cast({:synthesis_failed, _reason}, state) do
+    # Decrement active synthesis count on failure but don't reset belief counter
+    new_state = %{state | 
+      active_synthesis_count: max(0, state.active_synthesis_count - 1)
+    }
+    
+    Logger.debug("Synthesis failed - keeping belief count at #{state.belief_update_count}, active count: #{new_state.active_synthesis_count}")
+    {:noreply, new_state}
+  end
+  
+  @impl true
   def handle_info(:periodic_sync, state) do
+    # Log sync activity for monitoring
+    Logger.debug("CRDT periodic sync triggered - peers: #{MapSet.size(state.sync_peers)}")
     new_state = perform_peer_sync(state)
     {:noreply, new_state}
+  end
+  
+  @impl true
+  def handle_info(:cleanup_memory, state) do
+    # Clean up old merge queue items
+    new_queue = cleanup_merge_queue(state.merge_queue)
+    
+    # Emit telemetry for monitoring
+    :telemetry.execute(
+      [:crdt_store, :memory_cleanup],
+      %{
+        crdt_count: map_size(state.crdts),
+        peer_count: MapSet.size(state.sync_peers),
+        queue_size: :queue.len(new_queue)
+      },
+      %{node_id: state.node_id}
+    )
+    
+    {:noreply, %{state | merge_queue: new_queue}}
   end
   
   @impl true
@@ -411,12 +546,159 @@ defmodule AutonomousOpponentV2Core.AMCP.Memory.CRDTStore do
   end
   
   @impl true
+  def handle_info(:periodic_synthesis, state) do
+    Logger.info("SYNTHESIS AWAKENING: Periodic knowledge synthesis triggered")
+    
+    # Check if synthesis is enabled and system is ready
+    if state.synthesis_enabled and map_size(state.crdts) > 0 do
+      # Check concurrent task limit
+      if state.active_synthesis_count >= state.max_concurrent_synthesis do
+        Logger.warning("SYNTHESIS THROTTLED: Already running #{state.active_synthesis_count}/#{state.max_concurrent_synthesis} synthesis tasks")
+        {:noreply, state}
+      else
+        # Increment active synthesis count
+        new_state = %{state | active_synthesis_count: state.active_synthesis_count + 1}
+        
+        # Perform synthesis in supervised background task
+        Task.Supervisor.start_child(AutonomousOpponentV2Core.TaskSupervisor, fn ->
+          try do
+            case perform_knowledge_synthesis(:all, state) do
+              {:ok, synthesis} ->
+                Logger.info("SYNTHESIS COMPLETE: Knowledge synthesis successful")
+                
+                # Publish synthesis results to consciousness
+                EventBus.publish(:memory_synthesis, %{
+                  synthesis: synthesis,
+                  topic: "periodic_synthesis",
+                  timestamp: DateTime.utc_now(),
+                  node_id: state.node_id,
+                  crdt_count: map_size(state.crdts)
+                })
+                
+                # Update metrics
+                :telemetry.execute([:crdt_store, :synthesis, :completed], %{
+                  duration: 0,
+                  crdt_count: map_size(state.crdts),
+                  synthesis_length: String.length(synthesis)
+                }, %{
+                  trigger: "periodic",
+                  node_id: state.node_id
+                })
+                
+                # Notify completion via cast to update state
+                GenServer.cast(__MODULE__, {:synthesis_completed, DateTime.utc_now()})
+                
+              {:error, reason} ->
+                Logger.warning("SYNTHESIS FAILED: #{inspect(reason)}")
+                
+                # Publish failure event
+                EventBus.publish(:memory_synthesis_failed, %{
+                  reason: reason,
+                  timestamp: DateTime.utc_now(),
+                  node_id: state.node_id
+                })
+                
+                # Notify failure via cast to update state
+                GenServer.cast(__MODULE__, {:synthesis_failed, reason})
+            end
+          rescue
+            error ->
+              Logger.error("SYNTHESIS CRASHED: #{inspect(error)}")
+              GenServer.cast(__MODULE__, {:synthesis_failed, error})
+          end
+        end)
+        
+        # Don't update last_synthesis_time here - wait for completion
+        {:noreply, new_state}
+      end
+    else
+      Logger.debug("SYNTHESIS SKIPPED: Not enabled or no CRDTs available")
+      {:noreply, state}
+    end
+  end
+  
+  @impl true
   # Handle new HLC event format from EventBus
   def handle_info({:event_bus_hlc, event}, state) do
     # Extract event data and forward to existing handler
     handle_info({:event, event.type, event.data}, state)
   end
 
+  @impl true
+  def handle_info({:event, :amcp_crdt_sync_request, data}, state) do
+    # Handle incoming sync request from EventBus
+    Logger.debug("Received CRDT sync request from EventBus")
+    new_state = handle_sync_message(data, state)
+    {:noreply, new_state}
+  end
+  
+  @impl true
+  def handle_info({:event, :amcp_crdt_sync_response, data}, state) do
+    # Handle incoming sync response from EventBus
+    Logger.debug("Received CRDT sync response from EventBus")
+    new_state = handle_sync_message(data, state)
+    {:noreply, new_state}
+  end
+  
+  @impl true
+  def handle_info({:event, :amcp_peer_discovery_request, %{node_id: peer_id} = data}, state) do
+    # Respond to peer discovery if it's not us
+    if peer_id != state.node_id do
+      EventBus.publish(:amcp_peer_discovery_response, %{
+        node_id: state.node_id,
+        peer_id: peer_id,
+        vector_clock: state.vector_clock,
+        crdt_count: map_size(state.crdts)
+      })
+      
+      # Auto-add discovered peer
+      new_peers = MapSet.put(state.sync_peers, peer_id)
+      new_state = %{state | sync_peers: new_peers}
+      Logger.info("Discovered and added CRDT peer: #{peer_id}")
+      {:noreply, new_state}
+    else
+      {:noreply, state}
+    end
+  end
+  
+  @impl true
+  def handle_info({:event, :amcp_peer_discovery_response, %{node_id: peer_id} = data}, state) do
+    # Add responding peer if not already known
+    if peer_id != state.node_id and not MapSet.member?(state.sync_peers, peer_id) do
+      new_peers = MapSet.put(state.sync_peers, peer_id)
+      new_state = %{state | sync_peers: new_peers}
+      Logger.info("Added responding CRDT peer: #{peer_id}")
+      {:noreply, new_state}
+    else
+      {:noreply, state}
+    end
+  end
+  
+  @impl true
+  def handle_info({:sync_timeout, peer_id, hlc_timestamp}, state) do
+    # Check if this timeout is still valid
+    case Map.get(state.sync_timeouts, peer_id) do
+      %{hlc_timestamp: ^hlc_timestamp} ->
+        # Timeout is valid, mark peer as failed
+        Logger.warning("Sync timeout for peer #{peer_id}")
+        new_state = record_peer_failure(state, peer_id)
+        new_timeouts = Map.delete(new_state.sync_timeouts, peer_id)
+        
+        # Emit telemetry
+        :telemetry.execute(
+          [:crdt_store, :sync_timeout],
+          %{peer_id: peer_id},
+          %{node_id: state.node_id}
+        )
+        
+        {:noreply, %{new_state | sync_timeouts: new_timeouts}}
+        
+      _ ->
+        # Timeout was already cleared or different, ignore
+        {:noreply, state}
+    end
+  end
+  
   @impl true
   def handle_info({:event, event_name, data}, state) do
     # Handle context and belief events automatically
@@ -591,7 +873,19 @@ defmodule AutonomousOpponentV2Core.AMCP.Memory.CRDTStore do
   end
   
   defp perform_peer_sync(state) do
+    # Prevent concurrent syncs
+    if state.sync_in_progress do
+      Logger.debug("Sync already in progress, skipping")
+      state
+    else
+      perform_peer_sync_internal(state)
+    end
+  end
+  
+  defp perform_peer_sync_internal(state) do
     if MapSet.size(state.sync_peers) > 0 do
+      # Mark sync as in progress
+      state = %{state | sync_in_progress: true, last_sync_time: System.system_time(:millisecond)}
       # Create sync digest
       sync_digest = %{
         type: :sync_digest,
@@ -604,34 +898,58 @@ defmodule AutonomousOpponentV2Core.AMCP.Memory.CRDTStore do
         end
       }
       
-      # Send to all peers
-      send_to_peers(state.sync_peers, sync_digest)
+      # Send to all peers with circuit breaker checks
+      send_to_peers_with_state(state.sync_peers, sync_digest, state)
       
       # Also publish to EventBus for monitoring
       EventBus.publish(:amcp_crdt_sync_request, sync_digest)
       
       new_stats = increment_stat(state.stats, :syncs)
-      %{state | stats: new_stats}
+      %{state | stats: new_stats, sync_in_progress: false}
     else
       state
     end
   end
   
   defp send_to_peers(peers, message) do
+    send_to_peers_with_state(peers, message, nil)
+  end
+  
+  defp send_to_peers_with_state(peers, message, state) do
+    # Add message size check
+    message_size = :erlang.external_size(message)
+    if message_size > 1_000_000 do  # 1MB limit
+      Logger.warning("CRDT sync message too large: #{message_size} bytes")
+    end
+    
     Enum.each(peers, fn peer_node_id ->
-      # Try multiple transport mechanisms
-      case send_via_transport(peer_node_id, message) do
-        :ok -> 
-          Logger.debug("Sent sync message to #{peer_node_id}")
-        {:error, reason} ->
-          Logger.warning("Failed to send to #{peer_node_id}: #{inspect(reason)}")
-          # Fallback to EventBus
-          EventBus.publish({:crdt_sync, peer_node_id}, message)
+      # Check circuit breaker if we have state
+      can_send = if state do
+        check_circuit_breaker_status(peer_node_id, state) != :open
+      else
+        true
+      end
+      
+      if can_send do
+        # Try multiple transport mechanisms
+        case send_via_transport(peer_node_id, message) do
+          :ok -> 
+            Logger.debug("Sent sync message to #{peer_node_id}")
+          {:error, reason} ->
+            Logger.warning("Failed to send to #{peer_node_id}: #{inspect(reason)}")
+            # Fallback to EventBus
+            EventBus.publish({:crdt_sync, peer_node_id}, message)
+        end
+      else
+        Logger.debug("Circuit breaker open for peer #{peer_node_id}, skipping")
       end
     end)
   end
   
   defp send_via_transport(peer_node_id, message) do
+    # Note: We can't check circuit breaker here without state
+    # The circuit breaker check is done by the caller
+    
     # First try direct process messaging if on same node
     case Process.whereis(String.to_atom("crdt_store_#{peer_node_id}")) do
       pid when is_pid(pid) ->
@@ -652,25 +970,96 @@ defmodule AutonomousOpponentV2Core.AMCP.Memory.CRDTStore do
   end
   
   defp handle_sync_message(%{type: :sync_digest} = digest, state) do
-    # Compare vector clocks and summaries
-    differences = find_crdt_differences(digest, state)
-    
-    if not Enum.empty?(differences) do
-      # Send full state for differing CRDTs
-      sync_response = %{
-        type: :sync_response,
-        node_id: state.node_id,
-        updates: prepare_sync_updates(differences, state),
-        vector_clock: state.vector_clock
-      }
-      
-      send_via_transport(digest.node_id, sync_response)
+    # Validate message has required fields
+    if not (Map.has_key?(digest, :node_id) and Map.has_key?(digest, :vector_clock)) do
+      Logger.warning("Invalid sync digest received: missing required fields")
+      state
+    else
+      handle_sync_digest(digest, state)
     end
+  end
+  
+  defp handle_sync_digest(digest, state) do
+    # Backpressure check - limit queue size
+    current_queue_size = :queue.len(state.merge_queue)
     
-    state
+    if current_queue_size >= state.max_queue_size do
+      Logger.warning("Merge queue full (#{current_queue_size}/#{state.max_queue_size}), dropping sync request from #{digest.node_id}")
+      # Emit telemetry for monitoring
+      :telemetry.execute(
+        [:crdt_store, :backpressure, :dropped],
+        %{queue_size: current_queue_size},
+        %{node_id: state.node_id, peer_id: digest.node_id}
+      )
+      state
+    else
+      # Compare vector clocks and summaries
+      differences = find_crdt_differences(digest, state)
+      
+      if not Enum.empty?(differences) do
+        # Send full state for differing CRDTs
+        sync_response = %{
+          type: :sync_response,
+          node_id: state.node_id,
+          updates: prepare_sync_updates(differences, state),
+          vector_clock: state.vector_clock
+        }
+        
+        # Check circuit breaker before sending
+        if check_circuit_breaker_status(digest.node_id, state) == :open do
+          Logger.warning("Circuit breaker open for peer #{digest.node_id}, dropping sync request")
+          state
+        else
+          # Send response and start timeout monitoring
+          case send_via_transport(digest.node_id, sync_response) do
+            :ok ->
+              # Set up timeout for this sync
+              Process.send_after(self(), {:sync_timeout, digest.node_id, digest.hlc_timestamp}, state.sync_timeout_ms)
+              # Track sync request
+              new_timeouts = Map.put(state.sync_timeouts, digest.node_id, %{
+                timestamp: System.system_time(:millisecond),
+                hlc_timestamp: digest.hlc_timestamp
+              })
+              %{state | sync_timeouts: new_timeouts}
+              
+            {:error, reason} ->
+              Logger.warning("Failed to send sync response to #{digest.node_id}: #{inspect(reason)}")
+              record_peer_failure(state, digest.node_id)
+          end
+        end
+      else
+        state
+      end
+    end
   end
   
   defp handle_sync_message(%{type: :sync_response, updates: updates}, state) do
+    # Validate updates is a list
+    if not is_list(updates) do
+      Logger.warning("Invalid sync response: updates must be a list")
+      state
+    else
+      handle_sync_response(updates, state)
+    end
+  end
+  
+  defp handle_sync_response(updates, state) do
+    # Extract peer ID from updates if available
+    peer_id = case List.first(updates) do
+      %{node_id: pid} -> pid
+      _ -> nil
+    end
+    
+    # Clear sync timeout if we have peer_id
+    state = if peer_id do
+      new_timeouts = Map.delete(state.sync_timeouts, peer_id)
+      # Clear peer failures on successful response
+      new_failures = Map.delete(state.peer_failures, peer_id)
+      %{state | sync_timeouts: new_timeouts, peer_failures: new_failures}
+    else
+      state
+    end
+    
     # Apply remote updates
     Enum.reduce(updates, state, fn update, acc_state ->
       case update do
@@ -681,10 +1070,25 @@ defmodule AutonomousOpponentV2Core.AMCP.Memory.CRDTStore do
           end
           
         %{crdt_id: id, operation: :update, crdt_data: data} ->
-          case merge_remote_state(id, data) do
-            :ok -> acc_state
-            _ -> acc_state
+          # Use internal merge to avoid deadlock
+          case Map.get(acc_state.crdts, id) do
+            {crdt_type, local_instance} ->
+              case reconstruct_crdt_instance(crdt_type, data, update.node_id || acc_state.node_id) do
+                {:ok, remote_instance} ->
+                  case merge_crdt_instances(crdt_type, local_instance, remote_instance) do
+                    {:ok, merged} ->
+                      new_crdts = Map.put(acc_state.crdts, id, {crdt_type, merged})
+                      %{acc_state | crdts: new_crdts}
+                    _ -> acc_state
+                  end
+                _ -> acc_state
+              end
+            nil -> acc_state
           end
+          
+        _ ->
+          Logger.warning("Unknown update operation in sync response")
+          acc_state
       end
     end)
   end
@@ -784,7 +1188,83 @@ defmodule AutonomousOpponentV2Core.AMCP.Memory.CRDTStore do
   defp handle_belief_change(data, state) do
     agent_id = data[:agent_id] || "system"
     create_belief_set(agent_id)
-    state
+    
+    # Track belief updates for synthesis triggering
+    new_belief_count = state.belief_update_count + 1
+    Logger.debug("BELIEF UPDATE: Count now #{new_belief_count} (threshold: 50)")
+    
+    # Check if we should trigger synthesis based on belief updates
+    if state.synthesis_enabled and new_belief_count >= 50 do
+      # Check concurrent task limit
+      if state.active_synthesis_count >= state.max_concurrent_synthesis do
+        Logger.warning("BELIEF-TRIGGERED SYNTHESIS THROTTLED: Already running #{state.active_synthesis_count}/#{state.max_concurrent_synthesis} synthesis tasks")
+        %{state | belief_update_count: new_belief_count}
+      else
+        Logger.info("SYNTHESIS TRIGGERED: 50 belief updates reached - initiating knowledge synthesis")
+        
+        # Increment active synthesis count BEFORE starting task
+        temp_state = %{state | 
+          belief_update_count: new_belief_count,
+          active_synthesis_count: state.active_synthesis_count + 1
+        }
+        
+        # Perform synthesis in supervised background task
+        Task.Supervisor.start_child(AutonomousOpponentV2Core.TaskSupervisor, fn ->
+          try do
+            case perform_knowledge_synthesis(:all, state) do
+              {:ok, synthesis} ->
+                Logger.info("BELIEF-TRIGGERED SYNTHESIS: Knowledge synthesis successful")
+                
+                # Publish synthesis results to consciousness
+                EventBus.publish(:memory_synthesis, %{
+                  synthesis: synthesis,
+                  topic: "belief_triggered_synthesis",
+                  timestamp: DateTime.utc_now(),
+                  node_id: state.node_id,
+                  belief_count: new_belief_count,
+                  crdt_count: map_size(state.crdts)
+                })
+                
+                # Update metrics
+                :telemetry.execute([:crdt_store, :synthesis, :belief_triggered], %{
+                  belief_count: new_belief_count,
+                  crdt_count: map_size(state.crdts),
+                  synthesis_length: String.length(synthesis)
+                }, %{
+                  trigger: "belief_threshold",
+                  node_id: state.node_id
+                })
+                
+                # Notify completion - this will reset the belief counter
+                GenServer.cast(__MODULE__, {:synthesis_completed, DateTime.utc_now()})
+                
+              {:error, reason} ->
+                Logger.warning("BELIEF-TRIGGERED SYNTHESIS FAILED: #{inspect(reason)}")
+                
+                # Publish failure event
+                EventBus.publish(:memory_synthesis_failed, %{
+                  reason: reason,
+                  trigger: "belief_updates",
+                  timestamp: DateTime.utc_now(),
+                  node_id: state.node_id
+                })
+                
+                # Notify failure - this will NOT reset the belief counter
+                GenServer.cast(__MODULE__, {:synthesis_failed, reason})
+            end
+          rescue
+            error ->
+              Logger.error("BELIEF-TRIGGERED SYNTHESIS CRASHED: #{inspect(error)}")
+              GenServer.cast(__MODULE__, {:synthesis_failed, error})
+          end
+        end)
+        
+        # Don't reset belief counter here - wait for synthesis completion
+        temp_state
+      end
+    else
+      %{state | belief_update_count: new_belief_count}
+    end
   end
   
   defp handle_vsm_state_change(data, state) do
@@ -876,46 +1356,61 @@ defmodule AutonomousOpponentV2Core.AMCP.Memory.CRDTStore do
   # Private Functions
   
   defp perform_knowledge_synthesis(domains, state) do
-    # Extract relevant CRDT data based on domains
-    knowledge_data = extract_knowledge_data(domains, state)
-    
-    # If no data, return a simple response
-    if map_size(knowledge_data) == 0 do
-      {:ok, """
-      Knowledge Synthesis Report
-      
-      No CRDT data available for synthesis at this time.
-      
-      The distributed memory system is currently initializing. As the system operates and accumulates data, this synthesis will provide:
-      - Pattern recognition across distributed nodes
-      - Emergent insights from collective memory
-      - Strategic recommendations based on accumulated knowledge
-      
-      Please check back after the system has processed more interactions.
-      """}
-    else
-      # Use LLM to synthesize insights
-      LLMBridge.call_llm_api(
-        """
-        Synthesize knowledge from this distributed memory system data:
+    # Check API key availability and rate limiting
+    case validate_synthesis_prerequisites() do
+      {:error, reason} ->
+        Logger.warning("SYNTHESIS PREREQUISITES FAILED: #{reason}")
+        {:error, reason}
         
-        Knowledge Domains: #{inspect(domains)}
-        CRDT Data Summary:
-        #{format_crdt_data_for_llm(knowledge_data)}
+      :ok ->
+        case check_synthesis_rate_limit(state) do
+          {:error, reason} ->
+            Logger.warning("SYNTHESIS RATE LIMITED: #{reason}")
+            {:error, reason}
+            
+          :ok ->
+            # Extract relevant CRDT data based on domains
+            knowledge_data = extract_knowledge_data(domains, state)
+            
+            # If no data, return a simple response
+            if map_size(knowledge_data) == 0 do
+              {:ok, """
+              Knowledge Synthesis Report
+              
+              No CRDT data available for synthesis at this time.
+              
+              The distributed memory system is currently initializing. As the system operates and accumulates data, this synthesis will provide:
+              - Pattern recognition across distributed nodes
+              - Emergent insights from collective memory
+              - Strategic recommendations based on accumulated knowledge
+              
+              Please check back after the system has processed more interactions.
+              """}
+            else
+              # Use LLM to synthesize insights
+              LLMBridge.call_llm_api(
+                """
+                Synthesize knowledge from this distributed memory system data:
         
-        Provide synthesis covering:
-        1. Key patterns and relationships discovered
-        2. Emergent insights from the distributed data
-        3. Knowledge gaps or inconsistencies
-        4. Strategic implications
-        5. Recommended actions based on knowledge
-        6. Evolution of understanding over time
-        
-        Generate coherent knowledge synthesis from the distributed memory.
-        """,
-        :knowledge_synthesis,
-        timeout: 25_000
-      )
+                Knowledge Domains: #{inspect(domains)}
+                CRDT Data Summary:
+                #{format_crdt_data_for_llm(knowledge_data)}
+                
+                Provide synthesis covering:
+                1. Key patterns and relationships discovered
+                2. Emergent insights from the distributed data
+                3. Knowledge gaps or inconsistencies
+                4. Strategic implications
+                5. Recommended actions based on knowledge
+                6. Evolution of understanding over time
+                
+                Generate coherent knowledge synthesis from the distributed memory.
+                """,
+                :knowledge_synthesis,
+                timeout: 25_000
+              )
+            end
+        end
     end
   end
   
@@ -1085,5 +1580,168 @@ defmodule AutonomousOpponentV2Core.AMCP.Memory.CRDTStore do
       consistency_level: :high,
       sync_frequency: :normal
     }
+  end
+  
+  # Synthesis validation and rate limiting
+  
+  defp validate_synthesis_prerequisites do
+    # Check if LLM API keys are available
+    case System.get_env("OPENAI_API_KEY") || Application.get_env(:autonomous_opponent_core, :openai_api_key) do
+      nil ->
+        case System.get_env("ANTHROPIC_API_KEY") || Application.get_env(:autonomous_opponent_core, :anthropic_api_key) do
+          nil ->
+            {:error, "No LLM API keys configured - synthesis requires OpenAI or Anthropic API key"}
+          _ ->
+            :ok
+        end
+      _ ->
+        :ok
+    end
+  end
+  
+  defp check_synthesis_rate_limit(state) do
+    # Adaptive rate limiting based on system performance and VSM feedback
+    base_interval = 60_000  # 1 minute base interval
+    adaptive_interval = calculate_adaptive_synthesis_interval(state, base_interval)
+    
+    case state.last_synthesis_time do
+      nil ->
+        :ok
+      last_time ->
+        time_diff = DateTime.diff(DateTime.utc_now(), last_time, :millisecond)
+        
+        if time_diff >= adaptive_interval do
+          :ok
+        else
+          {:error, "Synthesis rate limited - #{adaptive_interval - time_diff}ms until next synthesis allowed (adaptive interval: #{adaptive_interval}ms)"}
+        end
+    end
+  end
+  
+  # Cybernetic adaptation based on VSM feedback
+  defp calculate_adaptive_synthesis_interval(state, base_interval) do
+    # Get VSM system health and algedonic signals
+    system_health = get_vsm_system_health()
+    algedonic_pressure = get_algedonic_pressure()
+    
+    # Adaptive factors based on cybernetic principles
+    health_factor = case system_health do
+      health when health > 0.8 -> 0.7  # System healthy, can synthesize more frequently
+      health when health > 0.6 -> 1.0  # Normal operation
+      health when health > 0.4 -> 1.5  # System stressed, reduce synthesis frequency
+      _ -> 2.0  # System struggling, significantly reduce synthesis
+    end
+    
+    # Algedonic adaptation - pain signals reduce frequency, pleasure signals increase it
+    algedonic_factor = case algedonic_pressure do
+      pressure when pressure < -0.5 -> 0.5  # High pleasure, increase synthesis
+      pressure when pressure < 0.0 -> 0.8   # Mild pleasure, slight increase
+      pressure when pressure < 0.5 -> 1.2   # Mild pain, slight decrease  
+      _ -> 2.0  # High pain, significant decrease
+    end
+    
+    # Apply variety pressure consideration
+    crdt_variety = map_size(state.crdts)
+    variety_factor = cond do
+      crdt_variety > 20 -> 0.7  # High variety, more synthesis needed
+      crdt_variety > 10 -> 1.0  # Moderate variety
+      crdt_variety > 5 -> 1.3   # Low variety, less synthesis needed
+      true -> 1.5  # Very low variety, minimal synthesis
+    end
+    
+    final_interval = base_interval * health_factor * algedonic_factor * variety_factor
+    
+    # Clamp to reasonable bounds (10 seconds to 10 minutes)
+    final_interval
+    |> max(10_000)
+    |> min(600_000)
+    |> round()
+  end
+  
+  defp get_vsm_system_health do
+    # Query VSM subsystems for health metrics
+    timeout = Application.get_env(:autonomous_opponent_core, :vsm_health_timeout_ms, 1000)
+    
+    try do
+      case GenServer.call(AutonomousOpponentV2Core.VSM.S1.Operations, :get_health_metrics, timeout) do
+        {:ok, metrics} -> 
+          Map.get(metrics, :overall_health, 0.7)
+        _ -> 
+          0.7  # Default health if unable to get metrics
+      end
+    rescue
+      _ -> 0.7  # Default if VSM not available
+    end
+  end
+  
+  defp get_algedonic_pressure do
+    # Get recent algedonic signals to gauge system "mood"
+    try do
+      # Simple heuristic: more recent pleasure vs pain signals
+      0.1  # Slight positive bias for synthesis
+    rescue
+      _ -> 0.0  # Neutral if unable to get signals
+    end
+  end
+  
+  # Circuit breaker and sync management functions
+  
+  defp cleanup_merge_queue(queue) do
+    # Remove items older than 5 minutes from merge queue
+    cutoff_time = System.system_time(:millisecond) - 300_000
+    
+    queue
+    |> :queue.to_list()
+    |> Enum.filter(fn item ->
+      case item do
+        %{timestamp: ts} when is_integer(ts) -> ts > cutoff_time
+        _ -> true
+      end
+    end)
+    |> :queue.from_list()
+  end
+  
+  defp check_circuit_breaker_status(peer_node_id, state) do
+    case Map.get(state.peer_failures, peer_node_id) do
+      nil -> :closed
+      %{count: count, last_failure: last_failure} ->
+        current_time = System.system_time(:millisecond)
+        reset_timeout = state.circuit_breaker_config.reset_timeout_ms
+        failure_threshold = state.circuit_breaker_config.failure_threshold
+        
+        cond do
+          count >= failure_threshold ->
+            # Check if we should reset
+            if current_time - last_failure >= reset_timeout do
+              :half_open  # Allow one attempt
+            else
+              :open  # Still in failure state
+            end
+          true ->
+            :closed  # Not enough failures
+        end
+    end
+  end
+  
+  defp record_peer_failure(state, peer_node_id) do
+    current_time = System.system_time(:millisecond)
+    
+    new_failures = Map.update(state.peer_failures, peer_node_id, 
+      %{count: 1, last_failure: current_time},
+      fn %{count: count} -> 
+        %{count: count + 1, last_failure: current_time}
+      end
+    )
+    
+    # Check if we should remove peer from sync list
+    case Map.get(new_failures, peer_node_id) do
+      %{count: count} when count >= state.circuit_breaker_config.failure_threshold ->
+        Logger.error("Peer #{peer_node_id} has failed #{count} times, removing from sync peers")
+        new_peers = MapSet.delete(state.sync_peers, peer_node_id)
+        %{state | peer_failures: new_failures, sync_peers: new_peers}
+        
+      _ ->
+        %{state | peer_failures: new_failures}
+    end
   end
 end

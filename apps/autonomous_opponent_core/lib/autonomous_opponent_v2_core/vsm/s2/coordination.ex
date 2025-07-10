@@ -57,8 +57,8 @@ defmodule AutonomousOpponentV2Core.VSM.S2.Coordination do
   
   @impl true
   def init(_opts) do
-    # Subscribe to S1 variety reports
-    EventBus.subscribe(:s1_operations)
+    # Subscribe to S1 variety reports via variety channel
+    EventBus.subscribe(:s2_coordination)  # Changed from :s1_operations - now receives from variety channel
     EventBus.subscribe(:s5_policy)  # Policy constraints shape coordination
     
     # Start monitoring

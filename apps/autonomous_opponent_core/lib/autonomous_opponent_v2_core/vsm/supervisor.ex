@@ -39,6 +39,11 @@ defmodule AutonomousOpponentV2Core.VSM.Supervisor do
       # S4 - Intelligence (environmental scanning)
       {AutonomousOpponentV2Core.VSM.S4.Intelligence, []},
       
+      # S4 Ordered Subscriber - Phase 1 of HLC rollout
+      {AutonomousOpponentV2Core.VSM.S4.IntelligenceOrderedSubscriber, [
+        enabled: Application.get_env(:autonomous_opponent_core, :s4_ordered_delivery, true)
+      ]},
+      
       # S3 - Control and audit
       {AutonomousOpponentV2Core.VSM.S3.Control, []},
       
@@ -59,7 +64,13 @@ defmodule AutonomousOpponentV2Core.VSM.Supervisor do
         id: :channel_starter,
         start: {__MODULE__, :start_channels, []},
         restart: :transient
-      }
+      },
+      
+      # VSM Rate Limiter Integration - adaptive variety attenuation
+      {AutonomousOpponentV2Core.VSM.Integrations.RateLimiterIntegration, [
+        rate_limiter: :vsm_rate_limiter,
+        adaptation_enabled: true
+      ]}
     ]
     
     # Strategy: If a subsystem dies, restart just that subsystem

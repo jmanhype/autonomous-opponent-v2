@@ -6,14 +6,7 @@ Application.put_env(:autonomous_opponent_core, :amqp_enabled, false)
 # Start the EventBus before tests
 Application.ensure_all_started(:autonomous_opponent_core)
 
-# Compile test mocks
-Code.compile_file("lib/autonomous_opponent_v2_core/test_mocks/phoenix_pubsub.ex")
-Code.compile_file("lib/autonomous_opponent_v2_core/test_mocks/vaultex.ex")
-Code.compile_file("lib/autonomous_opponent_v2_core/test_mocks/httpoison.ex")
-Code.compile_file("lib/autonomous_opponent_v2_core/test_mocks/plug_cowboy.ex")
-Code.compile_file("lib/autonomous_opponent_v2_core/test_mocks/plug_cowboy_app.ex")
-Code.compile_file("lib/autonomous_opponent_v2_core/test_mocks/autonomous_opponent_web_endpoint.ex")
-Code.compile_file("lib/autonomous_opponent_v2_core/test_mocks/pbkdf2.ex")
+# No mocks - use real implementations
 
 ExUnit.start()
 

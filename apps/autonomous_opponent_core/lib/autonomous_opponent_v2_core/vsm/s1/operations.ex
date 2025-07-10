@@ -79,6 +79,7 @@ defmodule AutonomousOpponentV2Core.VSM.S1.Operations do
   @impl true
   def init(_opts) do
     # Subscribe to control commands and external requests
+    EventBus.subscribe(:s1_operations)  # Added: receive control commands from S3 via variety channel
     EventBus.subscribe(:external_requests)
     EventBus.subscribe(:s3_control)
     EventBus.subscribe(:s5_policy)  # Policy constraints
@@ -427,6 +428,16 @@ defmodule AutonomousOpponentV2Core.VSM.S1.Operations do
       timestamp: DateTime.utc_now()
     })
     
+    # Record variety flow to Core.Metrics
+    alias AutonomousOpponentV2Core.Core.Metrics
+    variety_absorbed = avg_entropy * 100  # Scale for visibility
+    variety_generated = avg_entropy * 80  # S1 reduces variety by ~20%
+    Metrics.variety_flow(Metrics, :s1, variety_absorbed, variety_generated)
+    
+    # Record VSM-specific metrics
+    Metrics.vsm_metric(Metrics, :s1, "entropy", avg_entropy)
+    Metrics.vsm_metric(Metrics, :s1, "variety_ratio", calculate_variety_ratio(new_state))
+    
     {:noreply, new_state}
   end
   
@@ -483,15 +494,39 @@ defmodule AutonomousOpponentV2Core.VSM.S1.Operations do
       latency_avg: calculate_moving_average(metrics.latency_avg, latency)
     }
     
+    # Record real metrics to Core.Metrics
+    alias AutonomousOpponentV2Core.Core.Metrics
+    
+    # Record success counter
+    Metrics.counter(Metrics, "vsm.operations.success", 1, %{subsystem: :s1})
+    
+    # Record operation duration (convert from native units to milliseconds)
+    latency_ms = System.convert_time_unit(latency, :native, :millisecond)
+    Metrics.histogram(Metrics, "vsm.operation_duration", latency_ms, %{subsystem: :s1})
+    
+    # Record current load as gauge
+    load = calculate_load(new_metrics)
+    Metrics.gauge(Metrics, "vsm.s1.load", load * 100, %{})
+    
+    # Record memory usage
+    Metrics.gauge(Metrics, "vsm.s1.memory_usage", metrics.memory_usage * 100, %{})
+    
+    # Record CPU usage
+    Metrics.gauge(Metrics, "vsm.s1.cpu_usage", metrics.cpu_usage * 100, %{})
+    
     %{state | 
       health_metrics: new_metrics,
-      current_load: calculate_load(new_metrics)
+      current_load: load
     }
   end
   
   defp update_health_metrics(state, {:error, _}, _latency) do
     metrics = state.health_metrics
     new_metrics = %{metrics | failed: metrics.failed + 1}
+    
+    # Record failure to Core.Metrics
+    alias AutonomousOpponentV2Core.Core.Metrics
+    Metrics.counter(Metrics, "vsm.operations.failure", 1, %{subsystem: :s1})
     
     %{state | 
       health_metrics: new_metrics,
@@ -502,6 +537,11 @@ defmodule AutonomousOpponentV2Core.VSM.S1.Operations do
   defp increment_rejected(state) do
     metrics = state.health_metrics
     new_metrics = %{metrics | rejected: metrics.rejected + 1}
+    
+    # Record rejection to Core.Metrics
+    alias AutonomousOpponentV2Core.Core.Metrics
+    Metrics.counter(Metrics, "vsm.operations.rejected", 1, %{subsystem: :s1})
+    
     %{state | health_metrics: new_metrics}
   end
   
@@ -610,7 +650,7 @@ defmodule AutonomousOpponentV2Core.VSM.S1.Operations do
     # This ensures same content always produces same ID
     request
     |> :erlang.term_to_binary([:deterministic])
-    |> :crypto.hash(:sha256)
+    |> then(fn binary -> :crypto.hash(:sha256, binary) end)
     |> Base.encode16(case: :lower)
   end
   

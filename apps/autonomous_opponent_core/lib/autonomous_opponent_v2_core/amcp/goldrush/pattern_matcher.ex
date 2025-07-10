@@ -198,29 +198,221 @@ defmodule AutonomousOpponentV2Core.AMCP.Goldrush.PatternMatcher do
     {not match, Map.put(context, :logical_operator, :not)}
   end
   
-  defp evaluate_pattern(%{type: :temporal_within, metadata: %{time_window: window}}, _event) do
-    # Temporal patterns require event history - simplified for now
-    # In full implementation, this would check if events occurred within time window
-    Logger.debug("Temporal pattern matching not fully implemented")
-    {false, %{pattern_type: :temporal_within, time_window: window}}
+  defp evaluate_pattern(%{type: :temporal_within, metadata: %{time_window: window}, conditions: event_conditions}, event) do
+    # Full temporal pattern implementation using EventStore
+    alias AutonomousOpponentV2Core.AMCP.Temporal.EventStore
+    alias AutonomousOpponentV2Core.VSM.Clock
+    
+    case Clock.now() do
+      {:ok, current_time} ->
+        window_start = current_time.physical - window
+        
+        # Get events in time window
+        window_events = EventStore.get_events_in_window(
+          %{physical: window_start, logical: 0, node_id: ""},
+          current_time,
+          []
+        )
+        
+        # Check if required events occurred within window
+        matches = Enum.map(event_conditions, fn condition ->
+          count_matching_events(window_events, condition)
+        end)
+        
+        required_matches = length(event_conditions)
+        actual_matches = Enum.count(matches, & &1 > 0)
+        
+        match_result = actual_matches >= required_matches
+        
+        context = %{
+          pattern_type: :temporal_within,
+          time_window: window,
+          window_events: length(window_events),
+          required_matches: required_matches,
+          actual_matches: actual_matches,
+          match_details: matches
+        }
+        
+        Logger.debug("Temporal within pattern: #{match_result} (#{actual_matches}/#{required_matches} conditions met)")
+        {match_result, context}
+        
+      {:error, error} ->
+        Logger.error("Failed to get current time for temporal pattern: #{inspect(error)}")
+        {false, %{pattern_type: :temporal_within, error: error}}
+    end
   end
   
-  defp evaluate_pattern(%{type: :temporal_sequence}, _event) do
-    # Sequence patterns require event history - simplified for now
-    Logger.debug("Sequence pattern matching not fully implemented")
-    {false, %{pattern_type: :temporal_sequence}}
+  defp evaluate_pattern(%{type: :temporal_sequence, conditions: sequence_conditions, metadata: metadata}, event) do
+    # Full temporal sequence implementation
+    alias AutonomousOpponentV2Core.AMCP.Temporal.EventStore
+    alias AutonomousOpponentV2Core.VSM.Clock
+    
+    sequence_length = metadata[:sequence_length] || length(sequence_conditions)
+    max_sequence_time = metadata[:max_sequence_time] || 30_000  # 30s default
+    
+    case Clock.now() do
+      {:ok, current_time} ->
+        # Get recent events for sequence analysis
+        window_start = current_time.physical - max_sequence_time
+        
+        window_events = EventStore.get_events_in_window(
+          %{physical: window_start, logical: 0, node_id: ""},
+          current_time,
+          []
+        )
+        
+        # Order events by HLC timestamp
+        ordered_events = Clock.order_events(window_events)
+        
+        # Find matching sequences
+        sequence_match = find_temporal_sequence(ordered_events, sequence_conditions, max_sequence_time)
+        
+        context = %{
+          pattern_type: :temporal_sequence,
+          sequence_length: sequence_length,
+          max_sequence_time: max_sequence_time,
+          window_events: length(window_events),
+          sequence_found: sequence_match != nil
+        }
+        
+        if sequence_match do
+          context = Map.merge(context, %{
+            sequence_events: sequence_match.events,
+            sequence_duration: sequence_match.duration,
+            sequence_start: sequence_match.start_time
+          })
+          Logger.debug("Temporal sequence pattern matched: #{length(sequence_match.events)} events over #{sequence_match.duration}ms")
+          {true, context}
+        else
+          Logger.debug("Temporal sequence pattern not matched")
+          {false, context}
+        end
+        
+      {:error, error} ->
+        Logger.error("Failed to get current time for sequence pattern: #{inspect(error)}")
+        {false, %{pattern_type: :temporal_sequence, error: error}}
+    end
   end
   
-  defp evaluate_pattern(%{type: :statistical_threshold}, _event) do
-    # Statistical patterns require aggregation - simplified for now
-    Logger.debug("Statistical pattern matching not fully implemented")
-    {false, %{pattern_type: :statistical_threshold}}
+  defp evaluate_pattern(%{type: :statistical_threshold, conditions: [{field, operator, value, count}], metadata: metadata}, event) do
+    # Full statistical threshold implementation
+    alias AutonomousOpponentV2Core.AMCP.Temporal.EventStore
+    alias AutonomousOpponentV2Core.VSM.Clock
+    
+    window_ms = metadata[:window_ms] || 60_000  # 1 minute default
+    
+    case Clock.now() do
+      {:ok, current_time} ->
+        window_start = current_time.physical - window_ms
+        
+        # Get events in statistical window
+        window_events = EventStore.get_events_in_window(
+          %{physical: window_start, logical: 0, node_id: ""},
+          current_time,
+          []
+        )
+        
+        # Extract field values for statistical analysis
+        field_values = Enum.map(window_events, fn event ->
+          get_nested_value(event, field)
+        end)
+        |> Enum.filter(& &1 != nil)
+        
+        # Apply threshold condition
+        matching_values = Enum.filter(field_values, fn val ->
+          apply_statistical_operator(val, operator, value)
+        end)
+        
+        threshold_met = length(matching_values) >= count
+        
+        context = %{
+          pattern_type: :statistical_threshold,
+          field: field,
+          operator: operator,
+          threshold_value: value,
+          required_count: count,
+          actual_count: length(matching_values),
+          total_events: length(window_events),
+          window_ms: window_ms
+        }
+        
+        Logger.debug("Statistical threshold pattern: #{threshold_met} (#{length(matching_values)}/#{count} required)")
+        {threshold_met, context}
+        
+      {:error, error} ->
+        Logger.error("Failed to get current time for statistical pattern: #{inspect(error)}")
+        {false, %{pattern_type: :statistical_threshold, error: error}}
+    end
   end
   
-  defp evaluate_pattern(%{type: :statistical_trend}, _event) do
-    # Trend patterns require time series analysis - simplified for now
-    Logger.debug("Trend pattern matching not fully implemented")
-    {false, %{pattern_type: :statistical_trend}}
+  defp evaluate_pattern(%{type: :statistical_trend, conditions: [{field, direction, window}], metadata: metadata}, event) do
+    # Full statistical trend implementation
+    alias AutonomousOpponentV2Core.AMCP.Temporal.EventStore
+    alias AutonomousOpponentV2Core.VSM.Clock
+    
+    window_ms = window || 300_000  # 5 minutes default
+    min_data_points = metadata[:min_data_points] || 5
+    trend_threshold = metadata[:trend_threshold] || 0.1
+    
+    case Clock.now() do
+      {:ok, current_time} ->
+        window_start = current_time.physical - window_ms
+        
+        # Get events for trend analysis
+        window_events = EventStore.get_events_in_window(
+          %{physical: window_start, logical: 0, node_id: ""},
+          current_time,
+          []
+        )
+        
+        # Extract time series data
+        time_series = Enum.map(window_events, fn event ->
+          value = get_nested_value(event, field)
+          if value != nil and is_number(value) do
+            {event.timestamp.physical, value}
+          else
+            nil
+          end
+        end)
+        |> Enum.filter(& &1 != nil)
+        |> Enum.sort_by(fn {timestamp, _} -> timestamp end)
+        
+        if length(time_series) >= min_data_points do
+          # Calculate trend using linear regression
+          trend_result = calculate_trend(time_series)
+          trend_detected = detect_trend_direction(trend_result, direction, trend_threshold)
+          
+          context = %{
+            pattern_type: :statistical_trend,
+            field: field,
+            direction: direction,
+            window_ms: window_ms,
+            data_points: length(time_series),
+            trend_slope: trend_result.slope,
+            trend_r_squared: trend_result.r_squared,
+            trend_detected: trend_detected
+          }
+          
+          Logger.debug("Statistical trend pattern: #{trend_detected} (slope: #{trend_result.slope}, direction: #{direction})")
+          {trend_detected, context}
+        else
+          context = %{
+            pattern_type: :statistical_trend,
+            field: field,
+            direction: direction,
+            window_ms: window_ms,
+            data_points: length(time_series),
+            insufficient_data: true
+          }
+          
+          Logger.debug("Statistical trend pattern: insufficient data (#{length(time_series)} < #{min_data_points})")
+          {false, context}
+        end
+        
+      {:error, error} ->
+        Logger.error("Failed to get current time for trend pattern: #{inspect(error)}")
+        {false, %{pattern_type: :statistical_trend, error: error}}
+    end
   end
   
   # Catch-all clause for unknown pattern types
@@ -325,5 +517,135 @@ defmodule AutonomousOpponentV2Core.AMCP.Goldrush.PatternMatcher do
   """
   def get_vsm_pattern(pattern_name) do
     Map.get(vsm_patterns(), pattern_name)
+  end
+  
+  # Temporal Pattern Helper Functions
+  
+  defp count_matching_events(events, condition) do
+    Enum.count(events, fn event ->
+      evaluate_simple_condition(event, condition)
+    end)
+  end
+  
+  defp evaluate_simple_condition(event, condition) do
+    Enum.all?(condition, fn {field, value_spec} ->
+      event_value = get_nested_value(event, field)
+      compare_values(event_value, value_spec)
+    end)
+  end
+  
+  defp find_temporal_sequence(ordered_events, sequence_conditions, max_sequence_time) do
+    sequence_length = length(sequence_conditions)
+    
+    # Try to find a sequence starting from each event
+    Enum.reduce_while(ordered_events, nil, fn start_event, acc ->
+      case find_sequence_from_event(start_event, ordered_events, sequence_conditions, max_sequence_time) do
+        nil -> {:cont, acc}
+        sequence -> {:halt, sequence}
+      end
+    end)
+  end
+  
+  defp find_sequence_from_event(start_event, all_events, [first_condition | rest_conditions], max_time) do
+    # Check if start event matches first condition
+    if evaluate_simple_condition(start_event, first_condition) do
+      # Find remaining events in sequence
+      find_remaining_sequence(start_event, all_events, rest_conditions, max_time, [start_event])
+    else
+      nil
+    end
+  end
+  
+  defp find_remaining_sequence(_start_event, _all_events, [], _max_time, found_events) do
+    # Sequence complete
+    first_event = hd(found_events)
+    last_event = List.last(found_events)
+    duration = last_event.timestamp.physical - first_event.timestamp.physical
+    
+    %{
+      events: found_events,
+      duration: duration,
+      start_time: first_event.timestamp.physical
+    }
+  end
+  
+  defp find_remaining_sequence(start_event, all_events, [next_condition | rest], max_time, found_events) do
+    last_found = List.last(found_events)
+    cutoff_time = start_event.timestamp.physical + max_time
+    
+    # Find next event that matches condition and is after last found event
+    next_event = Enum.find(all_events, fn event ->
+      event.timestamp.physical > last_found.timestamp.physical and
+      event.timestamp.physical <= cutoff_time and
+      evaluate_simple_condition(event, next_condition)
+    end)
+    
+    if next_event do
+      find_remaining_sequence(start_event, all_events, rest, max_time, found_events ++ [next_event])
+    else
+      nil
+    end
+  end
+  
+  defp apply_statistical_operator(value, operator, threshold) when is_number(value) and is_number(threshold) do
+    case operator do
+      :gt -> value > threshold
+      :gte -> value >= threshold
+      :lt -> value < threshold
+      :lte -> value <= threshold
+      :eq -> value == threshold
+      _ -> false
+    end
+  end
+  
+  defp apply_statistical_operator(_value, _operator, _threshold), do: false
+  
+  defp calculate_trend(time_series) when length(time_series) < 2 do
+    %{slope: 0, r_squared: 0, insufficient_data: true}
+  end
+  
+  defp calculate_trend(time_series) do
+    # Simple linear regression for trend calculation
+    n = length(time_series)
+    
+    {sum_x, sum_y, sum_xy, sum_x2} = Enum.reduce(time_series, {0, 0, 0, 0}, fn {x, y}, {sx, sy, sxy, sx2} ->
+      {sx + x, sy + y, sxy + (x * y), sx2 + (x * x)}
+    end)
+    
+    mean_x = sum_x / n
+    mean_y = sum_y / n
+    
+    # Calculate slope (b)
+    numerator = sum_xy - (n * mean_x * mean_y)
+    denominator = sum_x2 - (n * mean_x * mean_x)
+    
+    slope = if denominator != 0, do: numerator / denominator, else: 0
+    
+    # Calculate R-squared (coefficient of determination)
+    y_pred_sum = Enum.reduce(time_series, 0, fn {x, y}, acc ->
+      y_pred = mean_y + slope * (x - mean_x)
+      acc + (y - y_pred) * (y - y_pred)
+    end)
+    
+    y_mean_sum = Enum.reduce(time_series, 0, fn {_x, y}, acc ->
+      acc + (y - mean_y) * (y - mean_y)
+    end)
+    
+    r_squared = if y_mean_sum != 0, do: 1 - (y_pred_sum / y_mean_sum), else: 0
+    
+    %{
+      slope: slope,
+      r_squared: max(0, r_squared),
+      data_points: n
+    }
+  end
+  
+  defp detect_trend_direction(%{slope: slope}, direction, threshold) do
+    case direction do
+      :increasing -> slope > threshold
+      :decreasing -> slope < -threshold
+      :stable -> abs(slope) <= threshold
+      _ -> false
+    end
   end
 end

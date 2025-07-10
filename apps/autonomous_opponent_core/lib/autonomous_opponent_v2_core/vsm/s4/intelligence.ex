@@ -137,7 +137,7 @@ defmodule AutonomousOpponentV2Core.VSM.S4.Intelligence do
     {:ok, vector_store} = VectorStore.start_link(vector_store_opts)
     
     # Subscribe to variety channels from other subsystems
-    EventBus.subscribe(:s3_to_s4)  # Audit data from S3
+    EventBus.subscribe(:s4_intelligence)  # Variety channel output for S4
     EventBus.subscribe(:external_environment)  # External signals
     EventBus.subscribe(:algedonic_intervention)  # Emergency overrides
     

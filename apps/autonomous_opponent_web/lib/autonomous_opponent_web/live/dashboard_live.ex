@@ -5,7 +5,7 @@ defmodule AutonomousOpponentV2Web.DashboardLive do
   alias AutonomousOpponentV2Core.EventBus
   alias AutonomousOpponentV2Core.Consciousness
   
-  @refresh_interval 100  # Update every 100ms for smooth animations
+  @refresh_interval 1000  # 1 second refresh for better performance
   
   @impl true
   def mount(_params, _session, socket) do
@@ -395,22 +395,48 @@ defmodule AutonomousOpponentV2Web.DashboardLive do
   # Private functions
   
   defp generate_chart_data do
-    # Generate 60 data points representing operation load
-    for _ <- 1..60 do
-      :rand.uniform(100)
+    # Get real operational metrics from Core.Metrics
+    case get_real_metric("vsm.operations.success") do
+      nil -> 
+        # Fallback to zeros if no data yet
+        List.duplicate(0, 60)
+      single_value when is_number(single_value) ->
+        # Current implementation returns single values, not time series
+        # For now, create a simple rolling chart by keeping last values
+        chart_data = Process.get(:chart_history, [])
+        new_data = [single_value | Enum.take(chart_data, 59)]
+        Process.put(:chart_history, new_data)
+        Enum.reverse(new_data)
+      recent_values when is_list(recent_values) ->
+        # If we get a list, use it directly
+        recent_values
+        |> Enum.take(60)
+        |> then(fn values -> 
+          if length(values) < 60 do
+            List.duplicate(0, 60 - length(values)) ++ values
+          else
+            values
+          end
+        end)
+      _ ->
+        List.duplicate(0, 60)
     end
   end
   
   defp get_system_stats do
     memory_data = :erlang.memory()
     
+    # Get real metrics from Core.Metrics
+    events_per_sec = get_real_metric("vsm.operations.success") || 0
+    latency_ms = get_real_metric("vsm.operation_duration") || 0
+    
     %{
       cpu: get_cpu_usage(),
       memory: memory_data[:total],
       processes: :erlang.system_info(:process_count),
       messages: get_message_queue_lengths(),
-      events: :rand.uniform(1000),
-      latency: :rand.uniform(50)
+      events: round(events_per_sec),
+      latency: round(latency_ms)
     }
   end
   
@@ -433,30 +459,74 @@ defmodule AutonomousOpponentV2Web.DashboardLive do
             # Get actual health from module
             case module.calculate_health() do
               health when is_float(health) -> health
-              _ -> 0.95
+              _ -> 
+                # Fallback: calculate from real metrics
+                calculate_health_from_metrics(module)
             end
           else
             0.0
           end
       end
     rescue
-      _ -> 0.85
+      _ -> 
+        # Even on error, try to get metrics-based health
+        calculate_health_from_metrics(module)
     end
   end
   
   defp get_variety_flow do
-    [
-      {"S1→S2", %{current: :rand.uniform(800), capacity: 1000}},
-      {"S2→S3", %{current: :rand.uniform(400), capacity: 500}},
-      {"S3→S4", %{current: :rand.uniform(150), capacity: 200}},
-      {"S4→S5", %{current: :rand.uniform(80), capacity: 100}},
-      {"S3→S1", %{current: :rand.uniform(900), capacity: 1000}}
-    ]
+    # Get real variety flow metrics from Core.Metrics
+    metrics_data = get_vsm_dashboard_data()
+    
+    if metrics_data && metrics_data.variety_flow do
+      # Calculate actual variety flows based on real metrics
+      absorbed = metrics_data.variety_flow.total_absorbed || 0
+      generated = metrics_data.variety_flow.total_generated || 0
+      attenuation = metrics_data.variety_flow.avg_attenuation || 1.0
+      
+      # Model variety flow through VSM hierarchy
+      # S1 absorbs all environmental variety
+      s1_s2_flow = min(absorbed, 1000)
+      # S2 coordinates and reduces variety
+      s2_s3_flow = min(s1_s2_flow * 0.5, 500)
+      # S3 controls and further reduces
+      s3_s4_flow = min(s2_s3_flow * 0.3, 200)
+      # S4 intelligence to policy
+      s4_s5_flow = min(s3_s4_flow * 0.4, 100)
+      # S3 control feedback to S1
+      s3_s1_flow = min(generated, 1000)
+      
+      [
+        {"S1→S2", %{current: round(s1_s2_flow), capacity: 1000}},
+        {"S2→S3", %{current: round(s2_s3_flow), capacity: 500}},
+        {"S3→S4", %{current: round(s3_s4_flow), capacity: 200}},
+        {"S4→S5", %{current: round(s4_s5_flow), capacity: 100}},
+        {"S3→S1", %{current: round(s3_s1_flow), capacity: 1000}}
+      ]
+    else
+      # No data yet - show zero flows
+      [
+        {"S1→S2", %{current: 0, capacity: 1000}},
+        {"S2→S3", %{current: 0, capacity: 500}},
+        {"S3→S4", %{current: 0, capacity: 200}},
+        {"S4→S5", %{current: 0, capacity: 100}},
+        {"S3→S1", %{current: 0, capacity: 1000}}
+      ]
+    end
   end
   
   defp update_chart_data(socket) do
-    # Shift data left and add new value
-    new_data = tl(socket.assigns.chart_data) ++ [:rand.uniform(100)]
+    # Get latest real metric value
+    new_value = case get_real_metric("vsm.operations.success") do
+      nil -> 0
+      value when is_number(value) -> 
+        # Normalize to percentage of capacity
+        min(round(value / 10), 100)
+      _ -> 0
+    end
+    
+    # Shift data left and add new real value
+    new_data = tl(socket.assigns.chart_data) ++ [new_value]
     assign(socket, :chart_data, new_data)
   end
   
@@ -546,7 +616,13 @@ defmodule AutonomousOpponentV2Web.DashboardLive do
   
   defp get_cpu_usage do
     case :cpu_sup.util() do
-      {:error, _} -> :rand.uniform(100)
+      {:error, _} -> 
+        # Fallback to memory-based estimation
+        memory_data = :erlang.memory()
+        total_memory = memory_data[:total]
+        system_memory = memory_data[:system]
+        # Rough CPU estimate based on memory pressure
+        min(round((system_memory / total_memory) * 200), 100)
       usage -> round(usage)
     end
   end
@@ -590,5 +666,71 @@ defmodule AutonomousOpponentV2Web.DashboardLive do
   defp flash_algedonic_signal(socket, data) do
     # Flash border or show alert for pain/pleasure signals
     socket
+  end
+  
+  # Helper functions for real metrics integration
+  
+  defp get_real_metric(metric_name) do
+    case Process.whereis(AutonomousOpponentV2Core.Core.Metrics) do
+      nil -> nil
+      _pid ->
+        try do
+          # Try with tags first (new format)
+          tagged_name = "#{metric_name}{subsystem=s1}"
+          case AutonomousOpponentV2Core.Core.Metrics.get_metric(
+            AutonomousOpponentV2Core.Core.Metrics,
+            tagged_name
+          ) do
+            nil ->
+              # Fallback to untagged name
+              AutonomousOpponentV2Core.Core.Metrics.get_metric(
+                AutonomousOpponentV2Core.Core.Metrics,
+                metric_name
+              )
+            value -> value
+          end
+        rescue
+          _ -> nil
+        end
+    end
+  end
+  
+  defp get_vsm_dashboard_data do
+    case Process.whereis(AutonomousOpponentV2Core.Core.Metrics) do
+      nil -> nil
+      _pid ->
+        try do
+          AutonomousOpponentV2Core.Core.Metrics.get_vsm_dashboard(
+            AutonomousOpponentV2Core.Core.Metrics
+          )
+        rescue
+          _ -> nil
+        end
+    end
+  end
+  
+  defp calculate_health_from_metrics(module) do
+    # Calculate health based on real metrics
+    subsystem = module_to_subsystem(module)
+    
+    case get_vsm_dashboard_data() do
+      %{subsystems: subsystems} when is_map(subsystems) ->
+        case Map.get(subsystems, subsystem) do
+          %{health_score: score} -> score / 100.0
+          _ -> 0.0
+        end
+      _ -> 0.0
+    end
+  end
+  
+  defp module_to_subsystem(module) do
+    case Module.split(module) |> List.last() do
+      "Operations" -> :s1
+      "Coordination" -> :s2
+      "Control" -> :s3
+      "Intelligence" -> :s4
+      "Policy" -> :s5
+      _ -> :unknown
+    end
   end
 end

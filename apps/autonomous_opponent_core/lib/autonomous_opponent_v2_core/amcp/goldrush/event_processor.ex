@@ -314,6 +314,14 @@ defmodule AutonomousOpponentV2Core.AMCP.Goldrush.EventProcessor do
           })
       end
       
+      # Always publish pattern_matched event for HNSW indexing
+      EventBus.publish(:pattern_matched, %{
+        pattern_id: pattern_id,
+        matched_event: event,
+        match_context: context,
+        triggered_at: DateTime.utc_now()
+      })
+      
       Logger.debug("Pattern #{pattern_id} triggered for event #{event.id}")
       
     rescue
