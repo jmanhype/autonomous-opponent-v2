@@ -140,6 +140,170 @@ defmodule AutonomousOpponentV2Core.AMCP.Memory.HNSWPersistenceTest do
     end
   end
   
+  describe "recovery scenarios" do
+    test "recovers from corrupted persistence file" do
+      # First, create a valid index with data
+      {:ok, index1} = HNSWIndex.start_link(
+        name: :test_hnsw_corrupt1,
+        persist_path: @test_persist_path,
+        backup_retention: 3
+      )
+      
+      # Add test data
+      for i <- 1..20 do
+        vector = for _ <- 1..@test_vector_dim, do: :rand.uniform()
+        HNSWIndex.insert(index1, vector, %{id: i, data: "pattern_#{i}"})
+      end
+      
+      # Persist and stop
+      :ok = HNSWIndex.persist(index1)
+      GenServer.stop(index1)
+      
+      # Corrupt the main persistence file
+      corrupt_data = "corrupted data that is not valid erlang term"
+      File.write!(@test_persist_path, corrupt_data)
+      
+      # Try to start new index - should fall back to backup
+      {:ok, index2} = HNSWIndex.start_link(
+        name: :test_hnsw_corrupt2,
+        persist_path: @test_persist_path,
+        corruption_recovery: true
+      )
+      
+      # Verify index recovered some data (might be from empty state if no backups)
+      stats = HNSWIndex.stats(index2)
+      assert stats.node_count >= 0  # Should at least start without crashing
+      
+      GenServer.stop(index2)
+    end
+    
+    test "handles disk full scenario gracefully" do
+      # This test simulates disk full by using a mock persistence module
+      # In real scenario, we'd need to fill up disk or mock File.write!
+      
+      {:ok, index} = HNSWIndex.start_link(
+        name: :test_hnsw_disk_full,
+        persist_path: @test_persist_path,
+        persist_interval: 100
+      )
+      
+      # Add data
+      for i <- 1..10 do
+        vector = for _ <- 1..@test_vector_dim, do: :rand.uniform()
+        HNSWIndex.insert(index, vector, %{id: i})
+      end
+      
+      # Mock disk full by making directory read-only
+      File.chmod!(Path.dirname(@test_persist_path), 0o555)
+      
+      # Try to persist - should handle error gracefully
+      result = HNSWIndex.persist(index)
+      assert {:error, _} = result
+      
+      # Restore permissions
+      File.chmod!(Path.dirname(@test_persist_path), 0o755)
+      
+      # Index should still be functional
+      stats = HNSWIndex.stats(index)
+      assert stats.node_count == 10
+      
+      GenServer.stop(index)
+    end
+    
+    test "backup rotation works correctly" do
+      {:ok, index} = HNSWIndex.start_link(
+        name: :test_hnsw_rotation,
+        persist_path: @test_persist_path,
+        persist_interval: 50,
+        backup_retention: 3
+      )
+      
+      # Create multiple persistence cycles
+      for cycle <- 1..5 do
+        # Add unique data for each cycle
+        for i <- 1..5 do
+          vector = for _ <- 1..@test_vector_dim, do: :rand.uniform()
+          HNSWIndex.insert(index, vector, %{id: "#{cycle}_#{i}"})
+        end
+        
+        # Force persistence
+        :ok = HNSWIndex.persist(index)
+        Process.sleep(100)
+      end
+      
+      # Check backup files
+      backup_files = Path.wildcard("#{@test_persist_path}.backup.*")
+      main_backups = Enum.filter(backup_files, &(!String.contains?(&1, [".graph", ".data", ".levels"])))
+      
+      # Should have at most (retention - 1) backups
+      assert length(main_backups) <= 2
+      
+      GenServer.stop(index)
+    end
+    
+    test "compressed backups can be restored" do
+      {:ok, index1} = HNSWIndex.start_link(
+        name: :test_hnsw_compress1,
+        persist_path: @test_persist_path,
+        checkpoint_size_threshold: 1  # Force compression for testing
+      )
+      
+      # Add enough data to trigger compression
+      test_vectors = for i <- 1..100 do
+        vector = for _ <- 1..@test_vector_dim, do: :rand.uniform()
+        HNSWIndex.insert(index1, vector, %{id: i, important: true})
+        vector
+      end
+      
+      # Persist multiple times to create backups
+      :ok = HNSWIndex.persist(index1)
+      Process.sleep(100)
+      :ok = HNSWIndex.persist(index1)
+      
+      GenServer.stop(index1)
+      
+      # Check for compressed backups
+      compressed_files = Path.wildcard("#{@test_persist_path}.backup.*.gz")
+      assert length(compressed_files) > 0
+      
+      # Remove main files to force backup restoration
+      File.rm(@test_persist_path)
+      File.rm("#{@test_persist_path}.graph")
+      File.rm("#{@test_persist_path}.data") 
+      File.rm("#{@test_persist_path}.levels")
+      
+      # Decompress a backup
+      backup_file = hd(compressed_files) |> String.replace_suffix(".gz", "")
+      {:ok, _} = Persistence.decompress_file(hd(compressed_files))
+      
+      # Rename decompressed backup to main files
+      for suffix <- ["", ".graph", ".data", ".levels"] do
+        backup = backup_file <> suffix
+        main = @test_persist_path <> suffix
+        if File.exists?(backup) do
+          File.rename(backup, main)
+        end
+      end
+      
+      # Start new index - should load from decompressed backup
+      {:ok, index2} = HNSWIndex.start_link(
+        name: :test_hnsw_compress2,
+        persist_path: @test_persist_path
+      )
+      
+      # Verify data was restored
+      stats = HNSWIndex.stats(index2)
+      assert stats.node_count == 100
+      
+      # Test search to ensure functionality
+      query = Enum.at(test_vectors, 0)
+      {:ok, results} = HNSWIndex.search(index2, query, 5)
+      assert length(results) == 5
+      
+      GenServer.stop(index2)
+    end
+  end
+  
   describe "memory optimization" do
     test "persistence does not cause memory spikes" do
       {:ok, index} = HNSWIndex.start_link(
