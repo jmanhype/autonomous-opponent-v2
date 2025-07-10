@@ -20,7 +20,6 @@ defmodule AutonomousOpponentV2Core.Core.DistributedRateLimiter do
   alias AutonomousOpponentV2Core.EventBus
   alias AutonomousOpponentV2Core.Core.{CircuitBreaker, RateLimiter}
   alias AutonomousOpponentV2Core.Connections.RedisPool
-  alias AutonomousOpponentV2Core.Security.AuditLog
   
   @lua_script_check_and_increment """
   local key = KEYS[1]
@@ -511,7 +510,14 @@ defmodule AutonomousOpponentV2Core.Core.DistributedRateLimiter do
   end
   
   defp circuit_open? do
-    CircuitBreaker.state(:redis_circuit) == :open
+    case Process.whereis(:redis_circuit) do
+      nil -> false  # Circuit doesn't exist, treat as closed
+      _pid ->
+        case CircuitBreaker.get_state(:redis_circuit) do
+          {:ok, %{state: :open}} -> true
+          _ -> false
+        end
+    end
   end
   
   defp publish_allowed_event(state, identifier, rule_name, usage) do
@@ -555,7 +561,12 @@ defmodule AutonomousOpponentV2Core.Core.DistributedRateLimiter do
     |> Base.encode16(case: :lower)
     |> String.slice(0, 16)
     
-    AuditLog.record(:rate_limit_violation, %{
+    # Log the rate limit violation
+    Logger.warning("Rate limit violation: rule=#{rule}, identifier_hash=#{hashed_id}, context=#{inspect(context)}")
+    
+    # Publish audit event
+    EventBus.publish(:audit_log, %{
+      type: :rate_limit_violation,
       identifier_hash: hashed_id,
       rule: rule,
       timestamp: DateTime.utc_now(),

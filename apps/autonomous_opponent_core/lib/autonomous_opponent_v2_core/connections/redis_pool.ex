@@ -16,7 +16,6 @@ defmodule AutonomousOpponentV2Core.Connections.RedisPool do
   
   alias AutonomousOpponentV2Core.Core.CircuitBreaker
   alias AutonomousOpponentV2Core.EventBus
-  alias AutonomousOpponentV2Core.Security.SecretsManager
   
   @pool_name :redis_pool
   @default_pool_size 10
@@ -42,8 +41,14 @@ defmodule AutonomousOpponentV2Core.Connections.RedisPool do
       end, opts[:checkout_timeout] || 5000)
     end)
     
-    emit_telemetry(:command, start_time, result, args)
-    handle_result(result, args)
+    # Unwrap nested {:ok, result} from CircuitBreaker
+    unwrapped_result = case result do
+      {:ok, inner_result} -> inner_result
+      error -> error
+    end
+    
+    emit_telemetry(:command, start_time, unwrapped_result, args)
+    handle_result(unwrapped_result, args)
   end
   
   @doc """
@@ -58,8 +63,14 @@ defmodule AutonomousOpponentV2Core.Connections.RedisPool do
       end, opts[:checkout_timeout] || 5000)
     end)
     
-    emit_telemetry(:pipeline, start_time, result, length(commands))
-    handle_result(result, commands)
+    # Unwrap nested {:ok, result} from CircuitBreaker
+    unwrapped_result = case result do
+      {:ok, inner_result} -> inner_result
+      error -> error
+    end
+    
+    emit_telemetry(:pipeline, start_time, unwrapped_result, length(commands))
+    handle_result(unwrapped_result, commands)
   end
   
   @doc """
@@ -88,7 +99,7 @@ defmodule AutonomousOpponentV2Core.Connections.RedisPool do
   """
   def load_script(script) do
     case command(["SCRIPT", "LOAD", script]) do
-      {:ok, sha} ->
+      {:ok, sha} when is_binary(sha) ->
         Logger.info("Loaded Redis script with SHA: #{sha}")
         {:ok, sha}
         
@@ -113,21 +124,17 @@ defmodule AutonomousOpponentV2Core.Connections.RedisPool do
   @impl true
   def init(opts) do
     # Initialize circuit breaker
-    CircuitBreaker.initialize(@circuit_breaker_name,
-      failure_threshold: opts[:circuit_failure_threshold] || 5,
-      recovery_time_ms: opts[:circuit_recovery_time_ms] || 30_000,
-      timeout_ms: opts[:circuit_timeout_ms] || 5_000
-    )
+    CircuitBreaker.initialize(@circuit_breaker_name)
     
     # Get Redis configuration
-    redis_config = get_redis_config()
+    {redis_config, pool_settings} = get_redis_config()
     
     # Pool configuration
     pool_config = [
       name: {:local, @pool_name},
       worker_module: Redix,
-      size: redis_config[:pool_size] || @default_pool_size,
-      max_overflow: redis_config[:max_overflow] || @default_overflow,
+      size: pool_settings[:pool_size] || @default_pool_size,
+      max_overflow: pool_settings[:max_overflow] || @default_overflow,
       strategy: :fifo
     ]
     
@@ -168,17 +175,21 @@ defmodule AutonomousOpponentV2Core.Connections.RedisPool do
   # Private functions
   
   defp get_redis_config do
-    base_config = %{
+    base_config = [
       host: Application.get_env(:autonomous_opponent_core, :redis_host, "localhost"),
       port: Application.get_env(:autonomous_opponent_core, :redis_port, 6379),
-      database: Application.get_env(:autonomous_opponent_core, :redis_database, 0),
+      database: Application.get_env(:autonomous_opponent_core, :redis_database, 0)
+    ]
+    
+    # Store pool settings separately (not for Redix)
+    pool_settings = [
       pool_size: Application.get_env(:autonomous_opponent_core, :redis_pool_size, @default_pool_size),
       max_overflow: Application.get_env(:autonomous_opponent_core, :redis_max_overflow, @default_overflow)
-    }
+    ]
     
     # Add authentication if configured
     config = if redis_password = get_redis_password() do
-      Map.put(base_config, :password, redis_password)
+      Keyword.put(base_config, :password, redis_password)
     else
       base_config
     end
@@ -192,32 +203,33 @@ defmodule AutonomousOpponentV2Core.Connections.RedisPool do
         keyfile: Application.get_env(:autonomous_opponent_core, :redis_keyfile),
         depth: 3
       ]
-      Map.put(config, :ssl, true)
-      |> Map.put(:socket_opts, [:inet6] ++ [ssl_options: ssl_opts])
+      config
+      |> Keyword.put(:ssl, true)
+      |> Keyword.put(:socket_opts, [:inet6] ++ [ssl_options: ssl_opts])
     else
       config
     end
     
     # Add Sentinel configuration if available
-    if sentinels = Application.get_env(:autonomous_opponent_core, :redis_sentinels) do
+    config = if sentinels = Application.get_env(:autonomous_opponent_core, :redis_sentinels) do
       config
-      |> Map.put(:sentinels, sentinels)
-      |> Map.put(:group, Application.get_env(:autonomous_opponent_core, :redis_sentinel_group, "mymaster"))
+      |> Keyword.put(:sentinels, sentinels)
+      |> Keyword.put(:group, Application.get_env(:autonomous_opponent_core, :redis_sentinel_group, "mymaster"))
     else
       config
     end
+    
+    # Return both Redix config and pool settings
+    {config, pool_settings}
   end
   
   defp get_redis_password do
     # Try multiple sources for Redis password
     cond do
-      # First, check SecretsManager (most secure)
-      password = SecretsManager.get_secret("REDIS_PASSWORD") -> password
-      
-      # Then environment variable
+      # Environment variable
       password = System.get_env("REDIS_PASSWORD") -> password
       
-      # Finally, application config (least secure)
+      # Application config
       password = Application.get_env(:autonomous_opponent_core, :redis_password) -> password
       
       # No password configured

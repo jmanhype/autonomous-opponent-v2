@@ -94,22 +94,28 @@ defmodule AutonomousOpponentV2Core.Application do
         AutonomousOpponentV2Core.Connections.RedisPool,
         
         # Distributed rate limiters for different subsystems
-        {AutonomousOpponentV2Core.Core.DistributedRateLimiter,
-         name: :api_rate_limiter,
-         rules: %{
-           burst: {1_000, 10},      # 10 req/sec burst
-           sustained: {60_000, 100} # 100 req/min sustained
-         }},
+        Supervisor.child_spec(
+          {AutonomousOpponentV2Core.Core.DistributedRateLimiter,
+           name: :api_rate_limiter,
+           rules: %{
+             burst: {1_000, 10},      # 10 req/sec burst
+             sustained: {60_000, 100} # 100 req/min sustained
+           }},
+          id: :api_rate_limiter
+        ),
          
-        {AutonomousOpponentV2Core.Core.DistributedRateLimiter,
-         name: :vsm_rate_limiter,
-         rules: %{
-           s1_operations: {1_000, 100},
-           s2_coordination: {1_000, 50},
-           s3_control: {1_000, 20},
-           s4_intelligence: {60_000, 100},
-           s5_policy: {300_000, 50}
-         }}
+        Supervisor.child_spec(
+          {AutonomousOpponentV2Core.Core.DistributedRateLimiter,
+           name: :vsm_rate_limiter,
+           rules: %{
+             s1_operations: {1_000, 100},
+             s2_coordination: {1_000, 50},
+             s3_control: {1_000, 20},
+             s4_intelligence: {60_000, 100},
+             s5_policy: {300_000, 50}
+           }},
+          id: :vsm_rate_limiter
+        )
       ]
     else
       []
