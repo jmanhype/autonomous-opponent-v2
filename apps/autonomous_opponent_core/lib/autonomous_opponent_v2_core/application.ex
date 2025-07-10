@@ -83,6 +83,12 @@ defmodule AutonomousOpponentV2Core.Application do
         AutonomousOpponentV2Core.AMCP.Temporal.PatternDetector,
         AutonomousOpponentV2Core.AMCP.Temporal.AlgedonicIntegration,
         
+        # VSM Pattern Registry and Library
+        {AutonomousOpponentV2Core.AMCP.Goldrush.PatternRegistry, 
+         auto_activate_critical: true,
+         performance_tracking: true,
+         algedonic_integration: true},
+        
         # Temporal Variety Channels for each VSM subsystem
         Supervisor.child_spec(
           {AutonomousOpponentV2Core.VSM.Channels.TemporalVarietyChannel, subsystem: :s1},
