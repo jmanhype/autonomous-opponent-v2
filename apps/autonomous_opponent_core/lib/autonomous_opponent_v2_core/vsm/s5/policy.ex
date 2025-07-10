@@ -69,10 +69,7 @@ defmodule AutonomousOpponentV2Core.VSM.S5.Policy do
   @impl true
   def init(opts) do
     # Subscribe to all system events for policy monitoring
-    EventBus.subscribe(:s1_operations)
-    EventBus.subscribe(:s2_coordination)
-    EventBus.subscribe(:s3_control)
-    EventBus.subscribe(:s4_intelligence)
+    EventBus.subscribe(:s5_policy)  # Variety channel output for S5
     EventBus.subscribe(:emergency_algedonic)
     EventBus.subscribe(:algedonic_intervention)
     EventBus.subscribe(:system_metrics)

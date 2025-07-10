@@ -22,20 +22,33 @@ config :logger, level: :info
 config :autonomous_opponent_core,
   # Enable LLM response caching in production
   llm_cache_enabled: true,
-  
+
   # Production cache settings
   llm_cache_config: [
     # Larger cache size for production
     max_size: 5000,
-    
+
     # Default TTL: 2 hours
     ttl: 7_200_000,
-    
+
     # Warm cache from disk on startup
     warm_on_start: true,
-    
+
     # Persist cache to disk every 10 minutes
     persist_interval: 600_000
+  ]
+
+# CRDT Sync Configuration for Production
+config :autonomous_opponent_core, :crdt_sync,
+  max_peers: 50,  # Start conservative
+  max_crdts: 5_000,  # Lower for initial rollout
+  sync_interval_ms: 60_000,  # 1 minute for production
+  max_message_size: 500_000,  # 500KB limit
+  max_queue_size: 1000,  # Limit merge queue size
+  sync_timeout_ms: 10_000,  # 10 second timeout
+  circuit_breaker: [
+    failure_threshold: 3,  # Open circuit after 3 failures
+    reset_timeout_ms: 60_000  # Try again after 1 minute
   ]
 
 # Runtime production configuration, including reading

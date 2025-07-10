@@ -21,10 +21,27 @@ defmodule AutonomousOpponentV2Core.EventBus do
 
   @doc """
   Subscribe to events of a specific type
+  
+  ## Options
+  
+  - `:ordered_delivery` - Enable causal ordering for this subscription (default: false)
+  - `:buffer_window_ms` - Time window for ordering buffer (default: 50)
+  - `:batch_delivery` - Receive events in batches (default: false)
+  
+  ## Examples
+  
+      # Simple subscription
+      EventBus.subscribe(:my_event)
+      
+      # Ordered delivery subscription  
+      EventBus.subscribe(:my_event, self(), ordered_delivery: true)
+      
+      # Custom buffer window
+      EventBus.subscribe(:my_event, self(), ordered_delivery: true, buffer_window_ms: 100)
   """
-  def subscribe(event_type, pid \\ self()) do
+  def subscribe(event_type, pid \\ self(), opts \\ []) do
     SystemTelemetry.measure([:event_bus, :subscribe], %{event_type: event_type}, fn ->
-      GenServer.call(__MODULE__, {:subscribe, event_type, pid})
+      GenServer.call(__MODULE__, {:subscribe, event_type, pid, opts})
     end)
   end
 
@@ -43,6 +60,9 @@ defmodule AutonomousOpponentV2Core.EventBus do
   def publish(event_type, data) do
     # Create causally-ordered event with HLC timestamp to prevent race conditions
     {:ok, event} = Clock.create_event(:event_bus, event_type, data)
+    
+    # Add topic field to match what OrderedDelivery expects
+    event = Map.put(event, :topic, event_type)
     
     # Emit publish telemetry synchronously before the cast
     message_size = :erlang.external_size(event.data)
@@ -118,6 +138,9 @@ defmodule AutonomousOpponentV2Core.EventBus do
   def init(_opts) do
     # Create ETS table for subscriptions
     :ets.new(@table_name, [:named_table, :bag, :public, {:read_concurrency, true}])
+    
+    # Create ETS table for ordered delivery processes
+    :ets.new(:event_bus_ordered_delivery, [:named_table, :set, :public])
 
     Logger.info("EventBus initialized")
     
@@ -128,34 +151,57 @@ defmodule AutonomousOpponentV2Core.EventBus do
       %{}
     )
 
-    {:ok, %{}}
+    {:ok, %{ordered_delivery_supervisor: nil}}
   end
 
   @impl true
-  def handle_call({:subscribe, event_type, pid}, _from, state) do
+  def handle_call({:subscribe, event_type, pid, opts}, _from, state) do
     # Monitor the subscriber process
     Process.monitor(pid)
 
-    # Add subscription to ETS
-    :ets.insert(@table_name, {event_type, pid})
+    # Check if ordered delivery is requested
+    if Keyword.get(opts, :ordered_delivery, false) do
+      # Start an OrderedDelivery process for this subscriber
+      {:ok, delivery_pid} = start_ordered_delivery(event_type, pid, opts)
+      
+      # Store the mapping
+      :ets.insert(:event_bus_ordered_delivery, {{event_type, pid}, delivery_pid})
+      
+      # Subscribe the OrderedDelivery process instead of the actual subscriber
+      :ets.insert(@table_name, {event_type, delivery_pid})
+      
+      Logger.info("Process #{inspect(pid)} subscribed to #{inspect(event_type)} with ordered delivery")
+    else
+      # Regular subscription
+      :ets.insert(@table_name, {event_type, pid})
+      Logger.debug("Process #{inspect(pid)} subscribed to #{inspect(event_type)}")
+    end
     
     # Emit subscription telemetry
     subscriber_count = length(:ets.lookup(@table_name, event_type))
     SystemTelemetry.emit(
       [:event_bus, :subscription_added],
-      %{subscriber_count: subscriber_count},
+      %{subscriber_count: subscriber_count, ordered: Keyword.get(opts, :ordered_delivery, false)},
       %{event_type: event_type, pid: pid}
     )
-
-    Logger.debug("Process #{inspect(pid)} subscribed to #{event_type}")
 
     {:reply, :ok, state}
   end
 
   @impl true
   def handle_call({:unsubscribe, event_type, pid}, _from, state) do
-    # Remove subscription from ETS
-    :ets.delete_object(@table_name, {event_type, pid})
+    # Check if this has ordered delivery
+    case :ets.lookup(:event_bus_ordered_delivery, {event_type, pid}) do
+      [{{^event_type, ^pid}, delivery_pid}] ->
+        # Stop the OrderedDelivery process
+        Process.exit(delivery_pid, :normal)
+        :ets.delete(:event_bus_ordered_delivery, {event_type, pid})
+        :ets.delete_object(@table_name, {event_type, delivery_pid})
+        
+      [] ->
+        # Regular unsubscription
+        :ets.delete_object(@table_name, {event_type, pid})
+    end
     
     # Emit unsubscription telemetry
     subscriber_count = length(:ets.lookup(@table_name, event_type))
@@ -165,7 +211,7 @@ defmodule AutonomousOpponentV2Core.EventBus do
       %{event_type: event_type, pid: pid}
     )
 
-    Logger.debug("Process #{inspect(pid)} unsubscribed from #{event_type}")
+    Logger.debug("Process #{inspect(pid)} unsubscribed from #{inspect(event_type)}")
 
     {:reply, :ok, state}
   end
@@ -198,8 +244,16 @@ defmodule AutonomousOpponentV2Core.EventBus do
     # Send event to each subscriber with HLC timestamp and ordering info
     delivered = Enum.reduce(subscribers, 0, fn {_event_type, pid}, count ->
       if Process.alive?(pid) do
-        # Send full event with HLC timestamp for proper ordering
-        send(pid, {:event_bus_hlc, event})
+        # Check if this pid is in the ordered delivery table (meaning it's an OrderedDelivery process)
+        ordered_entries = :ets.match(:event_bus_ordered_delivery, {:_, pid})
+        
+        if length(ordered_entries) > 0 do
+          # This is an OrderedDelivery process
+          AutonomousOpponentV2Core.EventBus.OrderedDelivery.submit_event(pid, event)
+        else
+          # Regular subscriber - send directly
+          send(pid, {:event_bus_hlc, event})
+        end
         count + 1
       else
         # Emit dropped message telemetry
@@ -251,10 +305,17 @@ defmodule AutonomousOpponentV2Core.EventBus do
       count + 1
     end)
     
+    # Also clean up any OrderedDelivery mappings
+    ordered_mappings = :ets.match(:event_bus_ordered_delivery, {{:"$1", pid}, :"$2"})
+    Enum.each(ordered_mappings, fn [event_type, delivery_pid] ->
+      Process.exit(delivery_pid, :normal)
+      :ets.delete(:event_bus_ordered_delivery, {event_type, pid})
+    end)
+    
     # Emit cleanup telemetry
     SystemTelemetry.emit(
       [:event_bus, :subscriber_cleanup],
-      %{subscriptions_removed: cleaned_count},
+      %{subscriptions_removed: cleaned_count, ordered_removed: length(ordered_mappings)},
       %{pid: pid}
     )
 
@@ -267,5 +328,37 @@ defmodule AutonomousOpponentV2Core.EventBus do
   def handle_info(msg, state) do
     Logger.debug("EventBus received unexpected message: #{inspect(msg)}")
     {:noreply, state}
+  end
+  
+  # Private functions
+  
+  defp start_ordered_delivery(event_type, subscriber_pid, opts) do
+    # Prepare options for OrderedDelivery
+    delivery_opts = [
+      subscriber: subscriber_pid,
+      buffer_window_ms: Keyword.get(opts, :buffer_window_ms, 50),
+      config: %{
+        batch_size: if(Keyword.get(opts, :batch_delivery, false), do: 100, else: 1),
+        adaptive_window: Keyword.get(opts, :adaptive_window, true),
+        max_buffer_size: 10_000,
+        max_window_ms: 100,
+        min_window_ms: 10,
+        algedonic_bypass_threshold: 0.95,
+        clock_drift_tolerance_ms: 1000
+      }
+    ]
+    
+    # Start under a simple supervisor
+    case DynamicSupervisor.start_child(
+      AutonomousOpponentV2Core.EventBus.OrderedDeliverySupervisor,
+      {AutonomousOpponentV2Core.EventBus.OrderedDelivery, delivery_opts}
+    ) do
+      {:ok, pid} ->
+        {:ok, pid}
+        
+      error ->
+        Logger.error("Failed to start OrderedDelivery: #{inspect(error)}")
+        error
+    end
   end
 end

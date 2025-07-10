@@ -79,8 +79,8 @@ defmodule AutonomousOpponentV2Core.VSM.S3.Control do
     # Use the main Metrics server for comprehensive auditing
     metrics = AutonomousOpponentV2Core.Core.Metrics
     
-    # Subscribe to coordination reports and algedonic signals
-    EventBus.subscribe(:s2_coordination)
+    # Subscribe to coordination reports via variety channel and algedonic signals
+    EventBus.subscribe(:s3_control)  # Changed from :s2_coordination - now receives from variety channel
     EventBus.subscribe(:algedonic_pain)
     EventBus.subscribe(:algedonic_intervention)
     EventBus.subscribe(:s5_policy)
