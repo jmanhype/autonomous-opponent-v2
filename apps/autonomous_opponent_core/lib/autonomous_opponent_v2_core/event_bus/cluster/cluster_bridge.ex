@@ -31,10 +31,10 @@ defmodule AutonomousOpponentV2Core.EventBus.Cluster.ClusterBridge do
   require Logger
   
   alias AutonomousOpponentV2Core.EventBus
-  alias AutonomousOpponentV2Core.Telemetry
-  alias AutonomousOpponentV2Core.HybridLogicalClock, as: HLC
-  alias AutonomousOpponentV2Core.CircuitBreaker
-  alias __MODULE__.{VarietyManager, PartitionDetector, NodeReplicator}
+  # Use standard telemetry module
+  alias AutonomousOpponentV2Core.Core.HybridLogicalClock, as: HLC
+  alias AutonomousOpponentV2Core.Core.CircuitBreaker
+  alias AutonomousOpponentV2Core.EventBus.Cluster.{VarietyManager, PartitionDetector, AlgedonicBroadcast}
   
   @type node_state :: :connected | :disconnected | :partitioned | :suspended
   @type event_class :: :algedonic | :s1_operational | :s2_coordination | 
@@ -133,22 +133,12 @@ defmodule AutonomousOpponentV2Core.EventBus.Cluster.ClusterBridge do
     # Initialize configuration
     config = build_config(opts)
     
-    # Initialize variety manager with cybernetic constraints
-    {:ok, variety_manager} = VarietyManager.start_link(
-      quotas: config.variety_quotas,
-      compression: config.semantic_compression,
-      algedonic_bypass: true
-    )
-    
-    # Initialize partition detector
-    {:ok, partition_detector} = PartitionDetector.start_link(
-      quorum_size: config.quorum_size,
-      detection_interval: config.partition_check_interval,
-      strategy: config.partition_strategy
-    )
+    # Reference existing variety manager and partition detector started by supervisor
+    variety_manager = VarietyManager
+    partition_detector = PartitionDetector
     
     # Subscribe to local EventBus for outbound replication
-    EventBus.subscribe(:all, metadata: %{cluster_bridge: true})
+    EventBus.subscribe(:all, self(), metadata: %{cluster_bridge: true})
     
     # Set up node monitoring
     :net_kernel.monitor_nodes(true, node_type: :all)
@@ -469,7 +459,7 @@ defmodule AutonomousOpponentV2Core.EventBus.Cluster.ClusterBridge do
     end)
     
     # Record algedonic broadcast
-    Telemetry.execute(
+    :telemetry.execute(
       [:vsm, :cluster, :algedonic_broadcast],
       %{count: map_size(peers)},
       %{event: event.event_name}
@@ -689,7 +679,7 @@ defmodule AutonomousOpponentV2Core.EventBus.Cluster.ClusterBridge do
   defp report_telemetry(state) do
     uptime = System.monotonic_time(:millisecond) - state.stats.start_time
     
-    Telemetry.execute(
+    :telemetry.execute(
       [:vsm, :cluster, :bridge],
       %{
         events_sent: state.stats.events_sent,

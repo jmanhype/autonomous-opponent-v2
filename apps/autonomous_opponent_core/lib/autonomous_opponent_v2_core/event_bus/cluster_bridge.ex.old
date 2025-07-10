@@ -248,7 +248,7 @@ defmodule AutonomousOpponentV2Core.EventBus.ClusterBridge do
       try do
         # Use :erpc for better error handling than plain send
         :erpc.cast(node, fn ->
-          case Process.whereis(EventBus.ClusterBridge) do
+          case Process.whereis(AutonomousOpponentV2Core.EventBus.ClusterBridge) do
             nil -> :not_found
             pid -> send(pid, {:remote_event, event, state.node_id})
           end
