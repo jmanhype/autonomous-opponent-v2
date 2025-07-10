@@ -67,7 +67,26 @@ defmodule AutonomousOpponentV2Core.VSM.S4.VectorStore.HNSWIndex do
     :persist_path,
     :prune_timer,
     :prune_interval,
-    :prune_max_age
+    :prune_max_age,
+    :persist_timer,
+    :persist_interval,
+    # VSM-aware configuration
+    :persist_on_shutdown,
+    :persist_async,
+    :max_patterns,
+    :pattern_confidence_threshold,
+    :variety_pressure_limit,
+    :pain_pattern_retention,
+    :eventbus_integration,
+    :circuitbreaker_protection,
+    :telemetry_enabled,
+    :algedonic_integration,
+    :backup_retention,
+    :corruption_recovery,
+    # Adaptive persistence tracking
+    :insertion_count,
+    :insertion_window_start,
+    :adaptive_persist_enabled
   ]
   
   @type vector :: list(float)
@@ -85,11 +104,14 @@ defmodule AutonomousOpponentV2Core.VSM.S4.VectorStore.HNSWIndex do
     * `:ef` - Size of the candidate list (default: 200)
     * `:distance_metric` - :cosine or :euclidean (default: :cosine)
     * `:persist_path` - Path for persistence (optional)
+    * `:persist_interval` - Milliseconds between automatic saves (optional)
     * `:prune_interval` - Milliseconds between automatic pruning (optional)
     * `:prune_max_age` - Max age in ms for patterns before pruning (optional)
   
-  Example with automatic pruning:
+  Example with automatic persistence and pruning:
       {:ok, index} = HNSWIndex.start_link(
+        persist_path: "priv/hnsw_index",
+        persist_interval: :timer.minutes(5),
         prune_interval: :timer.hours(1),
         prune_max_age: :timer.hours(24)
       )
@@ -181,8 +203,11 @@ defmodule AutonomousOpponentV2Core.VSM.S4.VectorStore.HNSWIndex do
   
   @impl true
   def init(opts) do
-    m = opts[:m] || @default_m
-    ef = opts[:ef] || @default_ef
+    # Load configuration from application environment with VSM-aware defaults
+    config = Application.get_all_env(:autonomous_opponent_core)
+    
+    m = opts[:m] || config[:hnsw_m] || @default_m
+    ef = opts[:ef] || config[:hnsw_ef] || @default_ef
     
     # WISDOM: max_m = M for all but layer 0, max_m0 = M*2 for layer 0
     # Layer 0 has more connections for better connectivity
@@ -197,6 +222,7 @@ defmodule AutonomousOpponentV2Core.VSM.S4.VectorStore.HNSWIndex do
     data_table = :ets.new(:hnsw_data, [:set, :protected])
     level_table = :ets.new(:hnsw_levels, [:set, :protected])
     
+    # Load VSM-aware configuration with fallbacks
     state = %__MODULE__{
       m: m,
       max_m: max_m,
@@ -210,23 +236,70 @@ defmodule AutonomousOpponentV2Core.VSM.S4.VectorStore.HNSWIndex do
       graph: graph,
       data_table: data_table,
       level_table: level_table,
-      persist_path: opts[:persist_path],
-      prune_interval: opts[:prune_interval],
-      prune_max_age: opts[:prune_max_age]
+      # Core persistence configuration
+      persist_path: opts[:persist_path] || config[:hnsw_persist_path],
+      persist_interval: opts[:persist_interval] || config[:hnsw_persist_interval] || :timer.minutes(5),
+      persist_on_shutdown: opts[:persist_on_shutdown] || config[:hnsw_persist_on_shutdown] || true,
+      persist_async: opts[:persist_async] || config[:hnsw_persist_async] || true,
+      # Pattern management
+      prune_interval: opts[:prune_interval] || config[:hnsw_prune_interval] || :timer.hours(1),
+      prune_max_age: opts[:prune_max_age] || config[:hnsw_prune_max_age] || :timer.hours(24),
+      max_patterns: opts[:max_patterns] || config[:hnsw_max_patterns] || 100_000,
+      pattern_confidence_threshold: opts[:pattern_confidence_threshold] || config[:hnsw_pattern_confidence_threshold] || 0.7,
+      variety_pressure_limit: opts[:variety_pressure_limit] || config[:hnsw_variety_pressure_limit] || 0.8,
+      pain_pattern_retention: opts[:pain_pattern_retention] || config[:hnsw_pain_pattern_retention] || (7 * 24 * 60 * 60 * 1000),
+      # VSM integration
+      eventbus_integration: opts[:eventbus_integration] || config[:hnsw_eventbus_integration] || true,
+      circuitbreaker_protection: opts[:circuitbreaker_protection] || config[:hnsw_circuitbreaker_protection] || true,
+      telemetry_enabled: opts[:telemetry_enabled] || config[:hnsw_telemetry_enabled] || true,
+      algedonic_integration: opts[:algedonic_integration] || config[:hnsw_algedonic_integration] || true,
+      # Reliability
+      backup_retention: opts[:backup_retention] || config[:hnsw_backup_retention] || 3,
+      corruption_recovery: opts[:corruption_recovery] || config[:hnsw_corruption_recovery] || true,
+      # Adaptive persistence tracking
+      insertion_count: 0,
+      insertion_window_start: System.monotonic_time(:millisecond),
+      adaptive_persist_enabled: opts[:adaptive_persist_enabled] || config[:hnsw_adaptive_persist_enabled] || true
     }
     
+    # Validate configuration before proceeding
+    case validate_config(state) do
+      :ok -> 
+        :ok
+      {:error, reason} ->
+        Logger.error("🧠 VSM S4: Invalid HNSW configuration: #{reason}")
+        raise ArgumentError, "Invalid HNSW configuration: #{reason}"
+    end
+    
     # Restore from persistence if path provided and file exists
-    final_state = if opts[:persist_path] do
+    final_state = if state.persist_path do
       alias AutonomousOpponentV2Core.VSM.S4.VectorStore.Persistence
       
-      if Persistence.index_exists?(opts[:persist_path]) do
-        case Persistence.load_index(opts[:persist_path]) do
+      if Persistence.index_exists?(state.persist_path) do
+        case Persistence.load_index(state.persist_path) do
           {:ok, loaded_state} ->
-            Logger.info("Restored HNSW index from #{opts[:persist_path]}")
+            Logger.info("🧠 VSM S4: Restored HNSW index from #{state.persist_path} (#{loaded_state[:node_count] || 0} patterns)")
+            
+            # Publish EventBus event if integration enabled
+            if state.eventbus_integration do
+              publish_eventbus_event(:hnsw_restoration_completed, %{
+                patterns_loaded: loaded_state[:node_count] || 0,
+                path: state.persist_path
+              })
+            end
+            
             Map.merge(state, loaded_state)
           
           {:error, reason} ->
-            Logger.warning("Failed to restore index: #{inspect(reason)}, starting fresh")
+            Logger.warning("🧠 VSM S4: Failed to restore index: #{inspect(reason)}, starting fresh")
+            
+            if state.eventbus_integration do
+              publish_eventbus_event(:hnsw_restoration_failed, %{
+                reason: reason,
+                path: state.persist_path
+              })
+            end
+            
             state
         end
       else
@@ -236,18 +309,40 @@ defmodule AutonomousOpponentV2Core.VSM.S4.VectorStore.HNSWIndex do
       state
     end
     
-    Logger.info("HNSW index initialized with M=#{m}, ef=#{ef}")
+    Logger.info("🧠 VSM S4 Intelligence: HNSW index initialized with M=#{m}, ef=#{ef}, persistence=#{!!state.persist_path}")
     
     # Schedule periodic pruning if configured
-    final_state_with_timer = 
-      if final_state.prune_interval && final_state.prune_max_age do
-        timer_ref = Process.send_after(self(), :prune_tick, final_state.prune_interval)
-        %{final_state | prune_timer: timer_ref}
-      else
-        final_state
-      end
+    final_state_with_timers = final_state
     
-    {:ok, final_state_with_timer}
+    # Wrap timer creation in try/rescue to ensure cleanup on error
+    try do
+      final_state_with_timers = 
+        if final_state_with_timers.prune_interval && final_state_with_timers.prune_max_age do
+          timer_ref = Process.send_after(self(), :prune_tick, final_state_with_timers.prune_interval)
+          %{final_state_with_timers | prune_timer: timer_ref}
+        else
+          final_state_with_timers
+        end
+      
+      # Schedule periodic persistence if configured
+      final_state_with_timers = 
+        if final_state_with_timers.persist_interval && final_state_with_timers.persist_path do
+          timer_ref = Process.send_after(self(), :persist_tick, final_state_with_timers.persist_interval)
+          %{final_state_with_timers | persist_timer: timer_ref}
+        else
+          final_state_with_timers
+        end
+      
+      {:ok, final_state_with_timers}
+    rescue
+      e ->
+        # Cancel any created timers to prevent leaks
+        if final_state_with_timers.prune_timer, do: Process.cancel_timer(final_state_with_timers.prune_timer)
+        if final_state_with_timers.persist_timer, do: Process.cancel_timer(final_state_with_timers.persist_timer)
+        
+        Logger.error("🧠 VSM S4: Failed to initialize HNSW timers: #{inspect(e)}")
+        reraise e, __STACKTRACE__
+    end
   end
   
   @impl true
@@ -279,6 +374,9 @@ defmodule AutonomousOpponentV2Core.VSM.S4.VectorStore.HNSWIndex do
         %{state | node_count: node_id + 1}
       end
     
+    # Update insertion tracking for adaptive persistence
+    new_state_with_tracking = %{new_state | insertion_count: new_state.insertion_count + 1}
+    
     # Emit telemetry event
     duration = System.monotonic_time(:microsecond) - start_time
     :telemetry.execute(
@@ -287,7 +385,7 @@ defmodule AutonomousOpponentV2Core.VSM.S4.VectorStore.HNSWIndex do
       %{node_id: node_id, level: level, m: state.m}
     )
     
-    {:reply, {:ok, node_id}, new_state}
+    {:reply, {:ok, node_id}, new_state_with_tracking}
   end
   
   @impl true
@@ -343,15 +441,8 @@ defmodule AutonomousOpponentV2Core.VSM.S4.VectorStore.HNSWIndex do
   
   @impl true
   def handle_call(:persist, _from, state) do
-    case state[:persist_path] do
-      nil ->
-        {:reply, {:error, :no_persist_path}, state}
-      
-      path ->
-        alias AutonomousOpponentV2Core.VSM.S4.VectorStore.Persistence
-        result = Persistence.save_index(path, state)
-        {:reply, result, state}
-    end
+    result = persist_index(state)
+    {:reply, result, state}
   end
   
   @impl true
@@ -482,12 +573,355 @@ defmodule AutonomousOpponentV2Core.VSM.S4.VectorStore.HNSWIndex do
   end
   
   @impl true
+  def handle_info(:persist_tick, state) do
+    # Perform periodic persistence with VSM-aware protection
+    persist_result = if state.persist_async do
+      # Async persistence to avoid blocking S4 operations
+      Task.start(fn -> 
+        persist_with_protection(state)
+      end)
+      :ok
+    else
+      persist_with_protection(state)
+    end
+    
+    case persist_result do
+      :ok ->
+        Logger.debug("🧠 VSM S4: HNSW index automatically persisted (#{state.node_count} patterns)")
+        
+        # Publish EventBus event for S5 governance awareness
+        if state.eventbus_integration do
+          publish_eventbus_event(:hnsw_persistence_completed, %{
+            pattern_count: state.node_count,
+            memory_usage: calculate_memory_usage(state),
+            variety_pressure: calculate_variety_pressure(state)
+          })
+        end
+        
+      {:error, reason} ->
+        Logger.error("🧠 VSM S4: Failed to persist HNSW index: #{inspect(reason)}")
+        
+        # Publish algedonic pain signal for critical persistence failures
+        if state.algedonic_integration do
+          publish_algedonic_signal(:pain, 0.7, :s4_persistence_failure, %{
+            reason: reason,
+            pattern_count: state.node_count
+          })
+        end
+    end
+    
+    # Calculate adaptive interval based on insertion rate
+    {next_interval, updated_state} = calculate_adaptive_interval(state)
+    
+    # Schedule next persist with adaptive interval
+    timer_ref = Process.send_after(self(), :persist_tick, next_interval)
+    
+    {:noreply, %{updated_state | persist_timer: timer_ref}}
+  end
+  
+  @impl true
   def handle_info({:telemetry_event, _event_name, _measurements, _metadata}, state) do
     # Handle telemetry events silently - they're for monitoring
     {:noreply, state}
   end
   
+  @impl true
+  def terminate(reason, state) do
+    # Cancel timers
+    if state.prune_timer, do: Process.cancel_timer(state.prune_timer)
+    if state.persist_timer, do: Process.cancel_timer(state.persist_timer)
+    
+    # Perform final persistence on graceful shutdown if enabled
+    if state.persist_on_shutdown and reason in [:normal, :shutdown] and state.persist_path do
+      case persist_with_protection(state) do
+        :ok ->
+          Logger.info("🧠 VSM S4: HNSW index persisted on shutdown (#{state.node_count} patterns)")
+          
+          # Publish final EventBus event
+          if state.eventbus_integration do
+            publish_eventbus_event(:hnsw_shutdown_persistence_completed, %{
+              pattern_count: state.node_count,
+              shutdown_reason: reason
+            })
+          end
+          
+        {:error, error} ->
+          Logger.error("🧠 VSM S4: Failed to persist HNSW index on shutdown: #{inspect(error)}")
+          
+          # Critical algedonic pain - losing patterns is a severe VSM failure
+          if state.algedonic_integration do
+            publish_algedonic_signal(:pain, 0.9, :s4_shutdown_persistence_failure, %{
+              reason: error,
+              pattern_count: state.node_count,
+              variety_loss: :critical
+            })
+          end
+      end
+    end
+    
+    :ok
+  end
+  
   # Private Functions
+  
+  # ============================================================================
+  # VSM-AWARE PERSISTENCE WITH CYBERNETIC PROTECTION
+  # ============================================================================
+  
+  defp persist_with_protection(state) do
+    if state.circuitbreaker_protection do
+      # Use CircuitBreaker to protect against persistence storms
+      try do
+        case AutonomousOpponentV2Core.CircuitBreaker.call(:hnsw_persistence, fn ->
+          persist_index_internal(state)
+        end) do
+          {:error, :open} ->
+            Logger.warning("🧠 VSM S4: CircuitBreaker is open, skipping persistence")
+            {:error, :circuit_open}
+          result ->
+            result
+        end
+      rescue
+        e ->
+          Logger.error("🧠 VSM S4: CircuitBreaker failed for persistence: #{inspect(e)}")
+          {:error, {:circuitbreaker_failed, e}}
+      end
+    else
+      persist_index_internal(state)
+    end
+  end
+  
+  defp persist_index(state) do
+    persist_index_internal(state)
+  end
+  
+  defp persist_index_internal(state) do
+    # Define variables outside if block so they're accessible in rescue
+    start_time = System.monotonic_time(:millisecond)
+    variety_pressure = calculate_variety_pressure(state)
+    
+    if state.persist_path do
+      alias AutonomousOpponentV2Core.VSM.S4.VectorStore.Persistence
+      
+      try do
+        
+        if variety_pressure > state.variety_pressure_limit do
+          Logger.warning("🧠 VSM S4: High variety pressure (#{variety_pressure}), triggering emergency cleanup")
+          
+          # Emergency pattern pruning to manage variety overflow
+          emergency_prune_patterns(state)
+        end
+        
+        # Publish EventBus event for persistence start
+        if state.eventbus_integration do
+          publish_eventbus_event(:hnsw_persistence_started, %{
+            pattern_count: state.node_count,
+            variety_pressure: variety_pressure,
+            path: state.persist_path
+          })
+        end
+        
+        case Persistence.save_index(state.persist_path, state) do
+          :ok -> 
+            # Calculate persistence metrics
+            duration_ms = System.monotonic_time(:millisecond) - start_time
+            
+            # Get file size if file exists
+            file_size = case File.stat(state.persist_path) do
+              {:ok, %{size: size}} -> size
+              _ -> 0
+            end
+            
+            # Calculate memory usage
+            memory_usage = calculate_memory_usage(state)
+            
+            # Emit comprehensive telemetry if enabled
+            if state.telemetry_enabled do
+              :telemetry.execute(
+                [:hnsw, :persistence, :completed],
+                %{
+                  duration_ms: duration_ms,
+                  file_size_bytes: file_size,
+                  pattern_count: state.node_count,
+                  variety_pressure: variety_pressure,
+                  memory_usage_bytes: memory_usage,
+                  insertion_rate: calculate_insertion_rate(state)
+                },
+                %{
+                  path: state.persist_path,
+                  adaptive_interval: state.adaptive_persist_enabled,
+                  async: state.persist_async
+                }
+              )
+              
+              Logger.debug("🧠 VSM S4: Persistence completed in #{duration_ms}ms, " <>
+                          "file size: #{div(file_size, 1_048_576)}MB, " <>
+                          "patterns: #{state.node_count}")
+            end
+            :ok
+            
+          {:error, _} = error -> error
+        end
+      rescue
+        e ->
+          Logger.error("🧠 VSM S4: Failed to persist HNSW index: #{inspect(e)}")
+          
+          # Emit telemetry for persistence failure
+          if state.telemetry_enabled do
+            duration_ms = System.monotonic_time(:millisecond) - start_time
+            
+            :telemetry.execute(
+              [:hnsw, :persistence, :failed],
+              %{
+                duration_ms: duration_ms,
+                pattern_count: state.node_count,
+                variety_pressure: variety_pressure
+              },
+              %{
+                path: state.persist_path,
+                error: inspect(e)
+              }
+            )
+          end
+          
+          {:error, {:persistence_failed, e}}
+      end
+    else
+      {:error, :no_persist_path}
+    end
+  end
+  
+  # ============================================================================
+  # VSM VARIETY ENGINEERING FUNCTIONS
+  # ============================================================================
+  
+  defp calculate_variety_pressure(state) do
+    if state.max_patterns > 0 do
+      state.node_count / state.max_patterns
+    else
+      0.0
+    end
+  end
+  
+  defp emergency_prune_patterns(state) do
+    try do
+      # Emergency pruning based on pattern confidence and age
+      cutoff_time = DateTime.add(DateTime.utc_now(), -div(state.prune_max_age, 2), :millisecond)
+      
+      removed_nodes = 
+        :ets.foldl(
+          fn {node_id, _vector, metadata}, acc ->
+            confidence = Map.get(metadata, :confidence, 1.0)
+            inserted_at = Map.get(metadata, :inserted_at)
+            
+            # Remove low-confidence patterns or old patterns
+            should_remove = 
+              confidence < state.pattern_confidence_threshold or
+              (inserted_at && DateTime.compare(inserted_at, cutoff_time) == :lt)
+            
+            if should_remove do
+              [node_id | acc]
+            else
+              acc
+            end
+          end,
+          [],
+          state.data_table
+        )
+      
+      # Remove the patterns
+      Enum.each(removed_nodes, &remove_pattern_from_index(state, &1))
+      
+      Logger.warning("🧠 VSM S4: Emergency pruned #{length(removed_nodes)} patterns to manage variety overflow")
+      
+      if state.algedonic_integration and length(removed_nodes) > 0 do
+        publish_algedonic_signal(:pain, 0.6, :s4_emergency_pruning, %{
+          removed_count: length(removed_nodes),
+          variety_pressure: calculate_variety_pressure(state)
+        })
+      end
+    rescue
+      e ->
+        Logger.error("🧠 VSM S4: Emergency pruning failed: #{inspect(e)}")
+        
+        # Still publish algedonic pain signal for pruning failure (higher pain level)
+        if state.algedonic_integration do
+          publish_algedonic_signal(:pain, 0.9, :s4_emergency_pruning_failure, %{
+            error: inspect(e),
+            variety_pressure: calculate_variety_pressure(state)
+          })
+        end
+    end
+  end
+  
+  defp remove_pattern_from_index(state, node_id) do
+    # Remove from data and level tables
+    :ets.delete(state.data_table, node_id)
+    :ets.delete(state.level_table, node_id)
+    
+    # Remove from graph and update neighbors
+    max_level = get_node_level(state, node_id)
+    for level <- 0..max_level do
+      neighbors = get_neighbors(state, node_id, level)
+      :ets.delete(state.graph, {node_id, level})
+      
+      # Remove this node from its neighbors' connections
+      Enum.each(neighbors, fn neighbor ->
+        neighbor_connections = get_neighbors(state, neighbor, level)
+        updated_connections = List.delete(neighbor_connections, node_id)
+        :ets.insert(state.graph, {{neighbor, level}, updated_connections})
+      end)
+    end
+  end
+  
+  # ============================================================================
+  # VSM EVENTBUS INTEGRATION
+  # ============================================================================
+  
+  defp publish_eventbus_event(event_type, data) do
+    try do
+      AutonomousOpponentV2Core.EventBus.publish(:s4_intelligence, %{
+        type: event_type,
+        subsystem: :s4_hnsw,
+        data: data,
+        timestamp: DateTime.utc_now(),
+        hlc_timestamp: generate_hlc_timestamp()
+      })
+    rescue
+      e ->
+        Logger.warning("🧠 VSM S4: Failed to publish EventBus event: #{inspect(e)}")
+    end
+  end
+  
+  defp publish_algedonic_signal(signal_type, intensity, source, metadata) do
+    try do
+      AutonomousOpponentV2Core.EventBus.publish(:algedonic_signals, %{
+        type: signal_type,
+        intensity: intensity,
+        source: source,
+        subsystem: :s4_intelligence,
+        metadata: metadata,
+        timestamp: DateTime.utc_now(),
+        hlc_timestamp: generate_hlc_timestamp(),
+        # VSM Algedonic properties
+        urgency: if(intensity > 0.8, do: :immediate, else: :normal),
+        bypass_hierarchy: intensity > 0.9,
+        target: :s5_governance
+      })
+    rescue
+      e ->
+        Logger.warning("🧠 VSM S4: Failed to publish algedonic signal: #{inspect(e)}")
+    end
+  end
+  
+  defp generate_hlc_timestamp do
+    # Generate HLC timestamp for distributed consistency
+    %{
+      physical: System.system_time(:millisecond),
+      logical: :rand.uniform(1000),
+      node_id: Node.self() |> to_string()
+    }
+  end
   
   defp get_distance_function(:cosine), do: &cosine_distance/2
   defp get_distance_function(:euclidean), do: &euclidean_distance/2
@@ -959,6 +1393,123 @@ defmodule AutonomousOpponentV2Core.VSM.S4.VectorStore.HNSWIndex do
       {nil, -1},
       state.level_table
     ) |> elem(0)
+  end
+  
+  # ============================================================================
+  # PERSISTENCE METRICS HELPERS
+  # ============================================================================
+  
+  defp calculate_insertion_rate(state) do
+    current_time = System.monotonic_time(:millisecond)
+    window_duration = current_time - state.insertion_window_start
+    
+    if window_duration > 0 do
+      Float.round((state.insertion_count * 60_000) / window_duration, 1)
+    else
+      0.0
+    end
+  end
+  
+  # ============================================================================
+  # ADAPTIVE PERSISTENCE INTERVALS
+  # ============================================================================
+  
+  defp calculate_adaptive_interval(state) do
+    if state.adaptive_persist_enabled do
+      # Calculate time window in milliseconds
+      current_time = System.monotonic_time(:millisecond)
+      window_duration = current_time - state.insertion_window_start
+      
+      # Calculate insertions per minute
+      insertions_per_minute = if window_duration > 0 do
+        (state.insertion_count * 60_000) / window_duration
+      else
+        0.0
+      end
+      
+      # Determine adaptive interval based on insertion rate
+      adaptive_interval = cond do
+        insertions_per_minute > 1000 ->
+          # High rate: persist every minute
+          :timer.minutes(1)
+        
+        insertions_per_minute > 100 ->
+          # Medium rate: persist every 3 minutes
+          :timer.minutes(3)
+        
+        true ->
+          # Low rate: persist every 5 minutes
+          :timer.minutes(5)
+      end
+      
+      # Reset tracking window every hour
+      updated_state = if window_duration > :timer.hours(1) do
+        %{state | 
+          insertion_count: 0,
+          insertion_window_start: current_time
+        }
+      else
+        state
+      end
+      
+      # Log if interval changed significantly
+      if adaptive_interval != state.persist_interval do
+        Logger.info("🧠 VSM S4: Adjusted persistence interval to #{div(adaptive_interval, 60_000)} minutes " <>
+                   "(insertion rate: #{Float.round(insertions_per_minute, 1)}/min)")
+      end
+      
+      {adaptive_interval, updated_state}
+    else
+      # Use static interval when adaptive persistence is disabled
+      {state.persist_interval, state}
+    end
+  end
+  
+  # ============================================================================
+  # CONFIGURATION VALIDATION
+  # ============================================================================
+  
+  defp validate_config(state) do
+    cond do
+      # Validate M parameter (bidirectional links)
+      state.m < 2 or state.m > 200 ->
+        {:error, "M parameter must be between 2 and 200, got #{state.m}"}
+      
+      # Validate ef parameter (search beam width)
+      state.ef < state.m or state.ef > 2000 ->
+        {:error, "ef parameter must be between M (#{state.m}) and 2000, got #{state.ef}"}
+      
+      # Validate persistence interval
+      state.persist_interval && state.persist_interval < :timer.seconds(30) ->
+        {:error, "persist_interval must be at least 30 seconds, got #{state.persist_interval}ms"}
+      
+      # Validate prune interval
+      state.prune_interval && state.prune_interval < :timer.minutes(5) ->
+        {:error, "prune_interval must be at least 5 minutes, got #{state.prune_interval}ms"}
+      
+      # Validate max patterns
+      state.max_patterns < 1000 ->
+        {:error, "max_patterns must be at least 1000, got #{state.max_patterns}"}
+      
+      # Validate variety pressure limit
+      state.variety_pressure_limit <= 0.5 or state.variety_pressure_limit >= 1.0 ->
+        {:error, "variety_pressure_limit must be between 0.5 and 1.0 (exclusive), got #{state.variety_pressure_limit}"}
+      
+      # Validate pattern confidence threshold
+      state.pattern_confidence_threshold < 0.0 or state.pattern_confidence_threshold > 1.0 ->
+        {:error, "pattern_confidence_threshold must be between 0.0 and 1.0, got #{state.pattern_confidence_threshold}"}
+      
+      # Validate backup retention
+      state.backup_retention < 1 or state.backup_retention > 10 ->
+        {:error, "backup_retention must be between 1 and 10, got #{state.backup_retention}"}
+      
+      # Validate pain pattern retention (at least 1 day)
+      state.pain_pattern_retention < :timer.hours(24) ->
+        {:error, "pain_pattern_retention must be at least 24 hours, got #{state.pain_pattern_retention}ms"}
+      
+      true ->
+        :ok
+    end
   end
   
 end

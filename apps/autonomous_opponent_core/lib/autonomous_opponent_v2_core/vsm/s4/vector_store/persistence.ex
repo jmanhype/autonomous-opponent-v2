@@ -33,13 +33,16 @@ defmodule AutonomousOpponentV2Core.VSM.S4.VectorStore.Persistence do
   @current_version 1  # Legacy support
   
   @doc """
-  Saves HNSW index state to disk.
+  Saves HNSW index state to disk with backup rotation and compression.
   
   Returns :ok on success, {:error, reason} on failure.
   """
   def save_index(path, state) do
     # Ensure directory exists
     :ok = File.mkdir_p(Path.dirname(path))
+    
+    # Handle backup rotation before saving new version
+    rotate_backups(path, Map.get(state, :backup_retention, 3))
     
     # Create persistence data structure
     persistence_data = %{
@@ -53,7 +56,7 @@ defmodule AutonomousOpponentV2Core.VSM.S4.VectorStore.Persistence do
         ef: state.ef,
         distance_metric: detect_distance_metric(state.distance_fn),
         index_version: @index_version,
-        features: [:telemetry, :batch_search, :pattern_expiry, :compaction]
+        features: [:telemetry, :batch_search, :pattern_expiry, :compaction, :backup_rotation]
       }
     }
     
@@ -72,6 +75,9 @@ defmodule AutonomousOpponentV2Core.VSM.S4.VectorStore.Persistence do
       
       # Atomic rename
       File.rename!(temp_path, path)
+      
+      # Check if compression is needed based on file size
+      check_and_compress_old_backups(path, Map.get(state, :checkpoint_size_threshold, 50_000_000))
       
       Logger.info("HNSW index saved to #{path} (#{state.node_count} nodes)")
       :ok
@@ -96,8 +102,12 @@ defmodule AutonomousOpponentV2Core.VSM.S4.VectorStore.Persistence do
         binary = File.read!(path)
         persistence_data = :erlang.binary_to_term(binary)
         
-        # Version check and migration
-        index_version = persistence_data[:version] || persistence_data[:legacy_version] || 1
+        # Version check and migration - handle both Map and Keyword list formats
+        index_version = cond do
+          is_map(persistence_data) -> persistence_data[:version] || persistence_data[:legacy_version] || 1
+          Keyword.keyword?(persistence_data) -> Keyword.get(persistence_data, :version, Keyword.get(persistence_data, :legacy_version, 1))
+          true -> 1
+        end
         
         cond do
           index_version > @index_version ->
@@ -190,7 +200,31 @@ defmodule AutonomousOpponentV2Core.VSM.S4.VectorStore.Persistence do
   end
   
   defp load_ets_table(table, path) do
-    {:ok, ^table} = :ets.file2tab(String.to_charlist(path), [{:verify, true}])
+    case :ets.file2tab(String.to_charlist(path), [{:verify, true}]) do
+      {:ok, loaded_table} ->
+        try do
+          # Copy data from loaded table to our table
+          :ets.foldl(
+            fn item, acc ->
+              :ets.insert(table, item)
+              acc
+            end,
+            :ok,
+            loaded_table
+          )
+          # Delete the temporary loaded table
+          :ets.delete(loaded_table)
+          :ok
+        rescue
+          e ->
+            # Ensure cleanup even if copying fails
+            :ets.delete(loaded_table)
+            {:error, {:copy_failed, e}}
+        end
+      
+      {:error, _} = error ->
+        error
+    end
   end
   
   defp graph_path(base_path), do: base_path <> ".graph"
@@ -249,24 +283,33 @@ defmodule AutonomousOpponentV2Core.VSM.S4.VectorStore.Persistence do
     data_table = :ets.new(:hnsw_data_loaded, [:set, :protected])
     level_table = :ets.new(:hnsw_levels_loaded, [:set, :protected])
     
-    # Load ETS data
-    load_ets_table(graph, graph_path(path))
-    load_ets_table(data_table, data_path(path))
-    load_ets_table(level_table, level_path(path))
-    
-    # Add timestamps to metadata if missing (for pattern expiry)
-    maybe_add_timestamps(data_table)
-    
-    # Reconstruct state
-    state = Map.merge(persistence_data.index_state, %{
-      graph: graph,
-      data_table: data_table,
-      level_table: level_table,
-      distance_fn: get_distance_function(persistence_data.metadata.distance_metric)
-    })
-    
-    Logger.info("HNSW index loaded from #{path} (#{state.node_count} nodes, v#{@index_version})")
-    {:ok, state}
+    # Load ETS data with error handling
+    with :ok <- load_ets_table(graph, graph_path(path)),
+         :ok <- load_ets_table(data_table, data_path(path)),
+         :ok <- load_ets_table(level_table, level_path(path)) do
+      
+      # Add timestamps to metadata if missing (for pattern expiry)
+      maybe_add_timestamps(data_table)
+      
+      # Reconstruct state
+      state = Map.merge(persistence_data.index_state, %{
+        graph: graph,
+        data_table: data_table,
+        level_table: level_table,
+        distance_fn: get_distance_function(persistence_data.metadata.distance_metric)
+      })
+      
+      Logger.info("HNSW index loaded from #{path} (#{state.node_count} nodes, v#{@index_version})")
+      {:ok, state}
+    else
+      {:error, reason} = error ->
+        # Clean up tables on error
+        :ets.delete(graph)
+        :ets.delete(data_table)
+        :ets.delete(level_table)
+        Logger.error("Failed to load ETS tables: #{inspect(reason)}")
+        error
+    end
   end
   
   defp load_migrated_index(migrated_data, path) do
@@ -287,5 +330,176 @@ defmodule AutonomousOpponentV2Core.VSM.S4.VectorStore.Persistence do
       nil,
       data_table
     )
+  end
+  
+  # ============================================================================
+  # BACKUP ROTATION AND COMPRESSION
+  # ============================================================================
+  
+  @doc """
+  Rotates backup files, keeping only the specified number of recent backups.
+  Older backups are compressed if not already compressed.
+  """
+  def rotate_backups(base_path, retention_count) when retention_count > 0 do
+    # Get all related files (main file and associated ETS tables)
+    backup_pattern = "#{base_path}.backup.*"
+    backup_files = Path.wildcard(backup_pattern)
+    
+    # Group backups by timestamp
+    backups_by_timestamp = backup_files
+    |> Enum.map(fn file ->
+      # Extract timestamp from filename (e.g., file.backup.20240115120000)
+      case Regex.run(~r/\.backup\.(\d{14})/, file) do
+        [_, timestamp] -> {timestamp, file}
+        _ -> nil
+      end
+    end)
+    |> Enum.reject(&is_nil/1)
+    |> Enum.group_by(fn {timestamp, _} -> timestamp end, fn {_, file} -> file end)
+    |> Enum.sort_by(fn {timestamp, _} -> timestamp end, :desc)
+    
+    # Keep only the most recent backups
+    backups_to_keep = Enum.take(backups_by_timestamp, retention_count - 1)
+    backups_to_remove = Enum.drop(backups_by_timestamp, retention_count - 1)
+    
+    # Remove old backups
+    for {_timestamp, files} <- backups_to_remove do
+      for file <- files do
+        Logger.debug("Removing old backup: #{file}")
+        File.rm(file)
+      end
+    end
+    
+    # If current file exists, rotate it to backup
+    if File.exists?(base_path) do
+      timestamp = DateTime.utc_now() |> DateTime.to_string() |> String.replace(~r/[^\d]/, "") |> String.slice(0, 14)
+      backup_base = "#{base_path}.backup.#{timestamp}"
+      
+      # Rotate all associated files
+      for suffix <- ["", ".graph", ".data", ".levels"] do
+        source = base_path <> suffix
+        dest = backup_base <> suffix
+        if File.exists?(source) do
+          File.rename(source, dest)
+        end
+      end
+      
+      Logger.debug("Rotated current index to backup: #{backup_base}")
+    end
+  end
+  def rotate_backups(_, _), do: :ok
+  
+  @doc """
+  Checks backup files and compresses those exceeding the size threshold.
+  Uses gzip compression for space efficiency.
+  """
+  def check_and_compress_old_backups(base_path, size_threshold) do
+    backup_pattern = "#{base_path}.backup.*"
+    backup_files = Path.wildcard(backup_pattern)
+    
+    # Group files by backup timestamp
+    grouped_backups = backup_files
+    |> Enum.reject(&String.ends_with?(&1, ".gz"))  # Skip already compressed
+    |> Enum.map(fn file ->
+      case Regex.run(~r/\.backup\.(\d{14})/, file) do
+        [_, timestamp] -> {timestamp, file}
+        _ -> nil
+      end
+    end)
+    |> Enum.reject(&is_nil/1)
+    |> Enum.group_by(fn {timestamp, _} -> timestamp end, fn {_, file} -> file end)
+    
+    # Check each backup group
+    for {timestamp, files} <- grouped_backups do
+      # Calculate total size of this backup
+      total_size = files
+      |> Enum.map(fn file ->
+        case File.stat(file) do
+          {:ok, %{size: size}} -> size
+          _ -> 0
+        end
+      end)
+      |> Enum.sum()
+      
+      # Compress if exceeds threshold
+      if total_size > size_threshold do
+        Logger.info("Compressing backup #{timestamp}: #{div(total_size, 1_048_576)}MB exceeds threshold")
+        
+        for file <- files do
+          compress_file(file)
+        end
+      end
+    end
+  end
+  
+  defp compress_file(file_path) do
+    compressed_path = file_path <> ".gz"
+    
+    try do
+      # Read file content
+      content = File.read!(file_path)
+      
+      # Compress using zlib
+      compressed = :zlib.gzip(content)
+      
+      # Write compressed content
+      File.write!(compressed_path, compressed)
+      
+      # Remove original file
+      File.rm!(file_path)
+      
+      # Calculate compression ratio
+      original_size = byte_size(content)
+      compressed_size = byte_size(compressed)
+      ratio = Float.round(compressed_size / original_size, 2)
+      
+      Logger.debug("Compressed #{Path.basename(file_path)}: #{div(original_size, 1024)}KB -> #{div(compressed_size, 1024)}KB (#{ratio * 100}%)")
+    rescue
+      error ->
+        Logger.error("Failed to compress #{file_path}: #{inspect(error)}")
+    end
+  end
+  
+  @doc """
+  Decompresses a gzipped backup file for restoration.
+  """
+  def decompress_file(compressed_path) do
+    decompressed_path = String.replace_suffix(compressed_path, ".gz", "")
+    
+    try do
+      # Read compressed content
+      compressed = File.read!(compressed_path)
+      
+      # Decompress
+      content = :zlib.gunzip(compressed)
+      
+      # Write decompressed content
+      File.write!(decompressed_path, content)
+      
+      {:ok, decompressed_path}
+    rescue
+      error ->
+        {:error, {:decompression_failed, error}}
+    end
+  end
+  
+  @doc """
+  Finds the most recent valid backup to restore from.
+  Checks both compressed and uncompressed backups.
+  """
+  def find_latest_backup(base_path) do
+    backup_pattern = "#{base_path}.backup.*"
+    
+    Path.wildcard(backup_pattern)
+    |> Enum.filter(&String.contains?(&1, base_path))  # Main metadata files only
+    |> Enum.reject(&String.contains?(&1, [".graph", ".data", ".levels"]))
+    |> Enum.sort(:desc)  # Most recent first
+    |> Enum.find(fn backup_file ->
+      # Check if this is a valid backup
+      case index_info(String.replace_suffix(backup_file, ".gz", "")) do
+        {:ok, _} -> true
+        _ -> false
+      end
+    end)
   end
 end

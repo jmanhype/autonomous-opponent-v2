@@ -98,6 +98,46 @@ config :autonomous_opponent_core,
   # Set to 0 for instant responses, or add small delay for realism
   llm_mock_delay: 0
 
+# ============================================================================
+# VSM S4 INTELLIGENCE - HNSW PATTERN PERSISTENCE CONFIGURATION
+# ============================================================================
+# CRITICAL: S4 Intelligence requires persistent memory for true cybernetic viability
+# Without persistence, the VSM suffers from "variety amnesia" and cannot learn
+config :autonomous_opponent_core,
+  # Core persistence settings
+  hnsw_enabled: true,                         # Enable HNSW index
+  hnsw_persist_enabled: true,
+  hnsw_persist_path: "priv/vsm/s4/intelligence_patterns.hnsw",
+  hnsw_persist_interval: :timer.minutes(3),  # Frequent saves for learning retention
+  hnsw_persist_on_shutdown: true,             # Critical for graceful shutdowns
+  hnsw_persist_async: true,                   # Non-blocking persistence operations
+  
+  # HNSW index parameters (optimized for pattern recognition)
+  hnsw_m: 32,              # Higher connectivity for better recall
+  hnsw_ef: 400,            # Enhanced search for pattern matching
+  hnsw_max_connections: 64,  # Allow dense pattern networks
+  
+  # Variety engineering settings (Beer's cybernetic principles)
+  hnsw_max_patterns: 100_000,              # Variety limit for computational bounds
+  hnsw_pattern_confidence_threshold: 0.7,  # Only persist high-confidence patterns
+  hnsw_variety_pressure_limit: 0.8,        # Trigger cleanup at 80% capacity
+  
+  # Temporal pattern management (algedonic memory)
+  hnsw_prune_interval: :timer.minutes(30),        # Frequent memory management
+  hnsw_prune_max_age: :timer.hours(48),          # 48-hour pattern memory window
+  hnsw_prune_low_confidence_age: :timer.hours(6), # Faster expiry for weak patterns
+  hnsw_pain_pattern_retention: 7 * 24 * 60 * 60 * 1000,    # 7 days in milliseconds - Critical patterns persist longer
+  
+  # Performance and reliability
+  hnsw_checkpoint_size_threshold: 50_000_000,  # 50MB checkpoint threshold
+  hnsw_backup_retention: 3,                    # Keep 3 backup versions
+  hnsw_corruption_recovery: true,              # Auto-recovery from corrupted files
+  
+  # Integration with VSM subsystems
+  hnsw_eventbus_integration: true,   # Publish persistence events
+  hnsw_circuitbreaker_protection: true,  # Protect against persistence storms
+  hnsw_telemetry_enabled: true,      # Full observability
+  hnsw_algedonic_integration: true   # Connect to pain/pleasure signals
 # Redis Configuration
 config :autonomous_opponent_core,
   # Redis connection settings

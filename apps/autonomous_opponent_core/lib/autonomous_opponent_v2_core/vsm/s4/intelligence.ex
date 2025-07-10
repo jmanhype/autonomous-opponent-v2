@@ -78,12 +78,63 @@ defmodule AutonomousOpponentV2Core.VSM.S4.Intelligence do
   
   @impl true
   def init(_opts) do
-    # Start Vector Store for pattern memory
-    {:ok, vector_store} = VectorStore.start_link(
+    # Start Vector Store for pattern memory with persistence
+    vector_store_opts = [
       name: :s4_vector_store,
       vector_dim: 64,
       subspaces: 8
-    )
+    ]
+    
+    # ============================================================================
+    # VSM S4 INTELLIGENCE: COMPREHENSIVE HNSW PERSISTENCE CONFIGURATION
+    # ============================================================================
+    # Critical for cybernetic viability: S4 requires persistent pattern memory
+    
+    vector_store_opts = if Application.get_env(:autonomous_opponent_core, :hnsw_persist_enabled, false) do
+      vector_store_opts ++ [
+        # Enable HNSW index (CRITICAL - without this, HNSW won't initialize)
+        hnsw_enabled: true,
+        
+        # Core persistence settings
+        persist_path: Application.get_env(:autonomous_opponent_core, :hnsw_persist_path),
+        persist_interval: Application.get_env(:autonomous_opponent_core, :hnsw_persist_interval, :timer.minutes(3)),
+        persist_on_shutdown: Application.get_env(:autonomous_opponent_core, :hnsw_persist_on_shutdown, true),
+        persist_async: Application.get_env(:autonomous_opponent_core, :hnsw_persist_async, true),
+        
+        # HNSW index parameters (optimized for S4 pattern recognition)
+        hnsw_m: Application.get_env(:autonomous_opponent_core, :hnsw_m, 32),
+        hnsw_ef: Application.get_env(:autonomous_opponent_core, :hnsw_ef, 400),
+        hnsw_max_connections: Application.get_env(:autonomous_opponent_core, :hnsw_max_connections, 64),
+        
+        # Variety engineering (Beer's cybernetic principles)
+        max_patterns: Application.get_env(:autonomous_opponent_core, :hnsw_max_patterns, 100_000),
+        pattern_confidence_threshold: Application.get_env(:autonomous_opponent_core, :hnsw_pattern_confidence_threshold, 0.7),
+        variety_pressure_limit: Application.get_env(:autonomous_opponent_core, :hnsw_variety_pressure_limit, 0.8),
+        
+        # Temporal pattern management (algedonic memory)
+        prune_interval: Application.get_env(:autonomous_opponent_core, :hnsw_prune_interval, :timer.minutes(30)),
+        prune_max_age: Application.get_env(:autonomous_opponent_core, :hnsw_prune_max_age, :timer.hours(48)),
+        prune_low_confidence_age: Application.get_env(:autonomous_opponent_core, :hnsw_prune_low_confidence_age, :timer.hours(6)),
+        pain_pattern_retention: Application.get_env(:autonomous_opponent_core, :hnsw_pain_pattern_retention, 7 * 24 * 60 * 60 * 1000),
+        
+        # Performance and reliability
+        checkpoint_size_threshold: Application.get_env(:autonomous_opponent_core, :hnsw_checkpoint_size_threshold, 50_000_000),
+        backup_retention: Application.get_env(:autonomous_opponent_core, :hnsw_backup_retention, 3),
+        corruption_recovery: Application.get_env(:autonomous_opponent_core, :hnsw_corruption_recovery, true),
+        
+        # VSM integration
+        eventbus_integration: Application.get_env(:autonomous_opponent_core, :hnsw_eventbus_integration, true),
+        circuitbreaker_protection: Application.get_env(:autonomous_opponent_core, :hnsw_circuitbreaker_protection, true),
+        telemetry_enabled: Application.get_env(:autonomous_opponent_core, :hnsw_telemetry_enabled, true),
+        algedonic_integration: Application.get_env(:autonomous_opponent_core, :hnsw_algedonic_integration, true)
+      ]
+    else
+      # No persistence mode - S4 operates in "amnesia" mode (not recommended for production)
+      Logger.warning("🧠 VSM S4: HNSW persistence DISABLED - system will suffer from variety amnesia!")
+      vector_store_opts
+    end
+    
+    {:ok, vector_store} = VectorStore.start_link(vector_store_opts)
     
     # Subscribe to variety channels from other subsystems
     EventBus.subscribe(:s4_intelligence)  # Variety channel output for S4
@@ -1102,8 +1153,8 @@ defmodule AutonomousOpponentV2Core.VSM.S4.Intelligence do
       process_utilization: process_count / process_limit,
       memory_mb: total_memory / 1_048_576,
       gc_runs: memory_info[:garbage_collection][:number_of_gcs] || 0,
-      io_input: elem(io_info[:input], 0),
-      io_output: elem(io_info[:output], 0),
+      io_input: elem(elem(io_info, 0), 1),
+      io_output: elem(elem(io_info, 1), 1),
       timestamp: DateTime.utc_now()
     }
   end
