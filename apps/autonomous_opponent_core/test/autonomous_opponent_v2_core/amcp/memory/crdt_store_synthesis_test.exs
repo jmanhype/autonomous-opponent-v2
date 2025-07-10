@@ -92,7 +92,10 @@ defmodule AutonomousOpponentV2Core.AMCP.Memory.CRDTStoreSynthesisTest do
       # Should receive synthesis event
       assert_receive {:event_bus_hlc, %{topic: :memory_synthesis}}, 5000
       
-      # Check that belief count was reset
+      # Wait a bit for the synthesis completion callback to process
+      Process.sleep(100)
+      
+      # Check that belief count was reset after successful synthesis
       state = :sys.get_state(CRDTStore)
       assert state.belief_update_count == 0
       assert state.last_synthesis_time != nil
@@ -329,6 +332,49 @@ defmodule AutonomousOpponentV2Core.AMCP.Memory.CRDTStoreSynthesisTest do
       
       # Should still complete successfully
       assert_receive {:event_bus_hlc, %{topic: :memory_synthesis}}, 30_000
+    end
+  end
+
+  describe "concurrent task limiting" do
+    test "enforces max concurrent synthesis limit" do
+      # Create test data
+      CRDTStore.create_crdt("concurrent_test", :g_set, ["data"])
+      
+      # Set a low concurrent limit for testing
+      :sys.replace_state(CRDTStore, fn state ->
+        %{state | max_concurrent_synthesis: 2}
+      end)
+      
+      # Trigger multiple synthesis attempts quickly
+      for _ <- 1..5 do
+        send(CRDTStore, :periodic_synthesis)
+      end
+      
+      # Check state - should have max 2 active synthesis tasks
+      Process.sleep(100)
+      state = :sys.get_state(CRDTStore)
+      assert state.active_synthesis_count <= state.max_concurrent_synthesis
+    end
+
+    test "decrements active count on synthesis completion" do
+      # Create test data
+      CRDTStore.create_crdt("decrement_test", :g_set, ["data"])
+      
+      # Trigger synthesis
+      send(CRDTStore, :periodic_synthesis)
+      
+      # Wait for synthesis to start
+      Process.sleep(100)
+      state1 = :sys.get_state(CRDTStore)
+      assert state1.active_synthesis_count > 0
+      
+      # Wait for synthesis completion
+      assert_receive {:event_bus_hlc, %{topic: :memory_synthesis}}, 5000
+      Process.sleep(100)
+      
+      # Active count should be back to 0
+      state2 = :sys.get_state(CRDTStore)
+      assert state2.active_synthesis_count == 0
     end
   end
 end
