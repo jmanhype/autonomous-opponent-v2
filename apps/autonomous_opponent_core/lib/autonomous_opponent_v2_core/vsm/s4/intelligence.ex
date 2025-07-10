@@ -92,6 +92,9 @@ defmodule AutonomousOpponentV2Core.VSM.S4.Intelligence do
     
     vector_store_opts = if Application.get_env(:autonomous_opponent_core, :hnsw_persist_enabled, false) do
       vector_store_opts ++ [
+        # Enable HNSW index (CRITICAL - without this, HNSW won't initialize)
+        hnsw_enabled: true,
+        
         # Core persistence settings
         persist_path: Application.get_env(:autonomous_opponent_core, :hnsw_persist_path),
         persist_interval: Application.get_env(:autonomous_opponent_core, :hnsw_persist_interval, :timer.minutes(3)),

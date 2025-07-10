@@ -196,18 +196,25 @@ defmodule AutonomousOpponentV2Core.VSM.S4.VectorStore.Persistence do
   defp load_ets_table(table, path) do
     case :ets.file2tab(String.to_charlist(path), [{:verify, true}]) do
       {:ok, loaded_table} ->
-        # Copy data from loaded table to our table
-        :ets.foldl(
-          fn item, acc ->
-            :ets.insert(table, item)
-            acc
-          end,
-          :ok,
-          loaded_table
-        )
-        # Delete the temporary loaded table
-        :ets.delete(loaded_table)
-        :ok
+        try do
+          # Copy data from loaded table to our table
+          :ets.foldl(
+            fn item, acc ->
+              :ets.insert(table, item)
+              acc
+            end,
+            :ok,
+            loaded_table
+          )
+          # Delete the temporary loaded table
+          :ets.delete(loaded_table)
+          :ok
+        rescue
+          e ->
+            # Ensure cleanup even if copying fails
+            :ets.delete(loaded_table)
+            {:error, {:copy_failed, e}}
+        end
       
       {:error, _} = error ->
         error
