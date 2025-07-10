@@ -38,7 +38,7 @@ defmodule AutonomousOpponentV2Core.Application do
       AutonomousOpponentV2Core.WebGateway.Gateway,
       # Task Supervisor for CRDT synthesis tasks
       {Task.Supervisor, name: AutonomousOpponentV2Core.TaskSupervisor},
-    ] ++ redis_children() ++ ai_children() ++ amqp_children() ++ vsm_children() ++ mcp_children()
+    ] ++ cluster_children() ++ redis_children() ++ ai_children() ++ amqp_children() ++ vsm_children() ++ mcp_children()
 
     opts = [strategy: :one_for_one, name: AutonomousOpponentV2Core.Supervisor]
     Supervisor.start_link(children, opts)
@@ -201,6 +201,34 @@ defmodule AutonomousOpponentV2Core.Application do
       true -> true
       value when is_binary(value) -> value == "true"
       _ -> true
+    end
+  end
+  
+  # Start EventBus Cluster if node is distributed
+  defp cluster_children do
+    if Node.alive?() and Application.get_env(:autonomous_opponent_core, :cluster_enabled, true) do
+      # Get cluster configuration
+      cluster_config = Application.get_env(:autonomous_opponent_core, AutonomousOpponentV2Core.EventBus.Cluster, [])
+      
+      # Add libcluster supervisor if configured
+      libcluster_child = if cluster_config[:topology] do
+        {Cluster.Supervisor, [cluster_config[:topology], [name: AutonomousOpponentV2Core.ClusterSupervisor]]}
+      else
+        nil
+      end
+      
+      # EventBus cluster supervisor
+      eventbus_cluster_child = {AutonomousOpponentV2Core.EventBus.Cluster.Supervisor, cluster_config}
+      
+      # Return both if libcluster is configured, otherwise just EventBus cluster
+      if libcluster_child do
+        [libcluster_child, eventbus_cluster_child]
+      else
+        [eventbus_cluster_child]
+      end
+    else
+      # Return empty list for non-distributed nodes
+      []
     end
   end
 end
