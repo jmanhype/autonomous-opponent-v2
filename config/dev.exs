@@ -97,3 +97,36 @@ config :autonomous_opponent_core,
   # Mock response delay in milliseconds (simulate thinking)
   # Set to 0 for instant responses, or add small delay for realism
   llm_mock_delay: 0
+
+# Redis Configuration
+config :autonomous_opponent_core,
+  # Redis connection settings
+  redis_enabled: true,
+  redis_host: System.get_env("REDIS_HOST", "localhost"),
+  redis_port: String.to_integer(System.get_env("REDIS_PORT", "6379")),
+  redis_database: String.to_integer(System.get_env("REDIS_DB", "0")),
+  redis_password: System.get_env("REDIS_PASSWORD"),
+  
+  # Redis pool settings
+  redis_pool_size: 10,
+  redis_max_overflow: 5,
+  
+  # Redis SSL/TLS settings (for production)
+  redis_ssl_enabled: false,
+  
+  # Redis Sentinel settings (for HA)
+  # redis_sentinels: [
+  #   [host: "sentinel1", port: 26379],
+  #   [host: "sentinel2", port: 26379],
+  #   [host: "sentinel3", port: 26379]
+  # ],
+  # redis_sentinel_group: "mymaster",
+  
+  # Distributed rate limiting
+  distributed_rate_limiting_enabled: true,
+  rate_limiter_backend: :redis,  # :local | :redis
+  
+  # Circuit breaker settings for Redis
+  redis_circuit_failure_threshold: 5,
+  redis_circuit_recovery_time_ms: 30_000,
+  redis_circuit_timeout_ms: 5_000

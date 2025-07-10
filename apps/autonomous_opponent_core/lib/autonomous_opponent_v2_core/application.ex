@@ -8,6 +8,7 @@ defmodule AutonomousOpponentV2Core.Application do
   def start(_type, _args) do
     # Initialize telemetry handlers first
     AutonomousOpponentV2Core.Telemetry.SystemTelemetry.setup()
+    AutonomousOpponentV2Core.Telemetry.RateLimiterTelemetry.attach_handlers()
     
     # Ensure AMQP application is started before we check for it
     ensure_amqp_started()
@@ -37,7 +38,7 @@ defmodule AutonomousOpponentV2Core.Application do
       AutonomousOpponentV2Core.WebGateway.Gateway,
       # Task Supervisor for CRDT synthesis tasks
       {Task.Supervisor, name: AutonomousOpponentV2Core.TaskSupervisor},
-    ] ++ ai_children() ++ amqp_children() ++ vsm_children() ++ mcp_children()
+    ] ++ redis_children() ++ ai_children() ++ amqp_children() ++ vsm_children() ++ mcp_children()
 
     opts = [strategy: :one_for_one, name: AutonomousOpponentV2Core.Supervisor]
     Supervisor.start_link(children, opts)
@@ -84,6 +85,42 @@ defmodule AutonomousOpponentV2Core.Application do
       []
     # end
   end
+  
+  # Start Redis services if enabled
+  defp redis_children do
+    if redis_enabled?() do
+      [
+        # Redis connection pool
+        AutonomousOpponentV2Core.Connections.RedisPool,
+        
+        # Distributed rate limiters for different subsystems
+        Supervisor.child_spec(
+          {AutonomousOpponentV2Core.Core.DistributedRateLimiter,
+           name: :api_rate_limiter,
+           rules: %{
+             burst: {1_000, 10},      # 10 req/sec burst
+             sustained: {60_000, 100} # 100 req/min sustained
+           }},
+          id: :api_rate_limiter
+        ),
+         
+        Supervisor.child_spec(
+          {AutonomousOpponentV2Core.Core.DistributedRateLimiter,
+           name: :vsm_rate_limiter,
+           rules: %{
+             s1_operations: {1_000, 100},
+             s2_coordination: {1_000, 50},
+             s3_control: {1_000, 20},
+             s4_intelligence: {60_000, 100},
+             s5_policy: {300_000, 50}
+           }},
+          id: :vsm_rate_limiter
+        )
+      ]
+    else
+      []
+    end
+  end
 
   # Start AMQP services if enabled - TEMPORARILY DISABLED
   defp amqp_children do
@@ -111,6 +148,16 @@ defmodule AutonomousOpponentV2Core.Application do
   defp amqp_enabled? do
     case Application.get_env(:autonomous_opponent_core, :amqp_enabled) do
       nil -> System.get_env("AMQP_ENABLED", "true") == "true"
+      false -> false
+      true -> true
+      value when is_binary(value) -> value == "true"
+      _ -> true
+    end
+  end
+  
+  defp redis_enabled? do
+    case Application.get_env(:autonomous_opponent_core, :redis_enabled) do
+      nil -> System.get_env("REDIS_ENABLED", "true") == "true"
       false -> false
       true -> true
       value when is_binary(value) -> value == "true"

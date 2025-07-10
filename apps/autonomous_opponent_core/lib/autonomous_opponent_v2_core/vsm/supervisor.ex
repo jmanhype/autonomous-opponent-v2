@@ -64,7 +64,13 @@ defmodule AutonomousOpponentV2Core.VSM.Supervisor do
         id: :channel_starter,
         start: {__MODULE__, :start_channels, []},
         restart: :transient
-      }
+      },
+      
+      # VSM Rate Limiter Integration - adaptive variety attenuation
+      {AutonomousOpponentV2Core.VSM.Integrations.RateLimiterIntegration, [
+        rate_limiter: :vsm_rate_limiter,
+        adaptation_enabled: true
+      ]}
     ]
     
     # Strategy: If a subsystem dies, restart just that subsystem
