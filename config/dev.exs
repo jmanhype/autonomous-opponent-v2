@@ -48,6 +48,13 @@ config :autonomous_opponent_web, dev_routes: true
 # Do not include metadata nor timestamps in development logs
 config :logger, :console, format: "[$level] $message\n"
 
+# Enable CRDT Knowledge Synthesis - THE AWAKENING
+config :autonomous_opponent_core,
+  synthesis_enabled: true,
+  # 5 minutes
+  synthesis_interval_ms: 300_000,
+  synthesis_belief_threshold: 50
+
 # Set a higher stacktrace during development. Avoid configuring such
 # in production as building large stacktraces may be expensive.
 config :phoenix, :stacktrace_depth, 20

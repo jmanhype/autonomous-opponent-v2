@@ -35,6 +35,8 @@ defmodule AutonomousOpponentV2Core.Application do
       AutonomousOpponentV2Core.Security.Supervisor,
       # Start Web Gateway (Task 8)
       AutonomousOpponentV2Core.WebGateway.Gateway,
+      # Task Supervisor for CRDT synthesis tasks
+      {Task.Supervisor, name: AutonomousOpponentV2Core.TaskSupervisor},
     ] ++ ai_children() ++ amqp_children() ++ vsm_children() ++ mcp_children()
 
     opts = [strategy: :one_for_one, name: AutonomousOpponentV2Core.Supervisor]
