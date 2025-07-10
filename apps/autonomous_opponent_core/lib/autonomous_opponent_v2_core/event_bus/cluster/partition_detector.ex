@@ -403,6 +403,9 @@ defmodule AutonomousOpponentV2Core.EventBus.Cluster.PartitionDetector do
   defp pop_scc(node, [other | rest], on_stack, scc) do
     pop_scc(node, rest, Map.put(on_stack, other, false), [other | scc])
   end
+  defp pop_scc(_node, [], on_stack, scc) do
+    {scc, [], on_stack}
+  end
   
   defp detect_quorum_partition(partitions, quorum_size, all_nodes) do
     if partitions == [] do

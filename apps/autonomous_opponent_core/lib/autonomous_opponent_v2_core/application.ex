@@ -224,7 +224,7 @@ defmodule AutonomousOpponentV2Core.Application do
       if libcluster_child do
         [libcluster_child, eventbus_cluster_child]
       else
-        eventbus_cluster_child
+        [eventbus_cluster_child]
       end
     else
       # Return empty list for non-distributed nodes

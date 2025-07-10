@@ -531,8 +531,9 @@ defmodule AutonomousOpponentV2Core.EventBus.Cluster.ClusterBridge do
   
   defp validate_ttl(%{cluster_metadata: %{replicated_at: replicated_at}} = event) do
     age = System.monotonic_time(:microsecond) - replicated_at
+    ttl = event[:ttl] || 300_000_000  # 5 minutes in microseconds
     
-    if age < event[:ttl] || 300_000_000 do  # 5 minutes in microseconds
+    if age < ttl do
       :ok
     else
       {:error, :event_expired}

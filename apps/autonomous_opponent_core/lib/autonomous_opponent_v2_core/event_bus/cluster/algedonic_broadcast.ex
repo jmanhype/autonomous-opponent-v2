@@ -439,7 +439,11 @@ defmodule AutonomousOpponentV2Core.EventBus.Cluster.AlgedonicBroadcast do
     broadcast_addresses = get_broadcast_addresses()
     
     Enum.each(broadcast_addresses, fn addr ->
-      :gen_udp.send(socket, addr, @emergency_port, encoded)
+      case :gen_udp.send(socket, addr, @emergency_port, encoded) do
+        :ok -> :ok
+        {:error, reason} ->
+          Logger.error("Algedonic UDP broadcast failed to #{inspect(addr)}: #{inspect(reason)}")
+      end
     end)
   end
   

@@ -182,17 +182,21 @@ defmodule AutonomousOpponentV2Core.EventBus.ClusterBridge do
   
   def handle_info({:remote_event, event, from_node}, state) do
     # Remote event received
-    Logger.debug("Received remote event from #{from_node}: #{inspect(event.type)}")
+    Logger.debug("Received remote event from #{from_node}: #{inspect(Map.get(event, :type, :unknown))}")
     
     # Update stats
     state = %{state | stats: Map.update!(state.stats, :events_received, &(&1 + 1))}
     
-    # Publish locally (without replication)
-    Task.start(fn ->
-      # Mark as remote to prevent re-replication
-      event = Map.put(event, :_from_cluster, true)
-      EventBus.publish(event.type, event.data)
-    end)
+    # Validate and publish locally (without replication)
+    if Map.has_key?(event, :type) and Map.has_key?(event, :data) do
+      Task.start(fn ->
+        # Mark as remote to prevent re-replication
+        event = Map.put(event, :_from_cluster, true)
+        EventBus.publish(event.type, event.data)
+      end)
+    else
+      Logger.warning("Received malformed remote event from #{from_node}: #{inspect(event)}")
+    end
     
     {:noreply, state}
   end

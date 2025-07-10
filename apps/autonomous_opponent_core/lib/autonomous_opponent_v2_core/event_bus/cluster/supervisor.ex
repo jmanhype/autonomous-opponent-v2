@@ -116,8 +116,20 @@ defmodule AutonomousOpponentV2Core.EventBus.Cluster.Supervisor do
   
   defp cluster_bridge_opts(opts) do
     [
-      variety_quotas: Keyword.get(opts, :variety_quotas),
-      semantic_compression: Keyword.get(opts, :semantic_compression),
+      variety_quotas: Keyword.get(opts, :variety_quotas, %{
+        algedonic: :unlimited,
+        s5_policy: 50,
+        s4_intelligence: 100,
+        s3_control: 200,
+        s2_coordination: 500,
+        s1_operational: 1000,
+        general: 100
+      }),
+      semantic_compression: Keyword.get(opts, :semantic_compression, %{
+        enabled: true,
+        similarity_threshold: 0.8,
+        aggregation_window: 100
+      }),
       circuit_breaker: Keyword.get(opts, :circuit_breaker, %{
         failure_threshold: 5,
         recovery_time: 30_000,

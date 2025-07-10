@@ -300,7 +300,11 @@ defmodule AutonomousOpponentV2Core.EventBus.Cluster.Telemetry do
     # Simplified CPU usage calculation
     # In production, use :cpu_sup or external monitoring
     case :cpu_sup.util() do
-      {:ok, usage} -> usage
+      {:ok, usage_list} when is_list(usage_list) -> 
+        # Average all CPU core usages
+        Enum.sum(usage_list) / length(usage_list)
+      {:ok, usage} when is_number(usage) -> 
+        usage
       _ -> 0.0
     end
   rescue

@@ -288,7 +288,7 @@ defmodule AutonomousOpponentV2Core.VSM.S5.Policy do
     Logger.warn("S5 Policy: Received distributed algedonic signal - #{package.id}")
     
     # Process based on VSM directive
-    case package.vsm_directive do
+    updated_state = case package.vsm_directive do
       :immediate_intervention_required ->
         # High severity - trigger emergency response
         emergency_response = %{
@@ -300,22 +300,25 @@ defmodule AutonomousOpponentV2Core.VSM.S5.Policy do
         }
         
         EventBus.publish(:all_subsystems, {:s5_emergency_override, emergency_response})
+        state
         
       :policy_review_required ->
         # Medium severity - schedule policy review
         Process.send_after(self(), {:policy_review, package}, 100)
+        state
         
       :maintain_current_state ->
         # Positive signal - record success
         new_health = Map.update!(state.health_metrics, :successful_governance, &(&1 + 1))
-        state = %{state | health_metrics: new_health}
+        %{state | health_metrics: new_health}
         
       :monitor_closely ->
         # Low severity - just log and monitor
         Logger.info("S5 Policy: Monitoring algedonic signal from #{package.source_node}")
+        state
     end
     
-    {:noreply, state}
+    {:noreply, updated_state}
   end
   
   @impl true
