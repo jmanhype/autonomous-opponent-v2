@@ -478,7 +478,7 @@ defmodule AutonomousOpponentV2Core.AMCP.Memory.CRDTStore do
   @impl true
   def handle_cast(:discover_peers, state) do
     # Use EPMD-based discovery (Issue #89)
-    if Code.ensure_loaded?(AutonomousOpponentV2Core.AMCP.Memory.EPMDDiscovery) do
+    if Process.whereis(AutonomousOpponentV2Core.AMCP.Memory.EPMDDiscovery) do
       # Trigger EPMD discovery
       AutonomousOpponentV2Core.AMCP.Memory.EPMDDiscovery.discover_now()
       Logger.info("CRDT peer discovery initiated via EPMD")

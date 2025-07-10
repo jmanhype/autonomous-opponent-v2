@@ -65,7 +65,19 @@ defmodule AutonomousOpponentV2Core.AMCP.Memory.EPMDDiscoveryTest do
       {:ok, _} = EPMDDiscovery.start_link(discovery_interval: 5_000)
       
       status = EPMDDiscovery.status()
-      assert status.next_discovery =~ "5000ms"
+      # With adaptive interval and 0 nodes, should use base interval
+      assert status.adaptive_interval == 5_000
+    end
+    
+    test "respects custom configuration options" do
+      {:ok, _} = EPMDDiscovery.start_link(
+        stability_threshold: 5,
+        sync_cooldown_ms: 2_000
+      )
+      
+      status = EPMDDiscovery.status()
+      assert status.stability_threshold == 5
+      assert status.sync_cooldown_ms == 2_000
     end
   end
   
@@ -116,7 +128,10 @@ defmodule AutonomousOpponentV2Core.AMCP.Memory.EPMDDiscoveryTest do
         node |> to_string() |> String.starts_with?("crdt_")
       end
       
-      {:ok, _} = EPMDDiscovery.start_link(node_filter: filter)
+      {:ok, _} = EPMDDiscovery.start_link(
+        node_filter: filter,
+        stability_threshold: 1  # Set to 1 for immediate addition in tests
+      )
       
       # Simulate nodeup events
       send(EPMDDiscovery, {:nodeup, :"crdt_node@127.0.0.1", []})
@@ -133,7 +148,7 @@ defmodule AutonomousOpponentV2Core.AMCP.Memory.EPMDDiscoveryTest do
   describe "stability tracking" do
     test "requires multiple sightings before adding as CRDT peer" do
       {:ok, _} = CRDTStore.start_link()
-      {:ok, _} = EPMDDiscovery.start_link()
+      {:ok, _} = EPMDDiscovery.start_link(stability_threshold: 3)
       
       # First sighting - should track but not add
       send(EPMDDiscovery, {:nodeup, :"stable_test@127.0.0.1", []})
@@ -143,8 +158,46 @@ defmodule AutonomousOpponentV2Core.AMCP.Memory.EPMDDiscoveryTest do
       # Should not be added as peer yet
       assert stats.peer_count == 0
       
-      # Subsequent discoveries should increment stability
-      # (In real usage, this happens through periodic discovery)
+      # Check stability tracking
+      status = EPMDDiscovery.status()
+      assert :"stable_test@127.0.0.1" in status.known_nodes
+      assert status.peer_stability[:"stable_test@127.0.0.1"] == 1
+      
+      # Trigger periodic discovery to increment stability
+      # In real usage, this happens automatically
+      EPMDDiscovery.discover_now()
+      Process.sleep(100)
+      
+      # Should still not be added (stability = 2)
+      stats = CRDTStore.get_stats()
+      assert stats.peer_count == 0
+    end
+  end
+  
+  describe "adaptive discovery interval" do
+    test "adjusts interval based on cluster size" do
+      {:ok, _} = EPMDDiscovery.start_link(discovery_interval: 10_000)
+      
+      # With no nodes, should use base interval
+      status = EPMDDiscovery.status()
+      assert status.adaptive_interval == 10_000
+      
+      # Simulate adding many nodes (with low stability threshold for testing)
+      {:ok, _} = GenServer.stop(EPMDDiscovery)
+      {:ok, _} = EPMDDiscovery.start_link(
+        discovery_interval: 10_000,
+        stability_threshold: 1
+      )
+      
+      # Add 15 nodes
+      for i <- 1..15 do
+        send(EPMDDiscovery, {:nodeup, :"node#{i}@127.0.0.1", []})
+      end
+      Process.sleep(200)
+      
+      # Should now use 2x interval (20 seconds)
+      status = EPMDDiscovery.status()
+      assert status.adaptive_interval == 20_000
     end
   end
   

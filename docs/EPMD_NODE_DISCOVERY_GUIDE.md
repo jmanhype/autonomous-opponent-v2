@@ -100,8 +100,10 @@ NODE_NAME=crdt3 mix run scripts/demo_epmd_discovery.exs
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `enabled` | boolean | `true` | Enable/disable automatic discovery |
-| `discovery_interval` | integer | `10_000` | Milliseconds between discovery runs |
+| `discovery_interval` | integer | `10_000` | Base milliseconds between discovery runs (adaptive) |
 | `max_peers` | integer | `100` | Maximum number of CRDT sync peers |
+| `stability_threshold` | integer | `3` | Sightings required before adding as peer |
+| `sync_cooldown_ms` | integer | `1_000` | Minimum ms between sync operations |
 | `node_filter` | function | (see below) | Function to filter acceptable nodes |
 
 ### Default Node Filter
@@ -121,10 +123,17 @@ end
 The implementation follows VSM (Viable System Model) principles:
 
 - **S1 (Operations)**: Autonomous peer discovery without manual intervention
-- **S2 (Coordination)**: Anti-oscillation through stability tracking
-- **S3 (Control)**: Resource limits and peer selection optimization
-- **S4 (Intelligence)**: Environmental scanning via EPMD
-- **S5 (Policy)**: Configurable constraints and filters
+- **S2 (Coordination)**: Anti-oscillation through stability tracking and sync cooldowns
+- **S3 (Control)**: Resource limits, adaptive intervals, and peer selection optimization
+- **S4 (Intelligence)**: Environmental scanning via EPMD with real-time monitoring
+- **S5 (Policy)**: Configurable constraints, filters, and thresholds
+
+### Adaptive Behavior
+
+The system adapts to its environment:
+- Discovery interval increases with cluster size to reduce network overhead
+- Stability tracking prevents rapid peer churn during network instability
+- Sync cooldowns prevent cascading sync storms in large clusters
 
 ## Testing
 
@@ -144,7 +153,19 @@ mix test --only distributed
 ### Telemetry Events
 
 - `[:epmd_discovery, :peer_added]` - New peer discovered and added
+- `[:epmd_discovery, :discovery_completed]` - Discovery scan completed with metrics
 - `[:crdt_store, :sync_timeout]` - Sync timeout with peer
+
+Example telemetry handler:
+```elixir
+:telemetry.attach(
+  "log-discovery",
+  [:epmd_discovery, :discovery_completed],
+  fn _event, measurements, metadata, _config ->
+    Logger.info("Discovery completed: #{measurements.discovered} new, #{measurements.removed} removed, #{measurements.duration_ms}ms")
+  end,
+  nil
+)```
 - `[:crdt_store, :backpressure, :dropped]` - Sync request dropped due to overload
 
 ### Logs

@@ -33,13 +33,18 @@ defmodule AutonomousOpponentV2Core.AMCP.Memory.EPMDDiscovery do
     :known_nodes,
     :peer_stability,
     :last_discovery,
-    :discovery_enabled
+    :discovery_enabled,
+    :stability_threshold,
+    :sync_cooldown_ms,
+    :last_sync_time,
+    :pending_syncs
   ]
   
   # Constants aligned with issue #89 requirements
   @default_discovery_interval 10_000  # 10 seconds as specified
   @default_max_peers 100
-  @stability_threshold 3  # Node must be seen 3 times before considered stable
+  @default_stability_threshold 3  # Node must be seen 3 times before considered stable
+  @default_sync_cooldown_ms 1_000  # 1 second cooldown between syncs to prevent storms
   
   # Client API
   
@@ -82,7 +87,11 @@ defmodule AutonomousOpponentV2Core.AMCP.Memory.EPMDDiscovery do
       known_nodes: MapSet.new(),
       peer_stability: %{},
       last_discovery: nil,
-      discovery_enabled: Keyword.get(opts, :enabled, true)
+      discovery_enabled: Keyword.get(opts, :enabled, true),
+      stability_threshold: Keyword.get(opts, :stability_threshold, @default_stability_threshold),
+      sync_cooldown_ms: Keyword.get(opts, :sync_cooldown_ms, @default_sync_cooldown_ms),
+      last_sync_time: 0,
+      pending_syncs: MapSet.new()
     }
     
     # Schedule first discovery
@@ -97,12 +106,18 @@ defmodule AutonomousOpponentV2Core.AMCP.Memory.EPMDDiscovery do
   
   @impl true
   def handle_call(:status, _from, state) do
+    adaptive_interval = calculate_adaptive_interval(state)
+    
     status = %{
       discovery_enabled: state.discovery_enabled,
       known_nodes: MapSet.to_list(state.known_nodes),
       peer_stability: state.peer_stability,
       last_discovery: state.last_discovery,
-      next_discovery: if(state.discovery_enabled, do: "in #{state.discovery_interval}ms", else: "disabled")
+      next_discovery: if(state.discovery_enabled, do: "in #{adaptive_interval}ms", else: "disabled"),
+      stability_threshold: state.stability_threshold,
+      sync_cooldown_ms: state.sync_cooldown_ms,
+      pending_syncs: MapSet.to_list(state.pending_syncs),
+      adaptive_interval: adaptive_interval
     }
     {:reply, status, state}
   end
@@ -130,7 +145,12 @@ defmodule AutonomousOpponentV2Core.AMCP.Memory.EPMDDiscovery do
   def handle_info(:scheduled_discovery, state) do
     if state.discovery_enabled do
       new_state = perform_discovery(state)
-      schedule_discovery(state.discovery_interval)
+      
+      # Calculate adaptive discovery interval based on cluster size
+      # More nodes = longer interval to reduce network chatter
+      adaptive_interval = calculate_adaptive_interval(new_state)
+      schedule_discovery(adaptive_interval)
+      
       {:noreply, new_state}
     else
       {:noreply, state}
@@ -141,11 +161,19 @@ defmodule AutonomousOpponentV2Core.AMCP.Memory.EPMDDiscovery do
   def handle_info({:nodeup, node, _info}, state) do
     Logger.info("⚡ EPMD: Node detected via monitor - #{node}")
     
-    # Immediate discovery when node comes up
+    # Track node but don't immediately add as CRDT peer
     if should_add_node?(node, state) do
-      add_crdt_peer(node)
       new_nodes = MapSet.put(state.known_nodes, node)
       new_stability = increment_stability(state.peer_stability, node)
+      
+      # Only add as CRDT peer if stability threshold is met
+      state = if get_stability_score(new_stability, node) >= state.stability_threshold do
+        Logger.info("✅ EPMD Discovery: Adding #{node} as CRDT peer (stability threshold met)")
+        add_crdt_peer(node, state)
+      else
+        Logger.debug("⏳ EPMD Discovery: Tracking #{node} (stability: #{get_stability_score(new_stability, node)}/#{state.stability_threshold})")
+        state
+      end
       
       {:noreply, %{state | known_nodes: new_nodes, peer_stability: new_stability}}
     else
@@ -163,13 +191,48 @@ defmodule AutonomousOpponentV2Core.AMCP.Memory.EPMDDiscovery do
     # Clean up state
     new_nodes = MapSet.delete(state.known_nodes, node)
     new_stability = Map.delete(state.peer_stability, node)
+    new_pending_syncs = MapSet.delete(state.pending_syncs, node)
     
-    {:noreply, %{state | known_nodes: new_nodes, peer_stability: new_stability}}
+    {:noreply, %{state | 
+      known_nodes: new_nodes, 
+      peer_stability: new_stability,
+      pending_syncs: new_pending_syncs
+    }}
+  end
+  
+  @impl true
+  def handle_info({:process_pending_sync, node}, state) do
+    # Process a pending sync for a specific node
+    if MapSet.member?(state.pending_syncs, node) do
+      current_time = System.monotonic_time(:millisecond)
+      time_since_last_sync = current_time - state.last_sync_time
+      
+      if time_since_last_sync >= state.sync_cooldown_ms do
+        # Enough time has passed, perform the sync
+        Logger.debug("🔄 Processing pending sync for #{node}")
+        CRDTStore.sync_with_peers()
+        
+        new_pending_syncs = MapSet.delete(state.pending_syncs, node)
+        {:noreply, %{state | 
+          pending_syncs: new_pending_syncs,
+          last_sync_time: current_time
+        }}
+      else
+        # Still in cooldown, reschedule
+        remaining_cooldown = state.sync_cooldown_ms - time_since_last_sync
+        Process.send_after(self(), {:process_pending_sync, node}, remaining_cooldown)
+        {:noreply, state}
+      end
+    else
+      # Node no longer in pending syncs (maybe removed)
+      {:noreply, state}
+    end
   end
   
   # Private Functions
   
   defp perform_discovery(state) do
+    start_time = System.monotonic_time(:millisecond)
     Logger.debug("🔍 EPMD Discovery: Scanning for CRDT peers...")
     
     # Get all visible nodes via EPMD
@@ -190,11 +253,12 @@ defmodule AutonomousOpponentV2Core.AMCP.Memory.EPMDDiscovery do
         new_stability = increment_stability(acc_state.peer_stability, node)
         
         # Only add as CRDT peer if stable enough
-        if get_stability_score(new_stability, node) >= @stability_threshold do
-          add_crdt_peer(node)
-          Logger.info("✅ EPMD Discovery: Added #{node} as CRDT peer (stability threshold met)")
+        acc_state = if get_stability_score(new_stability, node) >= acc_state.stability_threshold do
+          Logger.info("✅ EPMD Discovery: Adding #{node} as CRDT peer (stability threshold met)")
+          add_crdt_peer(node, acc_state)
         else
-          Logger.debug("⏳ EPMD Discovery: Tracking #{node} (stability: #{get_stability_score(new_stability, node)}/#{@stability_threshold})")
+          Logger.debug("⏳ EPMD Discovery: Tracking #{node} (stability: #{get_stability_score(new_stability, node)}/#{acc_state.stability_threshold})")
+          acc_state
         end
         
         %{acc_state | 
@@ -216,6 +280,21 @@ defmodule AutonomousOpponentV2Core.AMCP.Memory.EPMDDiscovery do
         peer_stability: Map.delete(acc_state.peer_stability, node)
       }
     end)
+    
+    # Calculate discovery duration
+    discovery_duration = System.monotonic_time(:millisecond) - start_time
+    
+    # Emit telemetry for discovery completion
+    :telemetry.execute(
+      [:epmd_discovery, :discovery_completed],
+      %{
+        discovered: MapSet.size(new_nodes),
+        removed: MapSet.size(removed_nodes),
+        total_peers: MapSet.size(state.known_nodes),
+        duration_ms: discovery_duration
+      },
+      %{discovery_type: :periodic}
+    )
     
     # Update last discovery time
     %{state | last_discovery: System.system_time(:second)}
@@ -244,11 +323,17 @@ defmodule AutonomousOpponentV2Core.AMCP.Memory.EPMDDiscovery do
               :"#{name}"
             end
           end)
-        _ ->
+        {:error, :address} ->
+          Logger.debug("EPMD not reachable on local host")
+          []
+        {:error, reason} ->
+          Logger.warning("Failed to query EPMD: #{inspect(reason)}")
           []
       end
     rescue
-      _ -> []
+      error in [ArgumentError, RuntimeError] ->
+        Logger.warning("Error querying EPMD: #{inspect(error)}")
+        []
     end
     
     # Combine all sources
@@ -289,25 +374,40 @@ defmodule AutonomousOpponentV2Core.AMCP.Memory.EPMDDiscovery do
     |> List.first()
   end
   
-  defp add_crdt_peer(node) do
+  defp add_crdt_peer(node, state) do
     # Convert node atom to string for CRDT Store
     peer_id = to_string(node)
     
     # Add to CRDT sync peers
     case CRDTStore.add_sync_peer(peer_id) do
       :ok ->
-        # Also trigger immediate sync
-        CRDTStore.sync_with_peers()
+        # Schedule sync with cooldown to prevent sync storms
+        current_time = System.monotonic_time(:millisecond)
+        time_since_last_sync = current_time - state.last_sync_time
+        
+        new_state = if time_since_last_sync >= state.sync_cooldown_ms do
+          # Can sync immediately
+          CRDTStore.sync_with_peers()
+          %{state | last_sync_time: current_time}
+        else
+          # Schedule for later
+          remaining_cooldown = state.sync_cooldown_ms - time_since_last_sync
+          Process.send_after(self(), {:process_pending_sync, node}, remaining_cooldown)
+          %{state | pending_syncs: MapSet.put(state.pending_syncs, node)}
+        end
         
         # Emit telemetry
         :telemetry.execute(
           [:epmd_discovery, :peer_added],
-          %{peer_count: 1},
+          %{peer_count: 1, sync_scheduled: MapSet.member?(new_state.pending_syncs, node)},
           %{node: node}
         )
         
+        new_state
+        
       {:error, reason} ->
         Logger.warning("Failed to add CRDT peer #{peer_id}: #{inspect(reason)}")
+        state
     end
   end
   
@@ -321,5 +421,23 @@ defmodule AutonomousOpponentV2Core.AMCP.Memory.EPMDDiscovery do
   
   defp schedule_discovery(delay) do
     Process.send_after(self(), :scheduled_discovery, delay)
+  end
+  
+  defp calculate_adaptive_interval(state) do
+    # Base interval grows with cluster size
+    # 10s for <10 nodes, 20s for 10-25 nodes, 30s for 25-50 nodes, etc.
+    node_count = MapSet.size(state.known_nodes)
+    
+    multiplier = cond do
+      node_count < 10 -> 1.0
+      node_count < 25 -> 2.0
+      node_count < 50 -> 3.0
+      node_count < 100 -> 4.0
+      true -> 6.0  # Large clusters
+    end
+    
+    # Calculate interval with max cap of 60 seconds
+    interval = round(state.discovery_interval * multiplier)
+    min(interval, 60_000)
   end
 end

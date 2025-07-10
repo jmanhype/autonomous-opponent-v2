@@ -137,6 +137,8 @@ config :autonomous_opponent_core, AutonomousOpponentV2Core.AMCP.Memory.EPMDDisco
   enabled: true,
   discovery_interval: 10_000,  # 10 seconds as per issue requirement
   max_peers: 100,
+  stability_threshold: 3,  # Node must be seen this many times before being added as peer
+  sync_cooldown_ms: 1_000,  # Minimum milliseconds between sync operations (prevents sync storms)
   # Node filter - only accept nodes with 'autonomous' prefix by default
   node_filter: fn node ->
     node_str = to_string(node)
