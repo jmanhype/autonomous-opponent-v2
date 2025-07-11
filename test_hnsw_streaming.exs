@@ -9,9 +9,9 @@ defmodule HNSWStreamingTest do
   Validates the complete flow from EventBus → HNSW → WebSocket → Client
   """
   
-  alias AutonomousOpponentV2Core.EventBus
-  alias AutonomousOpponentV2Core.VSM.S4.PatternHNSWBridge
-  alias AutonomousOpponentV2Core.VSM.S4.VectorStore.HNSWIndex
+  alias AutonomousOpponent.EventBus
+  alias AutonomousOpponent.VSM.S4.PatternHNSWBridge
+  alias AutonomousOpponent.VSM.S4.VectorStore.HNSWIndex
   
   def run do
     IO.puts("\n🚀 Starting HNSW Event Streaming Integration Test...\n")
@@ -31,7 +31,7 @@ defmodule HNSWStreamingTest do
   defp ensure_processes do
     IO.puts("✓ Checking required processes...")
     
-    unless Process.whereis(PatternHNSWBridge) do
+    unless Process.whereis(AutonomousOpponent.VSM.S4.PatternHNSWBridge) do
       IO.puts("  Starting PatternHNSWBridge...")
       {:ok, _} = PatternHNSWBridge.start_link()
     end

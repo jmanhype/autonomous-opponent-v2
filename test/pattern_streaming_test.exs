@@ -7,10 +7,10 @@ defmodule PatternStreamingTest do
   use ExUnit.Case
   use AutonomousOpponentWeb.ChannelCase
   
-  alias AutonomousOpponentV2Core.EventBus
-  alias AutonomousOpponentV2Core.VSM.S4.PatternHNSWBridge
-  alias AutonomousOpponentV2Core.VSM.S4.VectorStore.HNSWIndex
-  alias AutonomousOpponentV2Core.Metrics.Cluster.PatternAggregator
+  alias AutonomousOpponent.EventBus
+  alias AutonomousOpponent.VSM.S4.PatternHNSWBridge
+  alias AutonomousOpponent.VSM.S4.VectorStore.HNSWIndex
+  alias AutonomousOpponent.Metrics.Cluster.PatternAggregator
   
   @test_vector List.duplicate(0.5, 100)  # 100-dimensional test vector
   

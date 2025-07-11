@@ -1,4 +1,4 @@
-defmodule AutonomousOpponentV2Core.Metrics.Cluster.PatternAggregator do
+defmodule AutonomousOpponent.Metrics.Cluster.PatternAggregator do
   @moduledoc """
   Cluster-wide pattern aggregation for distributed HNSW indices.
   
@@ -12,9 +12,9 @@ defmodule AutonomousOpponentV2Core.Metrics.Cluster.PatternAggregator do
   use GenServer
   require Logger
   
-  alias AutonomousOpponentV2Core.EventBus
-  alias AutonomousOpponentV2Core.VSM.S4.VectorStore.HNSWIndex
-  alias AutonomousOpponentV2Core.Metrics.CRDTStore
+  alias AutonomousOpponent.EventBus
+  alias AutonomousOpponent.VSM.S4.VectorStore.HNSWIndex
+  alias AutonomousOpponent.Metrics.CRDTStore
   
   defstruct [
     :pattern_cache,
@@ -109,7 +109,7 @@ defmodule AutonomousOpponentV2Core.Metrics.Cluster.PatternAggregator do
     
     node_stats = :erpc.multicall(
       nodes,
-      AutonomousOpponentV2Core.VSM.S4.PatternHNSWBridge,
+      AutonomousOpponent.VSM.S4.PatternHNSWBridge,
       :get_stats,
       [],
       5000
@@ -182,7 +182,7 @@ defmodule AutonomousOpponentV2Core.Metrics.Cluster.PatternAggregator do
     nodes = [node() | Node.list()]
     
     Enum.filter(nodes, fn n ->
-      case :rpc.call(n, Process, :whereis, [AutonomousOpponentV2Core.VSM.S4.PatternHNSWBridge]) do
+      case :rpc.call(n, Process, :whereis, [AutonomousOpponent.VSM.S4.PatternHNSWBridge]) do
         pid when is_pid(pid) -> true
         _ -> false
       end
@@ -301,29 +301,47 @@ defmodule AutonomousOpponentV2Core.Metrics.Cluster.PatternAggregator do
   
   defp collect_pattern_summaries(nodes) do
     # Get pattern summaries from each node
-    {:ok, summaries} = :erpc.multicall(
+    case :erpc.multicall(
       nodes,
       __MODULE__,
       :get_local_pattern_summary,
       [],
       10_000
-    )
-    
-    summaries
+    ) do
+      {summaries, []} ->
+        summaries
+      {summaries, bad_nodes} ->
+        Logger.warning("Failed to collect summaries from nodes: #{inspect(bad_nodes)}")
+        summaries
+    end
   end
   
   def get_local_pattern_summary do
     # This runs on each node to get pattern summary
-    case Process.whereis(AutonomousOpponentV2Core.VSM.S4.PatternHNSWBridge) do
+    case Process.whereis(AutonomousOpponent.VSM.S4.PatternHNSWBridge) do
       nil -> 
         %{node: node(), patterns: []}
       
       _pid ->
-        stats = AutonomousOpponentV2Core.VSM.S4.PatternHNSWBridge.get_stats()
+        stats = AutonomousOpponent.VSM.S4.PatternHNSWBridge.get_stats()
+        
+        # Get recent patterns from HNSW index
+        patterns = case HNSWIndex.get_recent_patterns(:hnsw_index, 100) do
+          {:ok, pattern_list} -> 
+            Enum.map(pattern_list, fn {pattern_id, metadata} ->
+              %{
+                id: pattern_id,
+                timestamp: metadata[:timestamp] || DateTime.utc_now(),
+                confidence: metadata[:confidence] || 1.0,
+                source: metadata[:source] || "unknown"
+              }
+            end)
+          _ -> []
+        end
         
         %{
           node: node(),
-          patterns: [], # TODO: Get actual pattern list from HNSW
+          patterns: patterns,
           total_patterns: stats[:patterns_indexed] || 0,
           dedup_rate: stats[:patterns_deduplicated] || 0
         }
@@ -336,9 +354,39 @@ defmodule AutonomousOpponentV2Core.Metrics.Cluster.PatternAggregator do
       node = summary.node
       
       # Update cache with node's patterns
-      # TODO: Implement actual pattern merging
-      acc
+      Enum.reduce(summary.patterns, acc, fn pattern, cache_acc ->
+        pattern_id = pattern.id
+        
+        # Update or create pattern entry
+        Map.update(cache_acc, pattern_id, 
+          %{
+            nodes: [node],
+            first_seen: pattern.timestamp,
+            last_seen: pattern.timestamp,
+            avg_confidence: pattern.confidence,
+            sources: [pattern.source]
+          },
+          fn existing ->
+            %{existing |
+              nodes: Enum.uniq([node | existing.nodes]),
+              last_seen: max_datetime(existing.last_seen, pattern.timestamp),
+              avg_confidence: update_average_confidence(existing, pattern.confidence),
+              sources: Enum.uniq([pattern.source | existing.sources])
+            }
+          end
+        )
+      end)
     end)
+  end
+  
+  defp max_datetime(dt1, dt2) do
+    if DateTime.compare(dt1, dt2) == :gt, do: dt1, else: dt2
+  end
+  
+  defp update_average_confidence(existing, new_confidence) do
+    # Running average calculation
+    node_count = length(existing.nodes)
+    ((existing.avg_confidence * node_count) + new_confidence) / (node_count + 1)
   end
   
   defp handle_algedonic_pattern(pattern_data, state) do

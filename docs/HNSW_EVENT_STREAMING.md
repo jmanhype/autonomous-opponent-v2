@@ -135,6 +135,31 @@ config :autonomous_opponent_core, :pattern_hnsw_bridge,
 
 ## Monitoring
 
+### Key Metrics
+
+1. **Variety Metrics**
+   - Input variety rate: patterns/second per subsystem
+   - Absorption rate: successfully indexed/total received
+   - Requisite variety ratio: unique patterns/total patterns
+
+2. **VSM Health Indicators**
+   - Algedonic signal frequency and intensity distribution
+   - Inter-subsystem message flow rates
+   - Homeostatic balance score
+
+3. **Performance Metrics**
+   ```javascript
+   channel.push("get_metrics", {})
+   .receive("ok", metrics => {
+     // VSM-specific metrics
+     console.log("S1 variety absorption:", metrics.vsm.s1.absorption_rate)
+     console.log("S2 anti-oscillation active:", metrics.vsm.s2.damping_active)
+     console.log("S3 resource utilization:", metrics.vsm.s3.resource_usage)
+     console.log("S4 pattern diversity:", metrics.vsm.s4.shannon_entropy)
+     console.log("S5 constraint violations:", metrics.vsm.s5.violations_count)
+   })
+   ```
+
 ### Via WebSocket
 
 ```javascript
