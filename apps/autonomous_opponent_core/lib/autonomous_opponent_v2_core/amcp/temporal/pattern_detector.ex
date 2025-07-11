@@ -616,6 +616,38 @@ defmodule AutonomousOpponentV2Core.AMCP.Temporal.PatternDetector do
     # Emit to EventBus for immediate system response
     EventBus.publish(:temporal_pattern_detected, pattern)
     
+    # 🧠 CRITICAL VSM ISSUE #92 IMPLEMENTATION: S4 Intelligence Pattern Integration
+    # Publish pattern events specifically for S4 Intelligence environmental scanning
+    s4_pattern = %{
+      pattern_type: pattern.pattern_type,
+      pattern_name: pattern.pattern_name,
+      severity: pattern[:severity] || determine_severity_from_pattern(pattern),
+      confidence: pattern[:confidence] || 0.8,
+      environmental_context: extract_environmental_context(pattern),
+      vsm_impact: pattern[:vsm_impact] || calculate_vsm_impact(pattern),
+      timestamp: pattern[:timestamp] || Clock.now(),
+      source: :temporal_pattern_detector,
+      s4_processing_priority: determine_s4_priority(pattern)
+    }
+    
+    # Primary S4 pattern event
+    EventBus.publish(:pattern_detected, s4_pattern)
+    
+    # High-priority environmental signals for urgent patterns
+    if pattern_requires_urgent_s4_attention?(pattern) do
+      urgency = calculate_pattern_urgency(pattern)
+      
+      EventBus.publish(:s4_environmental_signal, %{
+        type: :pattern_alert,
+        pattern: s4_pattern,
+        urgency: urgency,
+        recommended_s4_actions: suggest_s4_actions(pattern),
+        environmental_impact: assess_environmental_impact(pattern)
+      })
+      
+      Logger.warning("🧠 URGENT S4 environmental signal: #{pattern.pattern_type} (urgency: #{urgency})")
+    end
+    
     # Emit algedonic signals for critical patterns
     if pattern[:emergency_level] in [:critical, :extreme] do
       EventBus.publish(:algedonic_signal, %{
@@ -627,7 +659,7 @@ defmodule AutonomousOpponentV2Core.AMCP.Temporal.PatternDetector do
       })
     end
     
-    Logger.info("Detected temporal pattern: #{pattern.pattern_type} - #{pattern.pattern_name}")
+    Logger.info("🧠 Pattern detected and sent to S4 Intelligence: #{pattern.pattern_type} - #{pattern.pattern_name}")
   end
   
   defp update_sliding_windows(state) do
@@ -1716,6 +1748,246 @@ defmodule AutonomousOpponentV2Core.AMCP.Temporal.PatternDetector do
       ratio < 0.8 -> :slightly_fast
       ratio > 1.2 -> :slightly_slow
       true -> :normal
+    end
+  end
+  
+  # ============================================================================
+  # 🧠 VSM ISSUE #92: S4 Intelligence Integration Helper Functions
+  # ============================================================================
+  # These functions support pattern processing specifically for S4 environmental scanning
+  
+  defp determine_severity_from_pattern(pattern) do
+    # Determine severity based on pattern characteristics
+    case pattern.pattern_type do
+      :error_cascade -> :critical
+      :algedonic_storm -> :critical  
+      :coordination_breakdown -> :high
+      :consciousness_instability -> :high
+      :rate_burst -> 
+        if pattern[:threshold] && pattern[:actual_rate] > pattern[:threshold] * 2 do
+          :high
+        else
+          :medium
+        end
+      _ -> :medium
+    end
+  end
+  
+  defp extract_environmental_context(pattern) do
+    # Extract environmental context relevant to S4 intelligence
+    %{
+      affected_subsystems: pattern[:affected_subsystems] || pattern[:subsystems] || [],
+      variety_pressure: calculate_variety_pressure(pattern),
+      temporal_characteristics: %{
+        duration: pattern[:duration_ms] || pattern[:window_ms] || 0,
+        frequency: pattern[:actual_rate] || 0,
+        trend: determine_temporal_trend(pattern)
+      },
+      system_stress_indicators: extract_stress_indicators(pattern)
+    }
+  end
+  
+  defp calculate_vsm_impact(pattern) do
+    # Calculate impact on VSM subsystems
+    impact_level = case pattern.pattern_type do
+      :error_cascade -> :severe
+      :algedonic_storm -> :severe
+      :coordination_breakdown -> :moderate  
+      :consciousness_instability -> :moderate
+      :rate_burst -> :mild
+      _ -> :minimal
+    end
+    
+    %{
+      impact_level: impact_level,
+      variety_pressure: calculate_variety_pressure(pattern),
+      cybernetic_implications: determine_cybernetic_implications(pattern),
+      affected_control_loops: identify_affected_control_loops(pattern)
+    }
+  end
+  
+  defp determine_s4_priority(pattern) do
+    # Determine processing priority for S4 Intelligence
+    base_priority = case pattern.pattern_type do
+      :error_cascade -> :immediate
+      :algedonic_storm -> :immediate
+      :coordination_breakdown -> :high
+      :consciousness_instability -> :high  
+      :rate_burst -> :normal
+      _ -> :low
+    end
+    
+    # Adjust based on emergency level
+    case pattern[:emergency_level] do
+      :extreme -> :immediate
+      :critical -> :immediate
+      :high -> :high
+      _ -> base_priority
+    end
+  end
+  
+  defp pattern_requires_urgent_s4_attention?(pattern) do
+    # Determine if pattern requires urgent S4 environmental signal
+    urgency_factors = [
+      pattern[:emergency_level] in [:critical, :extreme],
+      pattern.pattern_type in [:error_cascade, :algedonic_storm, :coordination_breakdown],
+      (pattern[:severity] || determine_severity_from_pattern(pattern)) in [:critical, :high],
+      pattern[:actual_rate] && pattern[:threshold] && 
+        pattern[:actual_rate] > pattern[:threshold] * 3
+    ]
+    
+    Enum.any?(urgency_factors)
+  end
+  
+  defp calculate_pattern_urgency(pattern) do
+    # Calculate numerical urgency score (0.0 to 1.0)
+    base_urgency = case pattern.pattern_type do
+      :error_cascade -> 0.95
+      :algedonic_storm -> 0.9
+      :coordination_breakdown -> 0.8
+      :consciousness_instability -> 0.7
+      :rate_burst -> 0.6
+      _ -> 0.4
+    end
+    
+    # Adjust based on severity
+    severity_modifier = case pattern[:severity] || determine_severity_from_pattern(pattern) do
+      :critical -> 0.05
+      :high -> 0.03
+      :medium -> 0.0
+      :low -> -0.1
+      _ -> 0.0
+    end
+    
+    # Adjust based on emergency level
+    emergency_modifier = case pattern[:emergency_level] do
+      :extreme -> 0.05
+      :critical -> 0.03
+      _ -> 0.0
+    end
+    
+    min(base_urgency + severity_modifier + emergency_modifier, 1.0)
+  end
+  
+  defp suggest_s4_actions(pattern) do
+    # Suggest actions S4 should take based on pattern type
+    case pattern.pattern_type do
+      :error_cascade -> 
+        [:increase_monitoring, :prepare_isolation, :alert_s3_control, :scenario_modeling]
+      :algedonic_storm -> 
+        [:emergency_intervention, :isolate_pain_sources, :activate_s5_policy, :immediate_analysis]
+      :coordination_breakdown -> 
+        [:restore_s2_sync, :reallocate_s1_resources, :enhance_monitoring, :coordination_analysis]
+      :consciousness_instability ->
+        [:stabilize_consciousness, :analyze_state_transitions, :monitor_entropy, :policy_review]
+      :rate_burst ->
+        [:capacity_analysis, :load_balancing, :rate_limiting, :resource_monitoring]
+      _ -> 
+        [:monitor, :analyze_trends, :update_environmental_model]
+    end
+  end
+  
+  defp assess_environmental_impact(pattern) do
+    # Assess the environmental impact of this pattern
+    case pattern.pattern_type do
+      :error_cascade -> :cascading_failure_risk
+      :algedonic_storm -> :system_stress_critical
+      :coordination_breakdown -> :coordination_degradation
+      :consciousness_instability -> :cognitive_instability
+      :rate_burst -> :capacity_pressure
+      _ -> :monitoring_required
+    end
+  end
+  
+  # Additional helper functions
+  
+  defp calculate_variety_pressure(pattern) do
+    # Calculate variety pressure based on pattern characteristics
+    base_pressure = case pattern.pattern_type do
+      :rate_burst -> 0.8
+      :error_cascade -> 0.9
+      :algedonic_storm -> 0.95
+      :coordination_breakdown -> 0.7
+      _ -> 0.5
+    end
+    
+    # Adjust based on actual vs threshold rates if available
+    if pattern[:actual_rate] && pattern[:threshold] do
+      rate_factor = min(pattern[:actual_rate] / pattern[:threshold], 2.0)
+      min(base_pressure * rate_factor, 1.0)
+    else
+      base_pressure
+    end
+  end
+  
+  defp determine_temporal_trend(pattern) do
+    # Determine temporal trend from pattern data
+    cond do
+      pattern[:intensity_escalation] && pattern[:intensity_escalation] > 1.0 -> :escalating
+      pattern[:actual_rate] && pattern[:threshold] && 
+        pattern[:actual_rate] > pattern[:threshold] * 1.5 -> :increasing
+      pattern[:emergency_level] in [:critical, :extreme] -> :critical_spike
+      true -> :stable
+    end
+  end
+  
+  defp extract_stress_indicators(pattern) do
+    # Extract system stress indicators from pattern
+    indicators = []
+    
+    indicators = if pattern[:emergency_level] in [:critical, :extreme] do
+      [:emergency_level_critical | indicators]
+    else
+      indicators
+    end
+    
+    indicators = if pattern[:actual_rate] && pattern[:threshold] && 
+                    pattern[:actual_rate] > pattern[:threshold] * 2 do
+      [:rate_threshold_exceeded | indicators]
+    else
+      indicators
+    end
+    
+    indicators = if pattern.pattern_type in [:error_cascade, :coordination_breakdown] do
+      [:system_coordination_stress | indicators]
+    else
+      indicators
+    end
+    
+    indicators
+  end
+  
+  defp determine_cybernetic_implications(pattern) do
+    # Determine cybernetic implications for VSM
+    case pattern.pattern_type do
+      :error_cascade -> [:variety_overflow, :control_loop_breakdown, :recursive_failure]
+      :algedonic_storm -> [:pain_signal_amplification, :emergency_response_required]
+      :coordination_breakdown -> [:anti_oscillation_failure, :s2_dysfunction]
+      :consciousness_instability -> [:metacognitive_disruption, :state_regulation_failure]
+      :rate_burst -> [:capacity_exceeded, :attenuation_required]
+      _ -> [:environmental_variation]
+    end
+  end
+  
+  defp identify_affected_control_loops(pattern) do
+    # Identify which control loops are affected by this pattern
+    base_loops = case pattern.pattern_type do
+      :error_cascade -> [:operational_loop, :coordination_loop, :control_loop]
+      :algedonic_storm -> [:algedonic_loop, :emergency_response_loop]
+      :coordination_breakdown -> [:coordination_loop, :anti_oscillation_loop]
+      :consciousness_instability -> [:cognitive_loop, :metacognitive_loop]
+      :rate_burst -> [:operational_loop, :capacity_management_loop]
+      _ -> [:monitoring_loop]
+    end
+    
+    # Add affected subsystems if specified
+    if pattern[:affected_subsystems] || pattern[:subsystems] do
+      subsystem_loops = (pattern[:affected_subsystems] || pattern[:subsystems])
+        |> Enum.map(&:"#{&1}_control_loop")
+      
+      base_loops ++ subsystem_loops
+    else
+      base_loops
     end
   end
 end

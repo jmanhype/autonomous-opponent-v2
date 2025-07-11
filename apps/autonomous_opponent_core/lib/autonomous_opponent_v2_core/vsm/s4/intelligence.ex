@@ -141,6 +141,13 @@ defmodule AutonomousOpponentV2Core.VSM.S4.Intelligence do
     EventBus.subscribe(:external_environment)  # External signals
     EventBus.subscribe(:algedonic_intervention)  # Emergency overrides
     
+    # 🧠 CRITICAL VSM PATTERN INTEGRATION: Subscribe to pattern detection events
+    # This completes the cybernetic variety channel from S1 pattern detection to S4 intelligence
+    EventBus.subscribe(:pattern_detected)  # Primary pattern events from detectors
+    EventBus.subscribe(:temporal_pattern_detected)  # Temporal pattern events
+    EventBus.subscribe(:s4_environmental_signal)  # High-priority environmental patterns
+    EventBus.subscribe(:patterns_indexed)  # Pattern indexing notifications
+    
     # Start environmental scanning
     Process.send_after(self(), :environmental_scan, @environmental_scan_interval)
     Process.send_after(self(), :report_health, 1000)
@@ -345,6 +352,100 @@ defmodule AutonomousOpponentV2Core.VSM.S4.Intelligence do
       _ ->
         {:noreply, state}
     end
+  end
+  
+  # 🧠 CRITICAL VSM PATTERN INTEGRATION: Pattern Event Handlers
+  # These handlers complete the cybernetic variety channel from pattern detection to S4 intelligence
+  
+  @impl true
+  def handle_info({:event, :pattern_detected, pattern_data}, state) do
+    # S4 receives detected patterns for environmental intelligence
+    Logger.info("🧠 S4: Received pattern - #{pattern_data.pattern_type}/#{pattern_data.pattern_name}, severity: #{pattern_data[:severity] || "unknown"}")
+    
+    # Update S4's environmental model with pattern
+    new_state = update_environmental_model_with_pattern(state, pattern_data)
+    
+    # Store pattern in vector store for similarity analysis and future reference
+    case store_pattern_in_vector_store(pattern_data, new_state) do
+      {:ok, updated_state} ->
+        # Update strategy if pattern is significant
+        strategy_state = if pattern_requires_strategy_update?(pattern_data) do
+          update_strategy_based_on_pattern(updated_state, pattern_data)
+        else
+          updated_state
+        end
+        
+        # Update pattern detection metrics
+        final_state = update_pattern_metrics(strategy_state, pattern_data)
+        {:noreply, final_state}
+        
+      {:error, reason} ->
+        Logger.warning("🧠 S4: Failed to store pattern vector: #{inspect(reason)}")
+        {:noreply, new_state}
+    end
+  end
+  
+  @impl true
+  def handle_info({:event, :temporal_pattern_detected, pattern_data}, state) do
+    # Handle temporal patterns with special processing for time-based intelligence
+    Logger.info("🧠 S4: Received temporal pattern - #{pattern_data.pattern_type}/#{pattern_data.pattern_name}")
+    
+    # Temporal patterns get enhanced processing for environmental scanning
+    enhanced_pattern = %{
+      pattern_data | 
+      temporal_analysis: true,
+      environmental_signal: true,
+      s4_processing_timestamp: DateTime.utc_now()
+    }
+    
+    # Process through regular pattern handler
+    handle_info({:event, :pattern_detected, enhanced_pattern}, state)
+  end
+  
+  @impl true  
+  def handle_info({:event, :s4_environmental_signal, signal_data}, state) do
+    # Handle high-priority environmental signals that bypass normal processing
+    pattern = signal_data.pattern
+    urgency = signal_data[:urgency] || 0.5
+    
+    Logger.info("🧠 S4: URGENT environmental signal - #{pattern.pattern_type}, urgency: #{urgency}")
+    
+    # Immediate strategy update for urgent patterns
+    new_state = case urgency do
+      urgency when urgency >= 0.8 ->
+        Logger.warning("🧠 S4: CRITICAL environmental pattern detected - applying emergency strategy")
+        apply_emergency_strategy_update(state, signal_data)
+      urgency when urgency >= 0.6 ->
+        Logger.info("🧠 S4: High-priority environmental pattern - updating strategy")
+        apply_priority_strategy_update(state, signal_data)
+      _ ->
+        queue_pattern_for_analysis(state, signal_data)
+    end
+    
+    # Alert S5 and S3 if extremely urgent
+    if urgency >= 0.9 do
+      alert_vsm_subsystems_urgent_pattern(signal_data, new_state)
+    end
+    
+    {:noreply, new_state}
+  end
+  
+  @impl true
+  def handle_info({:event, :patterns_indexed, indexing_data}, state) do
+    # Pattern indexing notifications help S4 understand system-wide pattern storage
+    Logger.debug("🧠 S4: Pattern indexing update - #{indexing_data[:count] || 0} patterns indexed")
+    
+    # Update S4's awareness of pattern index health
+    new_metrics = update_in(state.health_metrics, [:pattern_index_health], fn current ->
+      %{
+        last_indexing: DateTime.utc_now(),
+        patterns_indexed: indexing_data[:count] || 0,
+        source: indexing_data[:source] || :unknown,
+        index_health: :healthy
+      }
+    end)
+    
+    {:noreply, %{state | health_metrics: new_metrics}}
   end
   
   @impl true
@@ -3413,5 +3514,406 @@ defmodule AutonomousOpponentV2Core.VSM.S4.Intelligence do
     complexity_change = abs(state.health_metrics.environmental_complexity - 0.5)
     
     (volatility + complexity_change) / 2
+  end
+  
+  # ============================================================================
+  # 🧠 VSM PATTERN INTEGRATION: Helper Functions for Pattern Processing
+  # ============================================================================
+  # These functions support the cybernetic variety processing from pattern detection
+  
+  defp update_environmental_model_with_pattern(state, pattern_data) do
+    # Update S4's environmental model with received pattern
+    environmental_model = state.environmental_model || %{}
+    
+    pattern_category = pattern_data[:pattern_type] || :unknown
+    severity = pattern_data[:severity] || :low
+    
+    # Update pattern category statistics
+    updated_model = Map.update(environmental_model, pattern_category, 
+      %{
+        count: 1,
+        last_seen: DateTime.utc_now(),
+        severity_history: [severity],
+        vsm_impacts: [pattern_data[:vsm_impact] || %{}],
+        environmental_significance: calculate_environmental_significance(pattern_data)
+      },
+      fn existing ->
+        %{existing |
+          count: existing.count + 1,
+          last_seen: DateTime.utc_now(),
+          severity_history: [severity | existing.severity_history] |> Enum.take(50),
+          vsm_impacts: [pattern_data[:vsm_impact] | existing.vsm_impacts] |> Enum.take(50),
+          environmental_significance: recalculate_significance(existing, pattern_data)
+        }
+      end
+    )
+    
+    # Update overall environmental complexity based on pattern diversity
+    complexity = calculate_environmental_complexity(updated_model)
+    final_model = Map.put(updated_model, :environmental_complexity, complexity)
+    
+    %{state | environmental_model: final_model}
+  end
+  
+  defp store_pattern_in_vector_store(pattern_data, state) do
+    try do
+      # Convert pattern to vector representation for HNSW storage
+      pattern_vector = pattern_to_vector(pattern_data)
+      
+      # Create metadata for pattern storage
+      metadata = %{
+        pattern_type: pattern_data[:pattern_type],
+        pattern_name: pattern_data[:pattern_name] || "unknown",
+        severity: pattern_data[:severity] || :low,
+        source: pattern_data[:source] || :external_detector,
+        timestamp: pattern_data[:timestamp] || DateTime.utc_now(),
+        confidence: pattern_data[:confidence] || 0.7,
+        environmental_signal: true,
+        s4_received_at: DateTime.utc_now()
+      }
+      
+      # Store in vector store only if confidence is high enough
+      if (pattern_data[:confidence] || 0.7) >= @pattern_confidence_threshold do
+        VectorStore.store_pattern(state.vector_store, pattern_vector, metadata)
+        
+        # Update pattern cache with size limit
+        new_cache = update_pattern_cache(state, pattern_data, metadata)
+        {:ok, %{state | pattern_cache: new_cache}}
+      else
+        # Low confidence pattern - just update metrics, don't store
+        Logger.debug("🧠 S4: Pattern below confidence threshold (#{pattern_data[:confidence]}) - not storing")
+        {:ok, state}
+      end
+      
+    rescue
+      error ->
+        Logger.error("🧠 S4: Error storing pattern in vector store: #{inspect(error)}")
+        {:error, error}
+    end
+  end
+  
+  defp pattern_requires_strategy_update?(pattern_data) do
+    # Determine if pattern requires immediate strategy update
+    severity = pattern_data[:severity] || :low
+    urgency = pattern_data[:urgency] || 0.5
+    pattern_type = pattern_data[:pattern_type]
+    
+    # High severity patterns always require updates
+    severity in [:critical, :high] or
+    # High urgency patterns require updates
+    urgency >= 0.6 or
+    # Specific pattern types that affect S4 strategy
+    pattern_type in [:error_cascade, :algedonic_storm, :coordination_breakdown, 
+                     :variety_overload, :system_degradation, :environmental_shift]
+  end
+  
+  defp update_strategy_based_on_pattern(state, pattern_data) do
+    # Update S4's strategy based on received pattern
+    strategy_updates = case {pattern_data[:pattern_type], pattern_data[:severity]} do
+      {:error_cascade, severity} when severity in [:critical, :high] ->
+        %{
+          monitoring_intensity: :maximum,
+          prediction_horizon: :short_term,  # Focus on immediate threats
+          alert_threshold: 0.3,  # Lower threshold for faster response
+          environmental_scan_frequency: :doubled,
+          s3_notification_priority: :immediate
+        }
+        
+      {:algedonic_storm, _} ->
+        %{
+          pain_monitoring: :continuous,
+          intervention_readiness: :immediate,
+          s5_policy_alert: true,
+          algedonic_bypass_active: true,
+          emergency_strategy_mode: true
+        }
+        
+      {:coordination_breakdown, _} ->
+        %{
+          s2_monitoring: :enhanced,
+          s1_resource_tracking: :detailed,
+          sync_health_priority: :high,
+          coordination_intelligence: :active
+        }
+        
+      {:variety_overload, _} ->
+        %{
+          variety_monitoring: :critical,
+          attenuation_readiness: :prepared,
+          capacity_analysis: :continuous
+        }
+        
+      {:environmental_shift, _} ->
+        %{
+          environmental_scan_frequency: :tripled,
+          scenario_modeling: :extensive,
+          adaptation_preparation: :active
+        }
+        
+      _ ->
+        %{
+          pattern_integration: :normal,
+          environmental_awareness: :enhanced
+        }
+    end
+    
+    # Merge strategy updates with current intelligence reports
+    current_strategy = get_in(state.intelligence_reports, [:current_strategy]) || %{}
+    updated_strategy = Map.merge(current_strategy, strategy_updates)
+    
+    # Update intelligence reports with new strategy
+    new_reports = put_in(state.intelligence_reports, [:current_strategy], updated_strategy)
+    
+    # Log strategy change
+    Logger.info("🧠 S4: Strategy updated based on #{pattern_data[:pattern_type]} pattern")
+    
+    %{state | intelligence_reports: new_reports}
+  end
+  
+  defp apply_emergency_strategy_update(state, signal_data) do
+    # Emergency strategy for critical environmental signals
+    pattern = signal_data.pattern
+    
+    emergency_strategy = %{
+      mode: :emergency,
+      activated_by: pattern[:pattern_type],
+      activation_time: DateTime.utc_now(),
+      monitoring_intensity: :maximum,
+      prediction_horizon: :immediate,
+      alert_threshold: 0.1,  # Very low threshold
+      s3_alerts: :continuous,
+      s5_escalation: true,
+      algedonic_bypass: true,
+      emergency_actions: signal_data[:recommended_s4_actions] || []
+    }
+    
+    # Override current strategy
+    new_reports = put_in(state.intelligence_reports, [:emergency_strategy], emergency_strategy)
+    
+    # Alert other VSM subsystems
+    EventBus.publish(:s4_emergency_strategy, %{
+      strategy: emergency_strategy,
+      pattern: pattern,
+      recommended_actions: emergency_strategy.emergency_actions
+    })
+    
+    Logger.warning("🧠 S4: EMERGENCY STRATEGY ACTIVATED - #{pattern[:pattern_type]}")
+    
+    %{state | intelligence_reports: new_reports}
+  end
+  
+  defp apply_priority_strategy_update(state, signal_data) do
+    # Priority strategy for high-importance patterns
+    pattern = signal_data.pattern
+    
+    priority_adjustments = %{
+      priority_mode: true,
+      triggered_by: pattern[:pattern_type],
+      monitoring_intensity: :high,
+      pattern_focus: pattern[:pattern_type],
+      enhanced_prediction: true,
+      alert_threshold: 0.4
+    }
+    
+    # Merge with current strategy
+    current = get_in(state.intelligence_reports, [:current_strategy]) || %{}
+    updated = Map.merge(current, priority_adjustments)
+    
+    new_reports = put_in(state.intelligence_reports, [:current_strategy], updated)
+    
+    Logger.info("🧠 S4: Priority strategy adjustments applied for #{pattern[:pattern_type]}")
+    
+    %{state | intelligence_reports: new_reports}
+  end
+  
+  defp queue_pattern_for_analysis(state, signal_data) do
+    # Queue pattern for detailed analysis during next environmental scan
+    pattern = signal_data.pattern
+    
+    analysis_queue = get_in(state.intelligence_reports, [:analysis_queue]) || []
+    new_item = %{
+      pattern: pattern,
+      queued_at: DateTime.utc_now(),
+      priority: signal_data[:urgency] || 0.5,
+      analysis_type: :detailed_environmental
+    }
+    
+    updated_queue = [new_item | analysis_queue] |> Enum.take(100)  # Limit queue size
+    new_reports = put_in(state.intelligence_reports, [:analysis_queue], updated_queue)
+    
+    Logger.debug("🧠 S4: Pattern queued for analysis - #{pattern[:pattern_type]}")
+    
+    %{state | intelligence_reports: new_reports}
+  end
+  
+  defp alert_vsm_subsystems_urgent_pattern(signal_data, state) do
+    # Alert S5 (Policy) and S3 (Control) about extremely urgent patterns
+    pattern = signal_data.pattern
+    urgency = signal_data[:urgency] || 0.9
+    
+    # Alert S5 for policy implications
+    EventBus.publish(:s5_intelligence_alert, %{
+      pattern_type: pattern[:pattern_type],
+      severity: pattern[:severity],
+      urgency: urgency,
+      s4_recommendation: :immediate_policy_review,
+      environmental_impact: :critical,
+      timestamp: DateTime.utc_now()
+    })
+    
+    # Alert S3 for control implications
+    EventBus.publish(:s3_intelligence_alert, %{
+      pattern_type: pattern[:pattern_type],
+      control_implications: :immediate_adjustment,
+      resource_impact: determine_resource_impact(pattern),
+      recommended_actions: signal_data[:recommended_s4_actions] || [],
+      urgency: urgency
+    })
+    
+    Logger.warning("🧠 S4: URGENT alerts sent to S5 and S3 for #{pattern[:pattern_type]}")
+  end
+  
+  defp update_pattern_metrics(state, pattern_data) do
+    # Update S4's pattern detection metrics
+    current_metrics = state.health_metrics
+    
+    new_metrics = %{current_metrics |
+      patterns_detected: (current_metrics[:patterns_detected] || 0) + 1,
+      last_pattern_received: DateTime.utc_now(),
+      pattern_types_seen: update_pattern_types_count(current_metrics, pattern_data),
+      environmental_intelligence_active: true
+    }
+    
+    %{state | health_metrics: new_metrics}
+  end
+  
+  # Helper functions for pattern processing
+  
+  defp calculate_environmental_significance(pattern_data) do
+    # Calculate how significant this pattern is for environmental intelligence
+    base_significance = case pattern_data[:severity] do
+      :critical -> 0.9
+      :high -> 0.7
+      :medium -> 0.5
+      :low -> 0.3
+      _ -> 0.2
+    end
+    
+    # Adjust based on pattern type
+    type_modifier = case pattern_data[:pattern_type] do
+      :environmental_shift -> 0.1
+      :system_degradation -> 0.1
+      :coordination_breakdown -> 0.05
+      _ -> 0.0
+    end
+    
+    min(base_significance + type_modifier, 1.0)
+  end
+  
+  defp recalculate_significance(existing, new_pattern) do
+    # Recalculate significance based on pattern history
+    new_sig = calculate_environmental_significance(new_pattern)
+    current_sig = existing[:environmental_significance] || 0.5
+    
+    # Weighted average favoring recent patterns
+    (current_sig * 0.7) + (new_sig * 0.3)
+  end
+  
+  defp calculate_environmental_complexity(environmental_model) do
+    # Calculate overall environmental complexity based on pattern diversity
+    pattern_types = Map.keys(environmental_model) |> length()
+    total_patterns = environmental_model 
+      |> Map.values() 
+      |> Enum.map(&(&1[:count] || 0)) 
+      |> Enum.sum()
+    
+    # Complexity based on diversity and volume
+    diversity_factor = min(pattern_types / 10.0, 1.0)  # Max at 10 types
+    volume_factor = min(total_patterns / 1000.0, 1.0)  # Max at 1000 patterns
+    
+    (diversity_factor + volume_factor) / 2
+  end
+  
+  defp pattern_to_vector(pattern_data) do
+    # Convert pattern data to vector representation for HNSW storage
+    # This creates a 64-dimensional vector based on pattern characteristics
+    
+    # Base vector from pattern type
+    type_vector = case pattern_data[:pattern_type] do
+      :error_cascade -> List.duplicate(0.8, 16) ++ List.duplicate(0.0, 48)
+      :algedonic_storm -> List.duplicate(0.0, 16) ++ List.duplicate(0.9, 16) ++ List.duplicate(0.0, 32)
+      :coordination_breakdown -> List.duplicate(0.0, 32) ++ List.duplicate(0.7, 16) ++ List.duplicate(0.0, 16)
+      :variety_overload -> List.duplicate(0.0, 48) ++ List.duplicate(0.6, 16)
+      _ -> List.duplicate(0.5, 64)  # Default pattern
+    end
+    
+    # Adjust based on severity
+    severity_modifier = case pattern_data[:severity] do
+      :critical -> 1.2
+      :high -> 1.1
+      :medium -> 1.0
+      :low -> 0.8
+      _ -> 0.9
+    end
+    
+    # Apply modifier and normalize
+    type_vector
+    |> Enum.map(&(&1 * severity_modifier))
+    |> Enum.map(&min(&1, 1.0))  # Ensure values stay <= 1.0
+  end
+  
+  defp update_pattern_cache(state, pattern_data, metadata) do
+    # Update pattern cache with size management
+    current_cache = state.pattern_cache || %{}
+    max_patterns = 10_000  # Configurable limit
+    
+    # Create cache key
+    cache_key = "#{pattern_data[:pattern_type]}_#{metadata.timestamp.physical}"
+    
+    # Add new pattern
+    new_cache = Map.put(current_cache, cache_key, %{
+      pattern: pattern_data,
+      metadata: metadata,
+      stored_at: System.monotonic_time(:millisecond),
+      access_count: 0
+    })
+    
+    # Prune if necessary
+    if map_size(new_cache) > max_patterns do
+      prune_old_patterns(new_cache, 0.1)  # Remove 10% of oldest patterns
+    else
+      new_cache
+    end
+  end
+  
+  defp prune_old_patterns(cache, percentage) do
+    # Remove percentage of oldest patterns
+    total_patterns = map_size(cache)
+    patterns_to_remove = round(total_patterns * percentage)
+    
+    # Sort by stored_at timestamp and remove oldest
+    cache
+    |> Enum.sort_by(fn {_key, value} -> value.stored_at end)
+    |> Enum.drop(patterns_to_remove)
+    |> Enum.into(%{})
+  end
+  
+  defp update_pattern_types_count(metrics, pattern_data) do
+    # Update count of different pattern types seen
+    current_types = metrics[:pattern_types_seen] || %{}
+    pattern_type = pattern_data[:pattern_type] || :unknown
+    
+    Map.update(current_types, pattern_type, 1, &(&1 + 1))
+  end
+  
+  defp determine_resource_impact(pattern) do
+    # Determine what resource impact this pattern might have
+    case pattern[:pattern_type] do
+      :error_cascade -> :high_cpu_memory
+      :variety_overload -> :high_memory_io
+      :coordination_breakdown -> :network_intensive
+      :algedonic_storm -> :immediate_intervention
+      _ -> :normal_monitoring
+    end
   end
 end
