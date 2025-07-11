@@ -267,4 +267,28 @@ defmodule AutonomousOpponentV2Core.WebGateway.Gateway do
     
     :ok
   end
+  
+  @doc """
+  Health check function for compatibility with S4 Intelligence monitoring.
+  Returns a health score between 0.0 and 1.0.
+  """
+  def health_check do
+    try do
+      # Check if all child processes are running
+      children = Supervisor.which_children(__MODULE__)
+      total_children = length(children)
+      running_children = Enum.count(children, fn {_, pid, _, _} -> 
+        is_pid(pid) and Process.alive?(pid)
+      end)
+      
+      # Calculate health based on running children
+      if total_children > 0 do
+        running_children / total_children
+      else
+        1.0
+      end
+    rescue
+      _ -> 0.5  # Return partial health if we can't determine status
+    end
+  end
 end

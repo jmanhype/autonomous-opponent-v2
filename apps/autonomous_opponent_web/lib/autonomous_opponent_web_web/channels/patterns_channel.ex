@@ -80,11 +80,19 @@ defmodule AutonomousOpponentV2Web.PatternsChannel do
     # Increment connection counter for this topic
     :ets.update_counter(@connection_table, {"patterns:vsm", node()}, 1, {{"patterns:vsm", node()}, 0})
     
-    # Subscribe to VSM-specific pattern events
-    if subsystem == "all" do
-      EventBus.subscribe(:vsm_pattern_flow)
-    else
-      EventBus.subscribe(:"vsm_#{subsystem}_patterns")
+    # Try to subscribe to VSM-specific pattern events, but don't crash if EventBus isn't available
+    try do
+      if subsystem == "all" do
+        EventBus.subscribe(:vsm_pattern_flow)
+      else
+        EventBus.subscribe(:"vsm_#{subsystem}_patterns")
+      end
+      Logger.info("Successfully subscribed to VSM pattern events for subsystem: #{subsystem}")
+    catch
+      :exit, {:noproc, _} ->
+        Logger.warning("EventBus not available for VSM patterns - events will not be received")
+      error ->
+        Logger.error("Failed to subscribe to VSM events: #{inspect(error)}")
     end
     
     {:ok, assign(socket, :vsm_subsystem, subsystem)}
@@ -174,6 +182,54 @@ defmodule AutonomousOpponentV2Web.PatternsChannel do
   end
 
   # Client commands
+  @impl true
+  def handle_in("get_local_stats", _payload, %{topic: "patterns:stats"} = socket) do
+    stats = get_connection_stats()
+    
+    # Send the stats as a push event instead of a reply
+    push(socket, "local_stats", %{
+      connection_count: stats.total,
+      stream_count: stats.stream_count,
+      connections_by_topic: stats.connections,
+      node: stats.node,
+      timestamp: stats.timestamp
+    })
+    
+    {:noreply, socket}
+  end
+  
+  @impl true
+  def handle_in("get_cluster_stats", _payload, %{topic: "patterns:stats"} = socket) do
+    # Try to get cluster-wide stats from PatternAggregator
+    case Process.whereis(AutonomousOpponentV2Core.Metrics.Cluster.PatternAggregator) do
+      nil ->
+        # PatternAggregator not running, return local stats only
+        local_stats = get_connection_stats()
+        push(socket, "cluster_stats", %{
+          nodes: %{node() => %{connection_count: local_stats.total}},
+          total_connections: local_stats.total,
+          timestamp: DateTime.utc_now()
+        })
+      
+      _pid ->
+        try do
+          cluster_stats = AutonomousOpponentV2Core.Metrics.Cluster.PatternAggregator.get_cluster_connection_stats()
+          push(socket, "cluster_stats", cluster_stats)
+        catch
+          :exit, _ ->
+            # Fallback to local stats
+            local_stats = get_connection_stats()
+            push(socket, "cluster_stats", %{
+              nodes: %{node() => %{connection_count: local_stats.total}},
+              total_connections: local_stats.total,
+              timestamp: DateTime.utc_now()
+            })
+        end
+    end
+    
+    {:noreply, socket}
+  end
+  
   @impl true
   def handle_in("query_similar", %{"vector" => vector, "k" => k}, socket) do
     case Process.whereis(:hnsw_index) do
@@ -286,7 +342,13 @@ defmodule AutonomousOpponentV2Web.PatternsChannel do
       end)
     end)
     
-    # Calculate totals
+    # Calculate totals - exclude stats connections from stream count
+    stream_connections = connections
+    |> Enum.filter(fn {{topic, _node}, _count} -> topic == "patterns:stream" end)
+    |> Enum.map(fn {_, count} -> count end)
+    |> Enum.sum()
+    
+    # But still report total for all connections
     total_connections = connections
     |> Enum.map(fn {_, count} -> count end)
     |> Enum.sum()
@@ -294,6 +356,7 @@ defmodule AutonomousOpponentV2Web.PatternsChannel do
     %{
       connections: stats,
       total: total_connections,
+      stream_count: stream_connections,
       node: node(),
       timestamp: DateTime.utc_now()
     }

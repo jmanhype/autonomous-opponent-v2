@@ -188,6 +188,20 @@ defmodule AutonomousOpponentV2Core.VSM.S4.VectorStore.HNSWIndex do
   end
   
   @doc """
+  Get recent patterns from the index.
+  
+  Returns the most recently added patterns with their metadata.
+  
+  ## Options
+    * `:limit` - Maximum number of patterns to return
+  
+  Returns {:ok, [{pattern_id, metadata}]} or {:error, reason}.
+  """
+  def get_recent_patterns(server \\ __MODULE__, limit) when is_integer(limit) and limit > 0 do
+    GenServer.call(server, {:get_recent_patterns, limit})
+  end
+  
+  @doc """
   Removes patterns older than the specified age in milliseconds.
   
   This helps maintain index freshness for temporal pattern relevance.
@@ -535,6 +549,29 @@ defmodule AutonomousOpponentV2Core.VSM.S4.VectorStore.HNSWIndex do
       
       {:reply, {:ok, results}, state}
     end
+  end
+  
+  @impl true
+  def handle_call({:get_recent_patterns, limit}, _from, state) do
+    # Get recent patterns sorted by insertion time
+    recent_patterns = state.nodes
+    |> Map.to_list()
+    |> Enum.filter(fn {_id, %{metadata: metadata}} -> 
+      Map.has_key?(metadata, :timestamp) or Map.has_key?(metadata, :inserted_at)
+    end)
+    |> Enum.sort_by(fn {_id, %{metadata: metadata}} ->
+      # Use timestamp or inserted_at, whichever is available
+      timestamp = Map.get(metadata, :timestamp, Map.get(metadata, :inserted_at, DateTime.utc_now()))
+      # Convert to unix timestamp for sorting
+      case timestamp do
+        %DateTime{} -> DateTime.to_unix(timestamp, :microsecond)
+        _ -> 0
+      end
+    end, :desc)
+    |> Enum.take(limit)
+    |> Enum.map(fn {id, %{metadata: metadata}} -> {id, metadata} end)
+    
+    {:reply, {:ok, recent_patterns}, state}
   end
   
   @impl true

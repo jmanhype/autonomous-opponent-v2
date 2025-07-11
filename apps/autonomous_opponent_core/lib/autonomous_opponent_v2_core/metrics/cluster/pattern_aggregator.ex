@@ -14,7 +14,7 @@ defmodule AutonomousOpponentV2Core.Metrics.Cluster.PatternAggregator do
   
   alias AutonomousOpponentV2Core.EventBus
   alias AutonomousOpponentV2Core.VSM.S4.VectorStore.HNSWIndex
-  alias AutonomousOpponentV2Core.Metrics.CRDTStore
+  alias AutonomousOpponentV2Core.Metrics.Cluster.CRDTStore
   
   defstruct [
     :pattern_cache,
@@ -67,12 +67,29 @@ defmodule AutonomousOpponentV2Core.Metrics.Cluster.PatternAggregator do
   @impl true
   def init(_opts) do
     # Join the metrics cluster pg group
-    :pg.start_link(:metrics_cluster)
-    :pg.join(:metrics_cluster, :pattern_aggregator, self())
+    case :pg.start_link(:metrics_cluster) do
+      {:ok, _pid} -> :ok
+      {:error, {:already_started, _pid}} -> :ok
+      error -> 
+        Logger.error("Failed to start pg group: #{inspect(error)}")
+        # Continue anyway, pg might be started elsewhere
+    end
+    
+    try do
+      :pg.join(:metrics_cluster, :pattern_aggregator, self())
+    catch
+      :error, :noproc ->
+        Logger.warning("PG group :metrics_cluster not available, skipping join")
+    end
     
     # Subscribe to pattern events
-    EventBus.subscribe(:patterns_indexed)
-    EventBus.subscribe(:algedonic_signal)
+    try do
+      EventBus.subscribe(:patterns_indexed)
+      EventBus.subscribe(:algedonic_signal)
+    catch
+      :exit, {:noproc, _} ->
+        Logger.warning("EventBus not available for PatternAggregator - pattern events will not be received")
+    end
     
     state = %__MODULE__{
       pattern_cache: %{},

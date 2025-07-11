@@ -1407,8 +1407,13 @@ defmodule AutonomousOpponentV2Core.VSM.S4.Intelligence do
             {:dictionary, dict} ->
               # Check if it's a supervisor
               if Keyword.get(dict, :"$initial_call") == {:supervisor, :init, 1} do
-                # For supervisors, just check if alive
-                {:ok, 1.0}
+                # For supervisors, try to call module's health_check function if it exists
+                if function_exported?(module, :health_check, 0) do
+                  {:ok, module.health_check()}
+                else
+                  # Otherwise just check if alive
+                  {:ok, 1.0}
+                end
               else
                 # For GenServers, try health check
                 try do
