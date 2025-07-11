@@ -347,6 +347,17 @@ defmodule AutonomousOpponentV2Core.Core.CircuitBreaker do
     # Another call while test is in progress
     {:reply, {:error, :circuit_half_open_busy}, state}
   end
+  
+  def handle_call(:health_check, _from, state) do
+    # Health is based on circuit state
+    health = case state.state do
+      :closed -> 1.0
+      :half_open -> 0.5
+      :open -> 0.0
+    end
+    
+    {:reply, health, state}
+  end
 
   def handle_call(:get_state, _from, state) do
     metrics = get_metrics(state)

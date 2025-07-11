@@ -151,7 +151,17 @@ defmodule AutonomousOpponentV2Core.EventBus do
       %{}
     )
 
-    {:ok, %{ordered_delivery_supervisor: nil}}
+    # Get reference to the OrderedDeliverySupervisor
+    # It should be started before EventBus in the supervision tree
+    supervisor_pid = Process.whereis(AutonomousOpponentV2Core.EventBus.OrderedDeliverySupervisor)
+    
+    if supervisor_pid do
+      Logger.debug("EventBus found OrderedDeliverySupervisor at #{inspect(supervisor_pid)}")
+    else
+      Logger.warning("EventBus could not find OrderedDeliverySupervisor - ordered delivery will not work")
+    end
+    
+    {:ok, %{ordered_delivery_supervisor: supervisor_pid}}
   end
 
   @impl true

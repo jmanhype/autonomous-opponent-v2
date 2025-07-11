@@ -10,6 +10,9 @@ defmodule AutonomousOpponentV2Core.Application do
     AutonomousOpponentV2Core.Telemetry.SystemTelemetry.setup()
     AutonomousOpponentV2Core.Telemetry.RateLimiterTelemetry.attach_handlers()
     
+    # Enable scheduler wall time for CPU monitoring
+    :erlang.system_flag(:scheduler_wall_time, true)
+    
     # Ensure AMQP application is started before we check for it
     ensure_amqp_started()
     

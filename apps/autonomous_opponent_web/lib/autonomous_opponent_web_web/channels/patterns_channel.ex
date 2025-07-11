@@ -1,4 +1,4 @@
-defmodule AutonomousOpponentWeb.PatternsChannel do
+defmodule AutonomousOpponentV2Web.PatternsChannel do
   @moduledoc """
   Real-time pattern streaming channel for HNSW event patterns.
   
@@ -17,10 +17,18 @@ defmodule AutonomousOpponentWeb.PatternsChannel do
 
   @impl true
   def join("patterns:stream", _payload, socket) do
-    # Subscribe to pattern events
-    EventBus.subscribe(:patterns_indexed)
-    EventBus.subscribe(:pattern_matched)
-    EventBus.subscribe(:algedonic_signal)
+    # Try to subscribe to pattern events, but don't crash if EventBus isn't available
+    try do
+      EventBus.subscribe(:patterns_indexed)
+      EventBus.subscribe(:pattern_matched)
+      EventBus.subscribe(:algedonic_signal)
+      Logger.info("Successfully subscribed to pattern events")
+    catch
+      :exit, {:noproc, _} ->
+        Logger.warning("EventBus not available - pattern events will not be received")
+      error ->
+        Logger.error("Failed to subscribe to events: #{inspect(error)}")
+    end
     
     # Send initial stats
     send(self(), :send_initial_stats)
@@ -137,11 +145,16 @@ defmodule AutonomousOpponentWeb.PatternsChannel do
   # Client commands
   @impl true
   def handle_in("query_similar", %{"vector" => vector, "k" => k}, socket) do
-    case HNSWIndex.search(:hnsw_index, vector, k) do
-      {:ok, results} ->
-        {:reply, {:ok, %{results: format_search_results(results)}}, socket}
-      {:error, reason} ->
-        {:reply, {:error, %{reason: to_string(reason)}}, socket}
+    case Process.whereis(:hnsw_index) do
+      nil ->
+        {:reply, {:error, %{reason: "HNSW index not available"}}, socket}
+      _pid ->
+        case HNSWIndex.search(:hnsw_index, vector, k) do
+          {:ok, results} ->
+            {:reply, {:ok, %{results: format_search_results(results)}}, socket}
+          {:error, reason} ->
+            {:reply, {:error, %{reason: to_string(reason)}}, socket}
+        end
     end
   end
   

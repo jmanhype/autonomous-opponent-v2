@@ -305,9 +305,10 @@ defmodule AutonomousOpponentV2Core.VSM.S4.Intelligence do
   @impl true
   def handle_info({:event, :s4_intelligence, variety_data}, state) do
     # Handle variety from S3 via variety channel
-    Logger.debug("S4 received variety data: #{inspect(variety_data.variety_type)}")
+    variety_type = Map.get(variety_data, :variety_type, :unknown)
+    Logger.debug("S4 received variety data: #{inspect(variety_type)}")
     
-    case variety_data.variety_type do
+    case variety_type do
       :audit ->
         # Process audit variety from S3
         patterns = extract_learning_patterns(variety_data.patterns_to_learn)
@@ -331,6 +332,15 @@ defmodule AutonomousOpponentV2Core.VSM.S4.Intelligence do
         end
         
         {:noreply, new_state}
+        
+      :unknown ->
+        # Handle HNSW restoration and other events
+        if Map.get(variety_data, :type) == :hnsw_restoration_completed do
+          Logger.info("S4 received HNSW restoration completed notification")
+          # Trigger a scan to populate intelligence from restored patterns
+          send(self(), :environmental_scan)
+        end
+        {:noreply, state}
         
       _ ->
         {:noreply, state}
@@ -1161,7 +1171,7 @@ defmodule AutonomousOpponentV2Core.VSM.S4.Intelligence do
   
   defp calculate_cpu_usage(scheduler_info) do
     # Calculate real CPU usage from scheduler wall time
-    if scheduler_info && length(scheduler_info) > 0 do
+    if is_list(scheduler_info) && length(scheduler_info) > 0 do
       active_time = Enum.reduce(scheduler_info, 0, fn {_id, active, total}, acc ->
         if total > 0, do: acc + (active / total), else: acc
       end)
@@ -1390,10 +1400,31 @@ defmodule AutonomousOpponentV2Core.VSM.S4.Intelligence do
     case Process.whereis(module) do
       nil -> {:error, :not_running}
       pid ->
-        try do
-          {:ok, GenServer.call(pid, :health_check, 1000)}
-        catch
-          _, _ -> {:error, :timeout}
+        # Check if process is alive first
+        if Process.alive?(pid) do
+          # Try to determine process type
+          case Process.info(pid, :dictionary) do
+            {:dictionary, dict} ->
+              # Check if it's a supervisor
+              if Keyword.get(dict, :"$initial_call") == {:supervisor, :init, 1} do
+                # For supervisors, just check if alive
+                {:ok, 1.0}
+              else
+                # For GenServers, try health check
+                try do
+                  {:ok, GenServer.call(pid, :health_check, 1000)}
+                catch
+                  :exit, {:noproc, _} -> {:error, :not_running}
+                  :exit, {:timeout, _} -> {:error, :timeout}
+                  _, _ -> {:ok, 0.8}  # Assume healthy if no health check
+                end
+              end
+            _ ->
+              # If we can't determine type, assume healthy if alive
+              {:ok, 1.0}
+          end
+        else
+          {:error, :not_running}
         end
     end
   end

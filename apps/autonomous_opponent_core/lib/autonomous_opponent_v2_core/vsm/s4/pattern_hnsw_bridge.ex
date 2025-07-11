@@ -237,6 +237,47 @@ defmodule AutonomousOpponentV2Core.VSM.S4.PatternHNSWBridge do
   end
   
   @impl true
+  def handle_call({:query_patterns, vector, k}, _from, state) do
+    # Query the HNSW index for similar patterns
+    case HNSWIndex.search(state.hnsw_index, vector, k) do
+      {:ok, results} ->
+        # Transform results to include pattern data
+        patterns = Enum.map(results, fn result ->
+          # Handle both tuple and map formats
+          case result do
+            {pattern_id, distance} ->
+              # Old format - simple tuple
+              pattern = %{
+                id: pattern_id,
+                distance: distance,
+                similarity: 1.0 - distance
+              }
+              {pattern, 1.0 - distance}
+              
+            %{metadata: metadata, distance: distance} ->
+              # New format with metadata
+              pattern = Map.merge(metadata, %{
+                distance: distance,
+                similarity: 1.0 - distance
+              })
+              {pattern, 1.0 - distance}
+              
+            _ ->
+              # Unknown format
+              Logger.warning("Unknown HNSW result format: #{inspect(result)}")
+              {%{id: "unknown", distance: 1.0, similarity: 0.0}, 0.0}
+          end
+        end)
+        
+        {:reply, {:ok, patterns}, state}
+        
+      {:error, reason} ->
+        Logger.error("Failed to query patterns: #{inspect(reason)}")
+        {:reply, {:error, reason}, state}
+    end
+  end
+  
+  @impl true
   def handle_call(:get_stats, _from, state) do
     stats = Map.merge(state.stats, %{
       buffer_size: length(state.pattern_buffer),
