@@ -136,7 +136,14 @@ defmodule AutonomousOpponentV2Core.VSM.S4.Intelligence do
       vector_store_opts
     end
     
-    {:ok, vector_store} = VectorStore.start_link(vector_store_opts)
+    {:ok, vector_store} = case VectorStore.start_link(vector_store_opts) do
+      {:ok, vs} -> {:ok, vs}
+      {:error, {:already_started, vs}} -> {:ok, vs}
+      {:error, reason} -> 
+        Logger.warning("🧠 S4: Failed to start VectorStore: #{inspect(reason)}")
+        # Return a mock vector store reference to prevent crashes
+        {:ok, nil}
+    end
     
     # Subscribe to variety channels from other subsystems
     EventBus.subscribe(:s4_intelligence)  # Variety channel output for S4
@@ -203,10 +210,15 @@ defmodule AutonomousOpponentV2Core.VSM.S4.Intelligence do
     end)
     
     Enum.each(significant_patterns, fn pattern ->
-      VectorStore.store_pattern(state.vector_store, pattern, %{
+      case VectorStore.store_pattern(state.vector_store, pattern, %{
         source: :environmental_scan,
         timestamp: DateTime.utc_now()
-      })
+      }) do
+        :ok -> 
+          Logger.debug("🧠 S4: Successfully stored environmental scan pattern")
+        {:error, reason} ->
+          Logger.warning("🧠 S4: Failed to store environmental scan pattern: #{inspect(reason)}")
+      end
     end)
     
     # Update environmental model
@@ -229,11 +241,16 @@ defmodule AutonomousOpponentV2Core.VSM.S4.Intelligence do
   @impl true
   def handle_call({:model_scenario, parameters}, _from, state) do
     # Find similar historical patterns
-    {:ok, similar_patterns} = VectorStore.find_similar_patterns(
+    similar_patterns = case VectorStore.find_similar_patterns(
       state.vector_store,
       parameters,
       5
-    )
+    ) do
+      {:ok, patterns} -> patterns
+      {:error, reason} ->
+        Logger.warning("🧠 S4: Failed to find similar patterns: #{inspect(reason)}")
+        []  # Return empty list to continue operation
+    end
     
     # Model possible futures based on patterns
     scenarios = model_futures(parameters, similar_patterns, state)
@@ -312,10 +329,15 @@ defmodule AutonomousOpponentV2Core.VSM.S4.Intelligence do
     
     # Store patterns for future reference
     Enum.each(patterns, fn pattern ->
-      VectorStore.store_pattern(state.vector_store, pattern, %{
+      case VectorStore.store_pattern(state.vector_store, pattern, %{
         source: :s3_audit,
         decision_context: audit_entry[:decision_context]
-      })
+      }) do
+        :ok -> 
+          Logger.debug("🧠 S4: Successfully stored S3 audit pattern")
+        {:error, reason} ->
+          Logger.warning("🧠 S4: Failed to store S3 audit pattern: #{inspect(reason)}")
+      end
     end)
     
     # Update learning metrics
@@ -337,11 +359,16 @@ defmodule AutonomousOpponentV2Core.VSM.S4.Intelligence do
         
         # Store patterns for future reference
         Enum.each(patterns, fn pattern ->
-          VectorStore.store_pattern(state.vector_store, pattern, %{
+          case VectorStore.store_pattern(state.vector_store, pattern, %{
             source: :s3_variety,
             decisions_made: variety_data.decisions_made,
             timestamp: Map.get(variety_data, :timestamp, DateTime.utc_now())
-          })
+          }) do
+            :ok -> 
+              Logger.debug("🧠 S4: Successfully stored S3 variety pattern")
+            {:error, reason} ->
+              Logger.warning("🧠 S4: Failed to store S3 variety pattern: #{inspect(reason)}")
+          end
         end)
         
         # Update learning metrics and generate intelligence
@@ -3590,11 +3617,16 @@ defmodule AutonomousOpponentV2Core.VSM.S4.Intelligence do
       
       # Store in vector store only if confidence is high enough
       if (pattern_data[:confidence] || 0.7) >= @pattern_confidence_threshold do
-        VectorStore.store_pattern(state.vector_store, pattern_vector, metadata)
-        
-        # Update pattern cache with size limit
-        new_cache = update_pattern_cache(state, pattern_data, metadata)
-        {:ok, %{state | pattern_cache: new_cache}}
+        case VectorStore.store_pattern(state.vector_store, pattern_vector, metadata) do
+          :ok -> 
+            # Update pattern cache with size limit
+            new_cache = update_pattern_cache(state, pattern_data, metadata)
+            Logger.debug("🧠 S4: Successfully stored high-confidence pattern")
+            {:ok, %{state | pattern_cache: new_cache}}
+          {:error, reason} ->
+            Logger.warning("🧠 S4: Failed to store pattern: #{inspect(reason)}")
+            {:ok, state}  # Continue operation without storage
+        end
       else
         # Low confidence pattern - just update metrics, don't store
         Logger.debug("🧠 S4: Pattern below confidence threshold (#{pattern_data[:confidence]}) - not storing")
