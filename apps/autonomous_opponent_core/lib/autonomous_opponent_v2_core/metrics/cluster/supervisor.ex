@@ -114,7 +114,7 @@ defmodule AutonomousOpponentV2Core.Metrics.Cluster.Supervisor do
         pid: pid,
         type: type,
         modules: modules,
-        alive: if pid != :undefined, do: Process.alive?(pid), else: false
+        alive: (if pid != :undefined, do: Process.alive?(pid), else: false)
       }
     end)
   end

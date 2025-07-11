@@ -30,7 +30,7 @@ defmodule AutonomousOpponentV2Core.Metrics.Cluster.TimeSeriesStore do
   
   @hot_retention :timer.minutes(5)
   @warm_retention :timer.hours(24)
-  @cold_retention :timer.days(30)
+  @cold_retention :timer.hours(24 * 30)
   @rotation_interval :timer.minutes(1)
   
   defstruct [
@@ -203,8 +203,8 @@ defmodule AutonomousOpponentV2Core.Metrics.Cluster.TimeSeriesStore do
       disc_copies: [node()],
       index: [:timestamp],
       storage_properties: [
-        {ets: [{compressed: true}]},
-        {dets: [{auto_save, 60_000}]}
+        ets: [compressed: true],
+        dets: [auto_save: 60_000]
       ]
     ]) do
       {:atomic, :ok} ->
