@@ -49,6 +49,9 @@ defmodule AutonomousOpponentV2Core.Metrics.Cluster.Supervisor do
         # Query engine for distributed queries
         {AutonomousOpponentV2Core.Metrics.Cluster.QueryEngine, []},
         
+        # Pattern aggregator for HNSW consensus
+        {AutonomousOpponentV2Core.Metrics.Cluster.PatternAggregator, []},
+        
         # Main aggregator process
         {AutonomousOpponentV2Core.Metrics.Cluster.Aggregator, []},
         
