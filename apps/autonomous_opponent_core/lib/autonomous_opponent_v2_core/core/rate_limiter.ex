@@ -212,6 +212,21 @@ defmodule AutonomousOpponentV2Core.Core.RateLimiter do
   end
 
   @impl true
+  def handle_call(:health_check, _from, state) do
+    # Calculate health based on rate limiting activity
+    total_requests = :ets.lookup_element(state.metrics_table, :total_requests, 2)
+    total_allowed = :ets.lookup_element(state.metrics_table, :total_allowed, 2)
+    
+    health = if total_requests > 0 do
+      total_allowed / total_requests
+    else
+      1.0
+    end
+    
+    {:reply, health, state}
+  end
+  
+  @impl true
   def handle_call({:consume, tokens, scope}, _from, state) do
     # Update request metrics
     :ets.update_counter(state.metrics_table, :total_requests, 1)

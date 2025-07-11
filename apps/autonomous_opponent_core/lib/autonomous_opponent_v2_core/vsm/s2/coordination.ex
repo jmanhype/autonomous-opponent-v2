@@ -275,6 +275,9 @@ defmodule AutonomousOpponentV2Core.VSM.S2.Coordination do
         :ok
     end
     
+    # Publish VSM pattern events for HNSW streaming
+    publish_pattern_events(state)
+    
     {:noreply, state}
   end
   
@@ -1054,6 +1057,84 @@ defmodule AutonomousOpponentV2Core.VSM.S2.Coordination do
       cpu: if(variety_data.volume > 500, do: :high, else: :medium),
       memory: :medium,
       io: if(length(variety_data.patterns) > 10, do: :high, else: :low)
+    }
+  end
+
+  # VSM Pattern Publishing - Complete VSM Integration
+  defp publish_pattern_events(state) do
+    # Publish S2-specific coordination patterns for VSM integration
+    try do
+      # Create S2 coordination pattern from current state
+      pattern_data = %{
+        subsystem: "S2",
+        type: "coordination_pattern",
+        timestamp: DateTime.utc_now(),
+        metrics: %{
+          health_score: calculate_health_score(state),
+          coordination_efficiency: state.health_metrics.coordination_efficiency,
+          resource_utilization: calculate_resource_utilization(state),
+          active_conflicts: length(state.conflict_history),
+          oscillation_risk: calculate_oscillation_risk(state),
+          dampening_active: MapSet.size(state.damping_controller.affected_units) > 0
+        },
+        coordination_data: %{
+          active_s1_units: map_size(state.s1_units),
+          resource_pressure: calculate_resource_pressure(state),
+          conflicts_resolved: state.health_metrics.conflicts_resolved,
+          queue_length: :queue.len(state.serialization_queue),
+          dampening_units: MapSet.to_list(state.damping_controller.affected_units)
+        },
+        resource_status: %{
+          cpu: state.resource_pools.cpu,
+          memory: state.resource_pools.memory,
+          io: state.resource_pools.io,
+          network: state.resource_pools.network
+        }
+      }
+
+      # Publish to S2-specific pattern channel
+      EventBus.publish(:vsm_s2_patterns, pattern_data)
+      
+      # Also publish to general VSM pattern flow
+      EventBus.publish(:vsm_pattern_flow, pattern_data)
+      
+      # Publish anti-oscillation patterns
+      oscillation_pattern = %{
+        subsystem: "S2",
+        type: "anti_oscillation_pattern",
+        timestamp: DateTime.utc_now(),
+        oscillation_detected: not Enum.empty?(detect_oscillation_patterns(state.conflict_history)),
+        dampening_factor: @damping_factor,
+        affected_units: MapSet.size(state.damping_controller.affected_units),
+        conflict_patterns: analyze_conflict_patterns(state.conflict_history),
+        intervention_needed: needs_intervention?(state)
+      }
+      
+      EventBus.publish(:vsm_s2_patterns, oscillation_pattern)
+      EventBus.publish(:vsm_pattern_flow, oscillation_pattern)
+      
+    catch
+      :exit, {:noproc, _} ->
+        # EventBus not available, skip publishing
+        :ok
+      error ->
+        Logger.warning("S2: Failed to publish pattern events: #{inspect(error)}")
+    end
+  end
+  
+  defp analyze_conflict_patterns(conflict_history) do
+    # Analyze patterns in conflict history
+    recent_conflicts = Enum.filter(conflict_history, fn c ->
+      c.timestamp > System.monotonic_time(:millisecond) - 30_000  # Last 30 seconds
+    end)
+    
+    %{
+      total_recent: length(recent_conflicts),
+      resource_conflicts: Enum.frequencies(Enum.map(recent_conflicts, & &1.resource)),
+      unit_pairs: recent_conflicts
+        |> Enum.map(fn c -> c.units |> Enum.sort() |> Enum.join("-") end)
+        |> Enum.frequencies(),
+      conflict_rate: length(recent_conflicts) / max(30, 1)  # conflicts per second
     }
   end
 end

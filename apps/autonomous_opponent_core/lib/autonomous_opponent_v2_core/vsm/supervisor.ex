@@ -39,6 +39,9 @@ defmodule AutonomousOpponentV2Core.VSM.Supervisor do
       # S4 - Intelligence (environmental scanning)
       {AutonomousOpponentV2Core.VSM.S4.Intelligence, []},
       
+      # S4 HNSW Components Supervisor
+      {AutonomousOpponentV2Core.VSM.S4.Supervisor, []},
+      
       # S4 Ordered Subscriber - Phase 1 of HLC rollout
       {AutonomousOpponentV2Core.VSM.S4.IntelligenceOrderedSubscriber, [
         enabled: Application.get_env(:autonomous_opponent_core, :s4_ordered_delivery, true)

@@ -66,6 +66,9 @@ defmodule AutonomousOpponentV2Web.Router do
     
     # EventBus Ordering Dashboard
     live "/eventbus/ordering", EventOrderingLive, :index
+    
+    # Pattern Flow Dashboard
+    live "/patterns/flow", PatternFlowLive, :index
   end
   
   # Web Gateway endpoints

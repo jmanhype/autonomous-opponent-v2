@@ -10,6 +10,9 @@ defmodule AutonomousOpponentV2Core.Application do
     AutonomousOpponentV2Core.Telemetry.SystemTelemetry.setup()
     AutonomousOpponentV2Core.Telemetry.RateLimiterTelemetry.attach_handlers()
     
+    # Enable scheduler wall time for CPU monitoring
+    :erlang.system_flag(:scheduler_wall_time, true)
+    
     # Ensure AMQP application is started before we check for it
     ensure_amqp_started()
     
@@ -63,8 +66,6 @@ defmodule AutonomousOpponentV2Core.Application do
       AutonomousOpponentV2Core.AMCP.Events.SemanticFusion,
       # Consciousness module for AI self-awareness
       AutonomousOpponentV2Core.Consciousness,
-      # Pattern HNSW Bridge - connects pattern matching to vector indexing
-      AutonomousOpponentV2Core.VSM.S4.PatternHNSWBridge,
       # Goldrush Event Processor for pattern matching
       AutonomousOpponentV2Core.AMCP.Goldrush.EventProcessor
     ]

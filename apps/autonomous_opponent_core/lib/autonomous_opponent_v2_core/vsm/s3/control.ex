@@ -348,6 +348,9 @@ defmodule AutonomousOpponentV2Core.VSM.S3.Control do
         :ok
     end
     
+    # Publish VSM pattern events for HNSW streaming
+    publish_pattern_events(state)
+    
     {:noreply, state}
   end
   
@@ -1456,5 +1459,223 @@ defmodule AutonomousOpponentV2Core.VSM.S3.Control do
     
     EventBus.publish(:s5_policy, scale_request)
     state
+  end
+
+  # VSM Pattern Publishing - Complete VSM Integration
+  defp publish_pattern_events(state) do
+    # Publish S3-specific control patterns for VSM integration
+    try do
+      # Create S3 control pattern from current state
+      pattern_data = %{
+        subsystem: "S3",
+        type: "control_pattern",
+        timestamp: DateTime.utc_now(),
+        metrics: %{
+          health_score: calculate_health_score(state),
+          resource_utilization: get_resource_utilization(state),
+          performance_score: calculate_performance_score(state),
+          intervention_count: Map.get(state.intervention_engine, :total_interventions, length(Map.get(state.intervention_engine, :history, []))),
+          decision_count: :queue.len(state.audit_log)
+        },
+        control_data: %{
+          active_interventions: map_size(Map.get(state.intervention_engine, :active_interventions, %{})),
+          resource_optimization_active: Map.get(state.resource_optimizer, :enabled, false),
+          performance_targets: state.performance_targets,
+          current_allocation: summarize_resource_allocation(state),
+          control_commands_sent: Map.get(state.intervention_engine, :commands_sent, 0)
+        },
+        resource_status: %{
+          cpu: get_cpu_status(state),
+          memory: get_memory_status(state),
+          io: get_io_status(state),
+          network: get_network_status(state)
+        }
+      }
+
+      # Publish to S3-specific pattern channel
+      EventBus.publish(:vsm_s3_patterns, pattern_data)
+      
+      # Also publish to general VSM pattern flow
+      EventBus.publish(:vsm_pattern_flow, pattern_data)
+      
+      # Publish resource optimization patterns
+      optimization_pattern = %{
+        subsystem: "S3",
+        type: "resource_optimization_pattern",
+        timestamp: DateTime.utc_now(),
+        optimization_active: state.resource_optimizer.enabled,
+        efficiency_score: calculate_optimization_efficiency(state),
+        resource_pressure: calculate_resource_pressure(state),
+        optimization_decisions: get_recent_optimization_decisions(state),
+        target_achievement: measure_target_achievement(state)
+      }
+      
+      EventBus.publish(:vsm_s3_patterns, optimization_pattern)
+      EventBus.publish(:vsm_pattern_flow, optimization_pattern)
+      
+    catch
+      :exit, {:noproc, _} ->
+        # EventBus not available, skip publishing
+        :ok
+      error ->
+        Logger.warning("S3: Failed to publish pattern events: #{inspect(error)}")
+    end
+  end
+  
+  defp summarize_resource_allocation(state) do
+    allocation = state.control_state.resource_allocation
+    %{
+      total_units: map_size(allocation),
+      avg_cpu_limit: avg_cpu_allocation(allocation),
+      memory_distribution: memory_distribution(allocation)
+    }
+  end
+  
+  defp avg_cpu_allocation(allocation) do
+    if map_size(allocation) > 0 do
+      total = Enum.reduce(allocation, 0, fn {_, res}, acc -> acc + res.cpu_limit end)
+      total / map_size(allocation)
+    else
+      0.0
+    end
+  end
+  
+  defp memory_distribution(allocation) do
+    allocation
+    |> Enum.map(fn {_, res} -> res.memory_limit end)
+    |> Enum.frequencies()
+  end
+  
+  defp get_cpu_status(state) do
+    current = get_latest_resources(state)
+    %{
+      current: current.cpu.current,
+      limit: @max_cpu_percent,
+      utilization: current.cpu.current / @max_cpu_percent
+    }
+  end
+  
+  defp get_memory_status(state) do
+    current = get_latest_resources(state)
+    %{
+      current: current.memory.current,
+      total: current.memory.total,
+      utilization: current.memory.current / current.memory.total
+    }
+  end
+  
+  defp get_io_status(state) do
+    current = get_latest_resources(state)
+    %{
+      current: current.io.current,
+      limit: @max_io_rate,
+      utilization: current.io.current / @max_io_rate
+    }
+  end
+  
+  defp get_network_status(state) do
+    current = get_latest_resources(state)
+    %{
+      current: current.network.current,
+      limit: @max_network_rate,
+      utilization: current.network.current / @max_network_rate
+    }
+  end
+  
+  defp calculate_optimization_efficiency(state) do
+    performance = get_real_performance_metrics(state)
+    targets = state.performance_targets
+    
+    efficiency_scores = [
+      performance.throughput / targets.throughput,
+      performance.latency / targets.latency,
+      (1.0 - performance.resource_utilization)  # Lower utilization = more efficient
+    ]
+    
+    Enum.sum(efficiency_scores) / length(efficiency_scores)
+  end
+  
+  defp calculate_resource_pressure(state) do
+    current = get_latest_resources(state)
+    
+    pressures = [
+      current.cpu.current / @max_cpu_percent,
+      current.memory.current / current.memory.total,
+      current.io.current / @max_io_rate,
+      current.network.current / @max_network_rate
+    ]
+    
+    Enum.max(pressures)
+  end
+  
+  defp get_recent_optimization_decisions(state) do
+    # Get recent decisions from audit log
+    now = System.monotonic_time(:millisecond)
+    recent_cutoff = now - 60_000  # Last minute
+    
+    audit_entries = :queue.to_list(state.audit_log)
+    
+    audit_entries
+    |> Enum.filter(fn entry -> entry.timestamp > recent_cutoff end)
+    |> Enum.filter(fn entry -> entry.action_type == :optimize_resources end)
+    |> length()
+  end
+  
+  defp measure_target_achievement(state) do
+    performance = get_real_performance_metrics(state)
+    targets = state.performance_targets
+    
+    %{
+      throughput_achievement: performance.throughput / targets.throughput,
+      latency_achievement: targets.latency / performance.latency,  # Inverted - lower is better
+      resource_efficiency: 1.0 - performance.resource_utilization,
+      overall_score: calculate_performance_score(state)
+    }
+  end
+
+  defp calculate_performance_score(state) do
+    # Calculate overall performance score based on health metrics
+    health = state.health_metrics
+    
+    # Weighted performance calculation
+    efficiency_score = Map.get(health, :resource_efficiency, 0.5) * 0.3
+    throughput_score = min(Map.get(health, :throughput, 0) / 1000.0, 1.0) * 0.3  # Normalize to max 1000/sec
+    intervention_penalty = min(Map.get(health, :intervention_count, health.interventions) / 100.0, 0.2) * 0.2  # Penalty for too many interventions
+    uptime_score = Map.get(health, :uptime_percentage, 1.0) * 0.2
+    
+    max(0.0, efficiency_score + throughput_score - intervention_penalty + uptime_score)
+  end
+
+  defp get_resource_utilization(state) do
+    # Get current resource utilization across all monitored resources
+    monitors = state.resource_monitors
+    
+    %{
+      cpu: get_monitor_utilization(monitors.cpu),
+      memory: get_monitor_utilization(monitors.memory),
+      io: get_monitor_utilization(monitors.io),
+      network: get_monitor_utilization(monitors.network),
+      overall: calculate_overall_utilization(monitors)
+    }
+  end
+
+  defp get_monitor_utilization(monitor) do
+    case monitor do
+      %{current: current, limit: limit} when limit > 0 ->
+        current / limit
+      _ ->
+        0.0
+    end
+  end
+
+  defp calculate_overall_utilization(monitors) do
+    utilizations = [
+      get_monitor_utilization(monitors.cpu),
+      get_monitor_utilization(monitors.memory), 
+      get_monitor_utilization(monitors.io),
+      get_monitor_utilization(monitors.network)
+    ]
+    
+    Enum.sum(utilizations) / length(utilizations)
   end
 end

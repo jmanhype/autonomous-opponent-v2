@@ -335,6 +335,14 @@ defmodule AutonomousOpponentV2Core.Core.Metrics do
   end
   
   @impl true
+  def handle_call(:health_check, _from, state) do
+    # Health is good if we have recent metrics
+    table_size = :ets.info(state.metrics_table, :size)
+    health = if table_size > 0, do: 1.0, else: 0.5
+    {:reply, health, state}
+  end
+  
+  @impl true
   def handle_call(:prometheus_format, _from, state) do
     # Convert all metrics to Prometheus text format
     metrics = :ets.tab2list(state.metrics_table)

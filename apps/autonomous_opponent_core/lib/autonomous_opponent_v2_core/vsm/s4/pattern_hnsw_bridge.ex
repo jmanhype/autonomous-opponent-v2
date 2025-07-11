@@ -76,32 +76,20 @@ defmodule AutonomousOpponentV2Core.VSM.S4.PatternHNSWBridge do
   
   @impl true
   def init(opts) do
-    # Start HNSW index if not already running
-    hnsw_name = opts[:hnsw_name] || AutonomousOpponentV2Core.VSM.S4.HNSWIndex
-    case Process.whereis(hnsw_name) do
-      nil ->
-        {:ok, _} = HNSWIndex.start_link(
-          name: hnsw_name,
-          m: 16,
-          ef: 200,
-          distance_metric: :cosine,
-          persist: true
-        )
-      pid when is_pid(pid) ->
-        Logger.info("HNSW index already running: #{inspect(pid)}")
+    # Get references to the HNSW index and pattern indexer (started by supervisor)
+    hnsw_name = opts[:hnsw_name] || :hnsw_index
+    indexer_name = opts[:indexer_name] || AutonomousOpponentV2Core.VSM.S4.PatternIndexer
+    
+    # Wait briefly for supervisor to start them
+    Process.sleep(100)
+    
+    # Verify they're running
+    unless Process.whereis(hnsw_name) do
+      Logger.error("HNSW index not found: #{inspect(hnsw_name)}")
     end
     
-    # Start pattern indexer if not already running
-    indexer_name = opts[:indexer_name] || AutonomousOpponentV2Core.VSM.S4.PatternIndexer
-    case Process.whereis(indexer_name) do
-      nil ->
-        {:ok, _} = PatternIndexer.start_link(
-          name: indexer_name,
-          hnsw_server: hnsw_name,
-          vector_dimensions: @vector_dim
-        )
-      pid when is_pid(pid) ->
-        Logger.info("Pattern indexer already running: #{inspect(pid)}")
+    unless Process.whereis(indexer_name) do
+      Logger.error("Pattern indexer not found: #{inspect(indexer_name)}")
     end
     
     state = %__MODULE__{
@@ -246,6 +234,47 @@ defmodule AutonomousOpponentV2Core.VSM.S4.PatternHNSWBridge do
     
     schedule_cache_cleanup()
     {:noreply, %{state | pattern_cache: new_cache}}
+  end
+  
+  @impl true
+  def handle_call({:query_patterns, vector, k}, _from, state) do
+    # Query the HNSW index for similar patterns
+    case HNSWIndex.search(state.hnsw_index, vector, k) do
+      {:ok, results} ->
+        # Transform results to include pattern data
+        patterns = Enum.map(results, fn result ->
+          # Handle both tuple and map formats
+          case result do
+            {pattern_id, distance} ->
+              # Old format - simple tuple
+              pattern = %{
+                id: pattern_id,
+                distance: distance,
+                similarity: 1.0 - distance
+              }
+              {pattern, 1.0 - distance}
+              
+            %{metadata: metadata, distance: distance} ->
+              # New format with metadata
+              pattern = Map.merge(metadata, %{
+                distance: distance,
+                similarity: 1.0 - distance
+              })
+              {pattern, 1.0 - distance}
+              
+            _ ->
+              # Unknown format
+              Logger.warning("Unknown HNSW result format: #{inspect(result)}")
+              {%{id: "unknown", distance: 1.0, similarity: 0.0}, 0.0}
+          end
+        end)
+        
+        {:reply, {:ok, patterns}, state}
+        
+      {:error, reason} ->
+        Logger.error("Failed to query patterns: #{inspect(reason)}")
+        {:reply, {:error, reason}, state}
+    end
   end
   
   @impl true
