@@ -168,6 +168,48 @@ defmodule AutonomousOpponentV2Core.Core.Metrics do
     GenServer.call(name, :persist)
   end
   
+  # ========== CLUSTER SUPPORT ==========
+  
+  @doc """
+  Gets metrics by prefix for pattern matching
+  """
+  def get_by_prefix(name, prefix) do
+    GenServer.call(name, {:get_by_prefix, prefix})
+  end
+  
+  @doc """
+  Gets current metrics statistics
+  """
+  def get_stats(name) do
+    GenServer.call(name, :get_stats)
+  end
+  
+  @doc """
+  Pushes local metrics to cluster aggregator
+  """
+  def push_to_cluster(name \\ __MODULE__) do
+    GenServer.cast(name, :push_to_cluster)
+  end
+  
+  @doc """
+  Queries metrics across the cluster
+  """
+  def query_cluster(metric_name, opts \\ []) do
+    case Process.whereis(AutonomousOpponentV2Core.Metrics.Cluster.QueryEngine) do
+      nil -> 
+        {:error, :cluster_not_available}
+      _pid ->
+        AutonomousOpponentV2Core.Metrics.Cluster.QueryEngine.query(metric_name, opts[:aggregation] || :raw, opts)
+    end
+  end
+  
+  @doc """
+  Enables cluster metrics aggregation
+  """
+  def enable_clustering(name \\ __MODULE__) do
+    GenServer.cast(name, :enable_clustering)
+  end
+  
   # Server implementation
   
   defstruct [
@@ -357,7 +399,86 @@ defmodule AutonomousOpponentV2Core.Core.Metrics do
     {:reply, :ok, state}
   end
   
+  def handle_call({:get_by_prefix, prefix}, _from, state) do
+    # Get all metrics matching prefix
+    metrics = :ets.foldl(fn {key, value}, acc ->
+      key_str = case key do
+        k when is_binary(k) -> k
+        k -> to_string(k)
+      end
+      
+      if String.starts_with?(key_str, prefix) do
+        [{key, value} | acc]
+      else
+        acc
+      end
+    end, [], state.metrics_table)
+    
+    {:reply, metrics, state}
+  end
+  
+  def handle_call(:get_stats, _from, state) do
+    # Calculate metrics statistics
+    stats = %{
+      total_metrics: :ets.info(state.metrics_table, :size),
+      memory_bytes: :ets.info(state.metrics_table, :memory) * :erlang.system_info(:wordsize),
+      node: node(),
+      uptime: System.monotonic_time(:second),
+      events_per_sec: calculate_events_per_sec(state),
+      avg_latency: calculate_avg_latency(state),
+      variety_pressure: calculate_variety_pressure(state),
+      cpu_usage: :cpu_sup.avg1() / 256 * 100,
+      memory: :memsup.get_memory_data()[:total_memory]
+    }
+    
+    {:reply, stats, state}
+  end
+  
   @impl true
+  def handle_cast(:push_to_cluster, state) do
+    # Push metrics to cluster aggregator if available
+    if Process.whereis(AutonomousOpponentV2Core.Metrics.Cluster.Aggregator) do
+      metrics = :ets.tab2list(state.metrics_table)
+      
+      # Add node information
+      tagged_metrics = Enum.map(metrics, fn {key, value} ->
+        %{
+          key: key,
+          value: value,
+          node: node(),
+          timestamp: System.os_time(:millisecond)
+        }
+      end)
+      
+      # Send to aggregator
+      GenServer.cast(
+        AutonomousOpponentV2Core.Metrics.Cluster.Aggregator,
+        {:metrics_batch, tagged_metrics}
+      )
+    end
+    
+    {:noreply, state}
+  end
+  
+  def handle_cast(:enable_clustering, state) do
+    # Start periodic push to cluster
+    Process.send_after(self(), :cluster_push, :timer.seconds(10))
+    
+    Logger.info("Cluster metrics enabled for node #{node()}")
+    
+    {:noreply, Map.put(state, :clustering_enabled, true)}
+  end
+  
+  @impl true
+  def handle_info(:cluster_push, state) do
+    if Map.get(state, :clustering_enabled, false) do
+      push_to_cluster(state.name)
+      Process.send_after(self(), :cluster_push, :timer.seconds(10))
+    end
+    
+    {:noreply, state}
+  end
+  
   def handle_info(:persist, state) do
     persist_metrics(state)
     
@@ -870,5 +991,38 @@ defmodule AutonomousOpponentV2Core.Core.Metrics do
         File.rm(Path.join(path, file))
       end)
     end
+  end
+  
+  # ========== CLUSTER SUPPORT HELPERS ==========
+  
+  defp calculate_events_per_sec(state) do
+    # Get event counter metrics
+    case :ets.lookup(state.metrics_table, "events.processed") do
+      [{_, count}] -> count / max(System.monotonic_time(:second), 1)
+      [] -> 0.0
+    end
+  end
+  
+  defp calculate_avg_latency(state) do
+    # Get latency histogram
+    case :ets.lookup(state.metrics_table, "request.latency") do
+      [{_, %{sum: sum, count: count}}] when count > 0 -> sum / count
+      _ -> 0.0
+    end
+  end
+  
+  defp calculate_variety_pressure(state) do
+    # Calculate variety pressure from VSM metrics
+    absorbed = case :ets.lookup(state.metrics_table, "vsm.variety_absorbed{flow=absorbed}") do
+      [{_, v}] -> v
+      [] -> 0
+    end
+    
+    generated = case :ets.lookup(state.metrics_table, "vsm.variety_generated{flow=generated}") do
+      [{_, v}] -> v
+      [] -> 0
+    end
+    
+    if absorbed > 0, do: (generated / absorbed) * 100, else: 0.0
   end
 end

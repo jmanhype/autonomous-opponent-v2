@@ -38,7 +38,7 @@ defmodule AutonomousOpponentV2Core.Application do
       AutonomousOpponentV2Core.WebGateway.Gateway,
       # Task Supervisor for CRDT synthesis tasks
       {Task.Supervisor, name: AutonomousOpponentV2Core.TaskSupervisor},
-    ] ++ cluster_children() ++ redis_children() ++ ai_children() ++ amqp_children() ++ vsm_children() ++ mcp_children()
+    ] ++ cluster_children() ++ redis_children() ++ ai_children() ++ amqp_children() ++ vsm_children() ++ mcp_children() ++ metrics_cluster_children()
 
     opts = [strategy: :one_for_one, name: AutonomousOpponentV2Core.Supervisor]
     Supervisor.start_link(children, opts)
@@ -230,6 +230,18 @@ defmodule AutonomousOpponentV2Core.Application do
       end
     else
       # Return empty list for non-distributed nodes
+      []
+    end
+  end
+  
+  # Start Metrics Cluster services if clustering is enabled
+  defp metrics_cluster_children do
+    if Node.alive?() and Application.get_env(:autonomous_opponent_core, :metrics_cluster_enabled, true) do
+      [
+        # Metrics Cluster Supervisor manages distributed aggregation
+        AutonomousOpponentV2Core.Metrics.Cluster.Supervisor
+      ]
+    else
       []
     end
   end
