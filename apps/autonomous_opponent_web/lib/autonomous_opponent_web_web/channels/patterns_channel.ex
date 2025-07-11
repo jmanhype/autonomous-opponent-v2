@@ -38,6 +38,8 @@ defmodule AutonomousOpponentV2Web.PatternsChannel do
     try do
       EventBus.subscribe(:patterns_indexed)
       EventBus.subscribe(:pattern_matched)
+      EventBus.subscribe(:pattern_detected)  # Issue #92: S4 Intelligence pattern detection
+      EventBus.subscribe(:temporal_pattern_detected)  # Temporal patterns
       EventBus.subscribe(:algedonic_signal)
       Logger.info("Successfully subscribed to pattern events")
     catch
@@ -84,8 +86,11 @@ defmodule AutonomousOpponentV2Web.PatternsChannel do
     try do
       if subsystem == "all" do
         EventBus.subscribe(:vsm_pattern_flow)
+        EventBus.subscribe(:pattern_detected)  # Issue #92: All pattern detection events
+        EventBus.subscribe(:temporal_pattern_detected)
       else
         EventBus.subscribe(:"vsm_#{subsystem}_patterns")
+        EventBus.subscribe(:pattern_detected)  # Always subscribe to core pattern events
       end
       Logger.info("Successfully subscribed to VSM pattern events for subsystem: #{subsystem}")
     catch
@@ -113,6 +118,24 @@ defmodule AutonomousOpponentV2Web.PatternsChannel do
   end
   
   @impl true
+  def handle_info({:event_bus_hlc, %{type: :vsm_pattern_flow} = event}, socket) do
+    # Stream VSM pattern flow events (S1->S2->S3->S4->S5)
+    pattern_data = event.data
+    
+    push(socket, "vsm_pattern_flow", %{
+      subsystem: pattern_data[:subsystem] || "unknown",
+      pattern_type: pattern_data[:type] || "flow_pattern",
+      confidence: pattern_data[:confidence],
+      flow_direction: pattern_data[:flow_direction],
+      variety_type: pattern_data[:variety_type],
+      timestamp: event.timestamp,
+      metadata: sanitize_context(pattern_data[:metadata])
+    })
+    
+    {:noreply, socket}
+  end
+  
+  @impl true
   def handle_info({:event_bus_hlc, %{type: :pattern_matched} = event}, socket) do
     # Stream individual pattern matches
     pattern_data = event.data
@@ -123,6 +146,42 @@ defmodule AutonomousOpponentV2Web.PatternsChannel do
       type: pattern_data[:match_context][:type] || "unknown",
       timestamp: event.timestamp,
       context: sanitize_context(pattern_data[:match_context])
+    })
+    
+    {:noreply, socket}
+  end
+  
+  @impl true
+  def handle_info({:event_bus_hlc, %{type: :pattern_detected} = event}, socket) do
+    # Stream S4 Intelligence pattern detection events (Issue #92)
+    pattern_data = event.data
+    
+    push(socket, "pattern_detected", %{
+      pattern_type: pattern_data[:pattern_type] || "unknown",
+      confidence: pattern_data[:confidence] || 0.0,
+      source: pattern_data[:source] || "s4_intelligence",
+      severity: pattern_data[:severity] || "normal",
+      timestamp: event.timestamp,
+      metadata: sanitize_context(pattern_data[:metadata]),
+      vsm_impact: pattern_data[:vsm_impact]
+    })
+    
+    {:noreply, socket}
+  end
+  
+  @impl true
+  def handle_info({:event_bus_hlc, %{type: :temporal_pattern_detected} = event}, socket) do
+    # Stream temporal pattern events
+    pattern_data = event.data
+    
+    push(socket, "temporal_pattern_detected", %{
+      pattern_type: pattern_data[:pattern_type] || "temporal",
+      confidence: pattern_data[:confidence] || 0.0,
+      source: pattern_data[:source] || "temporal_detector",
+      time_window: pattern_data[:time_window],
+      frequency: pattern_data[:frequency],
+      timestamp: event.timestamp,
+      metadata: sanitize_context(pattern_data[:metadata])
     })
     
     {:noreply, socket}
@@ -302,6 +361,8 @@ defmodule AutonomousOpponentV2Web.PatternsChannel do
     # Unsubscribe from all EventBus topics
     EventBus.unsubscribe(:patterns_indexed)
     EventBus.unsubscribe(:pattern_matched)
+    EventBus.unsubscribe(:pattern_detected)  # Issue #92 events
+    EventBus.unsubscribe(:temporal_pattern_detected)
     EventBus.unsubscribe(:algedonic_signal)
     EventBus.unsubscribe(:vsm_pattern_flow)
     
