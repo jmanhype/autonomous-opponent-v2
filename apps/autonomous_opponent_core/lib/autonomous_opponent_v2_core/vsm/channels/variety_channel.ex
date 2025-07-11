@@ -306,7 +306,7 @@ defmodule AutonomousOpponentV2Core.VSM.Channels.VarietyChannel do
     # S3 → S1: Direct control commands (CLOSES THE LOOP!)
     %{
       variety_type: :control,
-      commands: data.commands,
+      commands: Map.get(data, :commands, []),
       priority: :high,
       bypass_buffers: data[:emergency] || false,
       unit_id: Map.get(data, :unit_id, :default_unit),  # Add unit_id for S2 coordination

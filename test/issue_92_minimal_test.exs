@@ -11,30 +11,30 @@ defmodule Issue92MinimalTest do
   test "Issue #92 test files compile correctly" do
     # Just verify the test files can be compiled
     
-    # Check S4 Intelligence test file
-    assert File.exists?("test/autonomous_opponent_core/vsm/s4/intelligence_pattern_test.exs")
+    # Check S4 Intelligence test file (in core app)
+    assert File.exists?("../../test/autonomous_opponent_core/vsm/s4/intelligence_pattern_test.exs")
     
-    # Check PatternDetector test file  
-    assert File.exists?("test/autonomous_opponent_core/amcp/temporal/pattern_detector_s4_test.exs")
+    # Check PatternDetector test file (in core app)
+    assert File.exists?("../../test/autonomous_opponent_core/amcp/temporal/pattern_detector_s4_test.exs")
     
     # Check integration test file
-    assert File.exists?("test/integration/issue_92_complete_integration_test.exs")
+    assert File.exists?("../../test/integration/issue_92_complete_integration_test.exs")
     
     # Check property test file
-    assert File.exists?("test/property/issue_92_pattern_properties_test.exs")
+    assert File.exists?("../../test/property/issue_92_pattern_properties_test.exs")
     
     # Check performance test file
-    assert File.exists?("test/performance/issue_92_performance_test.exs")
+    assert File.exists?("../../test/performance/issue_92_performance_test.exs")
     
     # Check test config file
-    assert File.exists?("test/support/issue_92_test_config.exs")
+    assert File.exists?("../../test/support/issue_92_test_config.exs")
     
     # Check test runner
-    assert File.exists?("test/issue_92_comprehensive_test_runner.exs")
+    assert File.exists?("../../test/issue_92_comprehensive_test_runner.exs")
   end
   
   test "Issue #92 implementation summary exists" do
-    assert File.exists?("ISSUE_92_IMPLEMENTATION_SUMMARY.md")
+    assert File.exists?("../../ISSUE_92_IMPLEMENTATION_SUMMARY.md")
   end
   
   test "basic pattern structure validation" do

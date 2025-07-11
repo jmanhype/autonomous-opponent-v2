@@ -35,7 +35,11 @@ defmodule AutonomousOpponentV2Core.VSM.S5.Policy do
     :enforcement_stats,
     :violation_log,
     :governance_decisions,
-    :ethos_state
+    :ethos_state,
+    :governance_state,
+    :decisions,
+    :emergency_state,
+    :constraint_violations
   ]
   
   # Policy thresholds
@@ -120,7 +124,23 @@ defmodule AutonomousOpponentV2Core.VSM.S5.Policy do
         integrity: 1.0,
         consistency: 1.0,
         last_assessment: DateTime.utc_now()
-      }
+      },
+      governance_state: %{
+        mode: :normal,
+        active_governance_level: :standard,
+        governance_load: 0.1,
+        decision_queue: [],
+        last_governance_action: DateTime.utc_now()
+      },
+      decisions: [],
+      emergency_state: %{
+        active: false,
+        level: :none,
+        triggered_at: nil,
+        response_actions: [],
+        escalation_path: []
+      },
+      constraint_violations: []
     }
     
     # Broadcast initial constraints to all subsystems after a delay
@@ -2376,9 +2396,9 @@ defmodule AutonomousOpponentV2Core.VSM.S5.Policy do
         type: "governance_pattern",
         timestamp: DateTime.utc_now(),
         governance_active: state.governance_state.mode != :normal,
-        decisions_made: length(state.decisions.history),
+        decisions_made: length(state.decisions),
         constraint_adjustments: count_recent_constraint_changes(state),
-        emergency_responses: state.emergency_state.responses_triggered,
+        emergency_responses: length(state.emergency_state.response_actions),
         policy_effectiveness: measure_policy_effectiveness(state)
       }
       
@@ -2414,11 +2434,11 @@ defmodule AutonomousOpponentV2Core.VSM.S5.Policy do
   
   defp measure_policy_effectiveness(state) do
     # Measure how effective policies are at maintaining system health
-    total_decisions = length(state.decisions.history)
+    total_decisions = length(state.decisions)
     
     if total_decisions > 0 do
-      successful_decisions = state.decisions.history
-      |> Enum.count(fn decision -> decision.outcome == :success end)
+      successful_decisions = state.decisions
+      |> Enum.count(fn decision -> Map.get(decision, :outcome, :unknown) == :success end)
       
       successful_decisions / total_decisions
     else

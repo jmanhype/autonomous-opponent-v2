@@ -22,6 +22,7 @@ defmodule AutonomousOpponentV2Core.VSM.S4.Intelligence do
   alias AutonomousOpponentV2Core.VSM.Channels.VarietyChannel
   alias AutonomousOpponentV2Core.VSM.Algedonic.Channel, as: Algedonic
   alias AutonomousOpponentV2Core.VSM.S4.Intelligence.VectorStore
+  alias AutonomousOpponentV2Core.VSM.S4.PatternCorrelationAnalyzer
   alias AutonomousOpponentV2Core.AMCP.Bridges.LLMBridge
   
   defstruct [
@@ -34,7 +35,8 @@ defmodule AutonomousOpponentV2Core.VSM.S4.Intelligence do
     :health_metrics,
     :pain_report_times,
     :pattern_cache,
-    :llm_integration
+    :llm_integration,
+    :correlation_analyzer
   ]
   
   # Intelligence thresholds
@@ -157,6 +159,15 @@ defmodule AutonomousOpponentV2Core.VSM.S4.Intelligence do
     EventBus.subscribe(:s4_environmental_signal)  # High-priority environmental patterns
     EventBus.subscribe(:patterns_indexed)  # Pattern indexing notifications
     
+    # Start Pattern Correlation Analyzer for advanced pattern intelligence
+    {:ok, correlation_analyzer} = case PatternCorrelationAnalyzer.start_link([]) do
+      {:ok, analyzer} -> {:ok, analyzer}
+      {:error, {:already_started, analyzer}} -> {:ok, analyzer}
+      {:error, reason} -> 
+        Logger.warning("🔗 S4: Failed to start Pattern Correlation Analyzer: #{inspect(reason)}")
+        {:ok, nil}
+    end
+    
     # Start environmental scanning
     Process.send_after(self(), :environmental_scan, @environmental_scan_interval)
     Process.send_after(self(), :report_health, 1000)
@@ -188,7 +199,8 @@ defmodule AutonomousOpponentV2Core.VSM.S4.Intelligence do
         model: "gpt-4",
         last_analysis_at: nil,
         analysis_count: 0
-      }
+      },
+      correlation_analyzer: correlation_analyzer
     }
     
     Logger.info("S4 Intelligence online - scanning the horizon")
@@ -410,11 +422,18 @@ defmodule AutonomousOpponentV2Core.VSM.S4.Intelligence do
     # Store pattern in vector store for similarity analysis and future reference
     case store_pattern_in_vector_store(pattern_data, new_state) do
       {:ok, updated_state} ->
-        # Update strategy if pattern is significant
-        strategy_state = if pattern_requires_strategy_update?(pattern_data) do
-          update_strategy_based_on_pattern(updated_state, pattern_data)
+        # Analyze pattern correlations using the Pattern Correlation Analyzer
+        correlation_state = if updated_state.correlation_analyzer do
+          analyze_pattern_correlations(updated_state, pattern_data)
         else
           updated_state
+        end
+        
+        # Update strategy if pattern is significant
+        strategy_state = if pattern_requires_strategy_update?(pattern_data) do
+          update_strategy_based_on_pattern(correlation_state, pattern_data)
+        else
+          correlation_state
         end
         
         # Update pattern detection metrics
@@ -3963,5 +3982,128 @@ defmodule AutonomousOpponentV2Core.VSM.S4.Intelligence do
       :algedonic_storm -> :immediate_intervention
       _ -> :normal_monitoring
     end
+  end
+
+  defp analyze_pattern_correlations(state, pattern_data) do
+    # Pattern Correlation Analysis - Core function for Issue #92
+    # Analyzes relationships between this pattern and existing patterns using the correlation analyzer
+    
+    case state.correlation_analyzer do
+      nil -> 
+        Logger.debug("🔗 S4: Pattern Correlation Analyzer not available")
+        state
+      
+      analyzer_pid ->
+        try do
+          # Get correlations for this pattern
+          pattern_id = generate_pattern_id(pattern_data)
+          
+          case PatternCorrelationAnalyzer.get_correlations(pattern_id, []) do
+            {:ok, correlations} ->
+              # Process correlation insights
+              process_correlation_insights(state, pattern_data, correlations)
+              
+            {:error, reason} ->
+              Logger.debug("🔗 S4: Failed to get correlations: #{inspect(reason)}")
+              state
+          end
+          
+          # Request causality analysis for significant patterns
+          if pattern_requires_causality_analysis?(pattern_data) do
+            case PatternCorrelationAnalyzer.get_causality_chain(pattern_id, 3) do
+              {:ok, causality_chain} ->
+                publish_causality_insights(pattern_data, causality_chain)
+                
+              {:error, reason} ->
+                Logger.debug("🔗 S4: Failed to get causality chain: #{inspect(reason)}")
+            end
+          end
+          
+          # Get cluster analysis for pattern classification
+          case PatternCorrelationAnalyzer.get_cluster_analysis([]) do
+            {:ok, cluster_analysis} ->
+              update_environmental_model_with_clusters(state, cluster_analysis)
+              
+            {:error, reason} ->
+              Logger.debug("🔗 S4: Failed to get cluster analysis: #{inspect(reason)}")
+              state
+          end
+          
+        catch
+          :exit, _reason ->
+            Logger.warning("🔗 S4: Pattern Correlation Analyzer process not responding")
+            state
+        end
+    end
+  end
+
+  defp process_correlation_insights(state, pattern_data, correlations) do
+    # Process correlation insights and update state accordingly
+    if length(correlations) > 0 do
+      Logger.info("🔗 S4: Found #{length(correlations)} correlations for pattern #{pattern_data[:pattern_type]}")
+      
+      # Update intelligence reports with correlation data
+      correlation_report = %{
+        pattern_id: generate_pattern_id(pattern_data),
+        pattern_type: pattern_data[:pattern_type],
+        correlation_count: length(correlations),
+        high_confidence_correlations: Enum.count(correlations, &(&1[:confidence] > 0.8)),
+        timestamp: DateTime.utc_now()
+      }
+      
+      new_reports = [correlation_report | state.intelligence_reports] |> Enum.take(50)
+      %{state | intelligence_reports: new_reports}
+    else
+      state
+    end
+  end
+
+  defp pattern_requires_causality_analysis?(pattern_data) do
+    # Determine if this pattern warrants causality analysis
+    severity = pattern_data[:severity] || :normal
+    confidence = pattern_data[:confidence] || 0.0
+    
+    severity in [:high, :critical] or confidence > 0.8
+  end
+
+  defp publish_causality_insights(pattern_data, causality_chain) do
+    # Publish causality insights to EventBus for other VSM subsystems
+    if length(causality_chain) > 1 do
+      EventBus.publish(:pattern_causality_detected, %{
+        root_pattern: pattern_data,
+        causality_chain: causality_chain,
+        chain_length: length(causality_chain),
+        source: :s4_intelligence,
+        timestamp: DateTime.utc_now()
+      })
+      
+      Logger.info("🔗 S4: Published causality chain with #{length(causality_chain)} patterns")
+    end
+  end
+
+  defp update_environmental_model_with_clusters(state, cluster_analysis) do
+    # Update environmental model with cluster insights
+    current_model = state.environmental_model
+    
+    cluster_summary = %{
+      cluster_count: Map.get(cluster_analysis, :cluster_count, 0),
+      largest_cluster_size: Map.get(cluster_analysis, :largest_cluster_size, 0),
+      clustering_quality: Map.get(cluster_analysis, :quality_score, 0.0),
+      updated_at: DateTime.utc_now()
+    }
+    
+    new_model = Map.put(current_model, :pattern_clusters, cluster_summary)
+    %{state | environmental_model: new_model}
+  end
+
+  defp generate_pattern_id(pattern_data) do
+    # Generate a consistent ID for pattern data
+    pattern_type = pattern_data[:pattern_type] || "unknown"
+    pattern_name = pattern_data[:pattern_name] || "unnamed"
+    metadata = inspect(pattern_data[:metadata] || %{})
+    
+    :crypto.hash(:sha256, "#{pattern_type}#{pattern_name}#{metadata}")
+    |> Base.encode16()
+    |> String.slice(0, 16)
   end
 end
