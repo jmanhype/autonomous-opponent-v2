@@ -242,7 +242,16 @@ defmodule AutonomousOpponentV2Web.MetricsController do
   defp format_cluster_metrics(metric), do: format_metric(metric)
   
   defp format_metric(metric) when is_map(metric) do
-    metric
+    # Convert node_values tuples to maps for JSON encoding
+    case Map.get(metric, :node_values) do
+      nil -> metric
+      node_values when is_list(node_values) ->
+        Map.put(metric, :node_values, Enum.map(node_values, fn
+          {node, value} -> %{node: to_string(node), value: value}
+          other -> other
+        end))
+      _ -> metric
+    end
   end
   
   defp format_metric(value), do: value

@@ -78,7 +78,7 @@ defmodule AutonomousOpponentV2Core.Metrics.Cluster.Supervisor do
       {AutonomousOpponentV2Core.Metrics.Cluster.Telemetry, :check_vsm_health, []}
     ]
     
-    {Telemetry.Poller,
+    {:telemetry_poller,
      measurements: measurements,
      period: :timer.seconds(10),
      name: :metrics_cluster_poller}

@@ -122,7 +122,8 @@ defmodule AutonomousOpponentV2Core.Metrics.Cluster.Aggregator do
     EventBus.subscribe(:algedonic_signal)
     EventBus.subscribe(:node_status_change)
     
-    # Join the metrics cluster
+    # Ensure pg scope exists and join the metrics cluster
+    :pg.start_link(:metrics_cluster)
     :pg.join(:metrics_cluster, :aggregator, self())
     
     # Initialize state
@@ -352,6 +353,12 @@ defmodule AutonomousOpponentV2Core.Metrics.Cluster.Aggregator do
       
       {:ok, aggregated, state}
     end
+  end
+  
+  # Handle both tuple format (from :erpc.multicall) and keyword list format (single node)
+  defp process_multicall_results([ok: results], nodes) when is_list(results) do
+    # Single node case - convert to expected format
+    process_multicall_results({[{:ok, results}], []}, nodes)
   end
   
   defp process_multicall_results({results, bad_nodes}, nodes) do
