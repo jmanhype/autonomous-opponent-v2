@@ -187,6 +187,14 @@ defmodule AutonomousOpponentV2Core.VSM.S3.Control do
     handle_info({:event_bus, event.type, event.data}, state)
   end
   
+  def handle_info({:event_bus, :s3_control, control_feedback}, state) do
+    # Handle feedback from S3's own control signals - prevent infinite loops
+    Logger.debug("S3: Received control feedback: #{inspect(control_feedback.variety_type)}")
+    
+    # Don't process our own control signals to prevent feedback loops
+    {:noreply, state}
+  end
+  
   def handle_info({:event_bus, :algedonic_pain, pain_signal}, state) do
     # Handle algedonic pain signal - trigger immediate intervention
     Logger.warning("S3 received algedonic pain signal: #{inspect(pain_signal)}")
@@ -371,7 +379,8 @@ defmodule AutonomousOpponentV2Core.VSM.S3.Control do
         memory: 0.3,
         io: 0.2,
         network: 0.2
-      }
+      },
+      enabled: true
     }
   end
   
@@ -1475,7 +1484,7 @@ defmodule AutonomousOpponentV2Core.VSM.S3.Control do
           resource_utilization: get_resource_utilization(state),
           performance_score: calculate_performance_score(state),
           intervention_count: Map.get(state.intervention_engine, :total_interventions, length(Map.get(state.intervention_engine, :history, []))),
-          decision_count: :queue.len(state.audit_log)
+          decision_count: length(state.audit_log)
         },
         control_data: %{
           active_interventions: map_size(Map.get(state.intervention_engine, :active_interventions, %{})),
@@ -1557,28 +1566,34 @@ defmodule AutonomousOpponentV2Core.VSM.S3.Control do
   
   defp get_memory_status(state) do
     current = get_latest_resources(state)
+    # Use peak as proxy for total if no total field, or default to 100MB
+    total = Map.get(current.memory, :total, max(current.memory.peak, 104_857_600))
     %{
       current: current.memory.current,
-      total: current.memory.total,
-      utilization: current.memory.current / current.memory.total
+      total: total,
+      utilization: if(total > 0, do: current.memory.current / total, else: 0.0)
     }
   end
   
   defp get_io_status(state) do
     current = get_latest_resources(state)
+    # IO structure has read_rate/write_rate but no current field, calculate total
+    io_current = Map.get(current.io, :current, current.io.read_rate + current.io.write_rate)
     %{
-      current: current.io.current,
+      current: io_current,
       limit: @max_io_rate,
-      utilization: current.io.current / @max_io_rate
+      utilization: if(@max_io_rate > 0, do: io_current / @max_io_rate, else: 0.0)
     }
   end
   
   defp get_network_status(state) do
     current = get_latest_resources(state)
+    # Network structure has rx_rate/tx_rate but no current field, calculate total
+    network_current = Map.get(current.network, :current, current.network.rx_rate + current.network.tx_rate)
     %{
-      current: current.network.current,
+      current: network_current,
       limit: @max_network_rate,
-      utilization: current.network.current / @max_network_rate
+      utilization: if(@max_network_rate > 0, do: network_current / @max_network_rate, else: 0.0)
     }
   end
   
@@ -1597,12 +1612,15 @@ defmodule AutonomousOpponentV2Core.VSM.S3.Control do
   
   defp calculate_resource_pressure(state) do
     current = get_latest_resources(state)
+    total_memory = Map.get(current.memory, :total, max(current.memory.peak, 104_857_600))
+    io_current = Map.get(current.io, :current, current.io.read_rate + current.io.write_rate)
+    network_current = Map.get(current.network, :current, current.network.rx_rate + current.network.tx_rate)
     
     pressures = [
-      current.cpu.current / @max_cpu_percent,
-      current.memory.current / current.memory.total,
-      current.io.current / @max_io_rate,
-      current.network.current / @max_network_rate
+      if(@max_cpu_percent > 0, do: current.cpu.current / @max_cpu_percent, else: 0.0),
+      if(total_memory > 0, do: current.memory.current / total_memory, else: 0.0),
+      if(@max_io_rate > 0, do: io_current / @max_io_rate, else: 0.0),
+      if(@max_network_rate > 0, do: network_current / @max_network_rate, else: 0.0)
     ]
     
     Enum.max(pressures)
@@ -1613,7 +1631,8 @@ defmodule AutonomousOpponentV2Core.VSM.S3.Control do
     now = System.monotonic_time(:millisecond)
     recent_cutoff = now - 60_000  # Last minute
     
-    audit_entries = :queue.to_list(state.audit_log)
+    # audit_log is a list, not a queue
+    audit_entries = state.audit_log
     
     audit_entries
     |> Enum.filter(fn entry -> entry.timestamp > recent_cutoff end)
@@ -1625,9 +1644,22 @@ defmodule AutonomousOpponentV2Core.VSM.S3.Control do
     performance = get_real_performance_metrics(state)
     targets = state.performance_targets
     
+    # Safe division to prevent arithmetic errors
+    throughput_achievement = if targets.throughput > 0 do
+      performance.throughput / targets.throughput
+    else
+      1.0
+    end
+    
+    latency_achievement = if performance.latency > 0 do
+      targets.latency / performance.latency  # Inverted - lower is better
+    else
+      1.0
+    end
+    
     %{
-      throughput_achievement: performance.throughput / targets.throughput,
-      latency_achievement: targets.latency / performance.latency,  # Inverted - lower is better
+      throughput_achievement: throughput_achievement,
+      latency_achievement: latency_achievement,
       resource_efficiency: 1.0 - performance.resource_utilization,
       overall_score: calculate_performance_score(state)
     }

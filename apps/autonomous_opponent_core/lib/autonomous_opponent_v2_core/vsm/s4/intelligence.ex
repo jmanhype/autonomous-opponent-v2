@@ -32,7 +32,9 @@ defmodule AutonomousOpponentV2Core.VSM.S4.Intelligence do
     :intelligence_reports,
     :learning_queue,
     :health_metrics,
-    :pain_report_times
+    :pain_report_times,
+    :pattern_cache,
+    :llm_integration
   ]
   
   # Intelligence thresholds
@@ -164,9 +166,22 @@ defmodule AutonomousOpponentV2Core.VSM.S4.Intelligence do
         scenarios_modeled: 0,
         predictions_accurate: 0,
         predictions_total: 0,
-        environmental_complexity: 0.5
+        environmental_complexity: 0.5,
+        scans_performed: 0,
+        anomalies_detected: 0,
+        total_patterns: 0,
+        predictions_made: 0,
+        correct_predictions: 0
       },
-      pain_report_times: %{}
+      pain_report_times: %{},
+      pattern_cache: %{},
+      llm_integration: %{
+        enabled: true,
+        provider: :local_fallback,
+        model: "gpt-4",
+        last_analysis_at: nil,
+        analysis_count: 0
+      }
     }
     
     Logger.info("S4 Intelligence online - scanning the horizon")
@@ -325,7 +340,7 @@ defmodule AutonomousOpponentV2Core.VSM.S4.Intelligence do
           VectorStore.store_pattern(state.vector_store, pattern, %{
             source: :s3_variety,
             decisions_made: variety_data.decisions_made,
-            timestamp: variety_data.timestamp
+            timestamp: Map.get(variety_data, :timestamp, DateTime.utc_now())
           })
         end)
         
@@ -534,7 +549,8 @@ defmodule AutonomousOpponentV2Core.VSM.S4.Intelligence do
       trends: [],
       threats: [],
       opportunities: [],
-      last_scan: DateTime.utc_now()
+      last_scan: DateTime.utc_now(),
+      last_scan_patterns: []
     }
   end
   
