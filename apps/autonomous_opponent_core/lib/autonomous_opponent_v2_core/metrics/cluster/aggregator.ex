@@ -311,35 +311,58 @@ defmodule AutonomousOpponentV2Core.Metrics.Cluster.Aggregator do
     unless opts[:bypass] do
       case check_variety_constraint(state) do
         {:error, :variety_exceeded} ->
-          return {:error, :variety_exceeded}
+          {:error, :variety_exceeded}
         {:ok, state} ->
-          :ok
+          # Query specific metric from all nodes
+          results = :erpc.multicall(
+            nodes,
+            Metrics,
+            :get_metric,
+            [Metrics, metric_name],
+            @query_timeout
+          )
+          
+          {values, _errors} = process_multicall_results(results, nodes)
+          
+          # Aggregate based on metric type
+          aggregated = aggregate_by_type(metric_name, values)
+          
+          # Update CRDT
+          CRDTStore.update_metric(metric_name, aggregated, node())
+          
+          {:ok, aggregated, state}
       end
+    else
+      # Query specific metric from all nodes
+      results = :erpc.multicall(
+        nodes,
+        Metrics,
+        :get_metric,
+        [Metrics, metric_name],
+        @query_timeout
+      )
+      
+      {values, _errors} = process_multicall_results(results, nodes)
+      
+      # Aggregate based on metric type
+      aggregated = aggregate_by_type(metric_name, values)
+      
+      # Update CRDT
+      CRDTStore.update_metric(metric_name, aggregated, node())
+      
+      {:ok, aggregated, state}
     end
-    
-    # Query specific metric from all nodes
-    results = :erpc.multicall(
-      nodes,
-      Metrics,
-      :get_metric,
-      [Metrics, metric_name],
-      @query_timeout
-    )
-    
-    {values, _errors} = process_multicall_results(results, nodes)
-    
-    # Aggregate based on metric type
-    aggregated = aggregate_by_type(metric_name, values)
-    
-    # Update CRDT
-    CRDTStore.update_metric(metric_name, aggregated, node())
-    
-    {:ok, aggregated, state}
   end
   
   defp process_multicall_results({results, bad_nodes}, nodes) do
+    # Build a set of bad nodes for quick lookup
+    bad_nodes_set = MapSet.new(bad_nodes)
+    
     # Process successful results
-    metrics = nodes
+    # Filter out bad nodes first, then zip with results
+    good_nodes = Enum.reject(nodes, &MapSet.member?(bad_nodes_set, &1))
+    
+    metrics = good_nodes
     |> Enum.zip(results)
     |> Enum.flat_map(fn
       {node, {:ok, node_metrics}} when is_list(node_metrics) ->

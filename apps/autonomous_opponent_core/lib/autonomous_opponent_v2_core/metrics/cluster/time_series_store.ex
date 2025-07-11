@@ -272,21 +272,24 @@ defmodule AutonomousOpponentV2Core.Metrics.Cluster.TimeSeriesStore do
   
   defp rotate_warm_to_cold(state) do
     cutoff = System.os_time(:microsecond) - @warm_retention
-    count = 0
     
-    # Use dets:traverse to process in batches
-    :dets.traverse(state.warm_table, fn {key, value} ->
-      {_metric, _tags, ts} = key
-      
-      if ts < cutoff do
-        # Move to cold storage
-        write_to_mnesia(key, value)
-        :dets.delete(state.warm_table, key)
-        {:continue, count + 1}
-      else
-        {:continue, count}
-      end
-    end)
+    # Use dets:foldl to process entries and count rotations
+    count = :dets.foldl(
+      fn {key, value}, acc ->
+        {_metric, _tags, ts} = key
+        
+        if ts < cutoff do
+          # Move to cold storage
+          write_to_mnesia(key, value)
+          :dets.delete(state.warm_table, key)
+          acc + 1
+        else
+          acc
+        end
+      end,
+      0,
+      state.warm_table
+    )
     
     count
   end
@@ -429,36 +432,59 @@ defmodule AutonomousOpponentV2Core.Metrics.Cluster.TimeSeriesStore do
   end
   
   defp downsample_average(data, target_points) do
-    # Calculate bucket size
-    bucket_size = div(length(data), target_points)
-    
-    data
-    |> Enum.chunk_every(bucket_size)
-    |> Enum.map(fn bucket ->
-      # Average timestamp and value for each bucket
-      {sum_ts, sum_val, count} = Enum.reduce(bucket, {0, 0, 0}, fn
-        {{{metric, tags, ts}, value}, {acc_ts, acc_val, acc_count}} ->
-          {acc_ts + ts, acc_val + to_number(value), acc_count + 1}
-      end)
-      
-      avg_ts = div(sum_ts, count)
-      avg_val = sum_val / count
-      
-      {{{List.first(bucket) |> elem(0) |> elem(0), 
-         List.first(bucket) |> elem(0) |> elem(1), 
-         avg_ts}, avg_val}}
-    end)
+    # Guard against edge cases
+    cond do
+      target_points <= 0 or length(data) == 0 ->
+        data
+      length(data) <= target_points ->
+        data
+      true ->
+        # Calculate bucket size
+        bucket_size = max(1, div(length(data), target_points))
+        
+        data
+        |> Enum.chunk_every(bucket_size)
+        |> Enum.map(fn bucket ->
+          # Average timestamp and value for each bucket
+          {sum_ts, sum_val, count} = Enum.reduce(bucket, {0, 0, 0}, fn
+            {{{metric, tags, ts}, value}, {acc_ts, acc_val, acc_count}} ->
+              {acc_ts + ts, acc_val + to_number(value), acc_count + 1}
+          end)
+          
+          # Guard against empty buckets
+          if count > 0 do
+            avg_ts = div(sum_ts, count)
+            avg_val = sum_val / count
+            
+            {{{List.first(bucket) |> elem(0) |> elem(0), 
+               List.first(bucket) |> elem(0) |> elem(1), 
+               avg_ts}, avg_val}}
+          else
+            # Return first element if bucket is somehow empty
+            List.first(bucket)
+          end
+        end)
+        |> Enum.filter(&(&1 != nil))
+    end
   end
   
   defp downsample_max(data, target_points) do
-    bucket_size = div(length(data), target_points)
-    
-    data
-    |> Enum.chunk_every(bucket_size)
-    |> Enum.map(fn bucket ->
-      # Find max value in bucket
-      Enum.max_by(bucket, fn {_key, value} -> to_number(value) end)
-    end)
+    # Guard against edge cases
+    cond do
+      target_points <= 0 or length(data) == 0 ->
+        data
+      length(data) <= target_points ->
+        data
+      true ->
+        bucket_size = max(1, div(length(data), target_points))
+        
+        data
+        |> Enum.chunk_every(bucket_size)
+        |> Enum.map(fn bucket ->
+          # Find max value in bucket
+          Enum.max_by(bucket, fn {_key, value} -> to_number(value) end)
+        end)
+    end
   end
   
   defp to_microseconds(%DateTime{} = dt), do: DateTime.to_unix(dt, :microsecond)

@@ -145,10 +145,13 @@ defmodule AutonomousOpponentV2Web.MetricsController do
       _pid ->
         try do
           # Get aggregated cluster metrics
-          {:ok, metrics} = AutonomousOpponentV2Core.Metrics.Cluster.Aggregator.aggregate_cluster_metrics()
-          
-          # Convert to Prometheus format
-          convert_cluster_to_prometheus(metrics)
+          case AutonomousOpponentV2Core.Metrics.Cluster.Aggregator.aggregate_cluster_metrics() do
+            {:ok, metrics} ->
+              # Convert to Prometheus format
+              convert_cluster_to_prometheus(metrics)
+            {:error, reason} ->
+              "# Error aggregating cluster metrics: #{inspect(reason)}\n"
+          end
         rescue
           error ->
             require Logger

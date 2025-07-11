@@ -193,6 +193,7 @@ defmodule AutonomousOpponentV2Core.Metrics.Cluster.QueryEngine do
   defp execute_distributed_query(metric_name, aggregation, opts, from, state) do
     query_id = generate_query_id()
     cache_key = make_cache_key(metric_name, aggregation, opts)
+    genserver_pid = self()
     
     # Store active query
     state = %{state | 
@@ -211,9 +212,9 @@ defmodule AutonomousOpponentV2Core.Metrics.Cluster.QueryEngine do
       
       case result do
         {:ok, data} ->
-          send(self(), {:query_complete, query_id, data})
+          send(genserver_pid, {:query_complete, query_id, data})
         {:error, reason} ->
-          send(self(), {:query_failed, query_id, reason})
+          send(genserver_pid, {:query_failed, query_id, reason})
       end
     end)
     
@@ -273,7 +274,7 @@ defmodule AutonomousOpponentV2Core.Metrics.Cluster.QueryEngine do
           :open ->
             {:error, {:circuit_open, node}}
             
-          :closed ->
+          state when state in [:closed, :half_open] ->
             try do
               result = :erpc.call(
                 node,
@@ -603,6 +604,7 @@ defmodule AutonomousOpponentV2Core.Metrics.Cluster.QueryEngine do
   
   defp execute_multi_query(queries, from, state) do
     query_id = generate_query_id()
+    genserver_pid = self()
     
     # Store active query
     state = %{state | 
@@ -629,7 +631,7 @@ defmodule AutonomousOpponentV2Core.Metrics.Cluster.QueryEngine do
         end
       end)
       
-      send(self(), {:query_complete, query_id, results})
+      send(genserver_pid, {:query_complete, query_id, results})
     end)
     
     state
@@ -650,6 +652,8 @@ defmodule AutonomousOpponentV2Core.Metrics.Cluster.QueryEngine do
   end
   
   defp init_circuit_breakers do
+    # Create ETS table for circuit breaker state
+    :ets.new(:circuit_breakers, [:set, :public, :named_table, {:read_concurrency, true}])
     %{}
   end
   
@@ -688,18 +692,56 @@ defmodule AutonomousOpponentV2Core.Metrics.Cluster.QueryEngine do
     ])
   end
   
-  defp check_circuit_breaker(_node) do
-    # TODO: Implement circuit breaker logic
-    :closed
+  defp check_circuit_breaker(node) do
+    # Check circuit breaker state from ETS
+    case :ets.lookup(:circuit_breakers, node) do
+      [] -> 
+        # No entry, circuit is closed
+        :closed
+      [{^node, state, last_failure, failure_count}] ->
+        case state do
+          :open ->
+            # Check if we should attempt half-open
+            now = System.os_time(:millisecond)
+            timeout = :timer.seconds(30) # 30 second timeout
+            if now - last_failure > timeout do
+              # Try half-open state
+              :ets.insert(:circuit_breakers, {node, :half_open, last_failure, failure_count})
+              :half_open
+            else
+              :open
+            end
+          other -> 
+            other
+        end
+    end
   end
   
-  defp trip_circuit_breaker(_node) do
-    # TODO: Implement circuit breaker logic
+  defp trip_circuit_breaker(node) do
+    # Increment failure count and potentially open the circuit
+    now = System.os_time(:millisecond)
+    
+    case :ets.lookup(:circuit_breakers, node) do
+      [] ->
+        # First failure
+        :ets.insert(:circuit_breakers, {node, :closed, now, 1})
+      [{^node, _state, _last_failure, failure_count}] ->
+        new_count = failure_count + 1
+        # Open circuit after 3 failures
+        if new_count >= 3 do
+          :ets.insert(:circuit_breakers, {node, :open, now, new_count})
+          Logger.warn("Circuit breaker opened for node #{node} after #{new_count} failures")
+        else
+          :ets.insert(:circuit_breakers, {node, :closed, now, new_count})
+        end
+    end
+    
     :ok
   end
   
-  defp reset_circuit_breaker(_node) do
-    # TODO: Implement circuit breaker logic
+  defp reset_circuit_breaker(node) do
+    # Reset circuit breaker on successful call
+    :ets.delete(:circuit_breakers, node)
     :ok
   end
   
