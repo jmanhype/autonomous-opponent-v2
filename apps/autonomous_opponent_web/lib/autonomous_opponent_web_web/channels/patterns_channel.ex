@@ -8,12 +8,12 @@ defmodule AutonomousOpponentWeb.PatternsChannel do
   - VSM subsystem pattern flow
   - Algedonic pattern alerts
   """
-  use AutonomousOpponentWeb, :channel
+  use AutonomousOpponentV2Web, :channel
   require Logger
   
-  alias AutonomousOpponent.EventBus
-  alias AutonomousOpponent.VSM.S4.PatternHNSWBridge
-  alias AutonomousOpponent.VSM.S4.VectorStore.HNSWIndex
+  alias AutonomousOpponentV2Core.EventBus
+  alias AutonomousOpponentV2Core.VSM.S4.PatternHNSWBridge
+  alias AutonomousOpponentV2Core.VSM.S4.VectorStore.HNSWIndex
 
   @impl true
   def join("patterns:stream", _payload, socket) do
@@ -153,7 +153,7 @@ defmodule AutonomousOpponentWeb.PatternsChannel do
   
   @impl true
   def handle_in("get_cluster_patterns", %{"min_nodes" => min_nodes}, socket) do
-    case AutonomousOpponent.Metrics.Cluster.PatternAggregator.get_consensus_patterns(min_nodes) do
+    case AutonomousOpponentV2Core.Metrics.Cluster.PatternAggregator.get_consensus_patterns(min_nodes) do
       {:ok, patterns} ->
         {:reply, {:ok, %{patterns: patterns}}, socket}
       {:error, reason} ->
@@ -163,7 +163,7 @@ defmodule AutonomousOpponentWeb.PatternsChannel do
   
   @impl true
   def handle_in("search_cluster", %{"vector" => vector, "k" => k}, socket) do
-    case AutonomousOpponent.Metrics.Cluster.PatternAggregator.search_cluster(vector, k) do
+    case AutonomousOpponentV2Core.Metrics.Cluster.PatternAggregator.search_cluster(vector, k) do
       {:ok, results} ->
         {:reply, {:ok, %{results: results}}, socket}
       {:error, reason} ->
@@ -192,20 +192,20 @@ defmodule AutonomousOpponentWeb.PatternsChannel do
   # Private helpers
   
   defp get_pattern_stats do
-    case Process.whereis(AutonomousOpponent.VSM.S4.PatternHNSWBridge) do
+    case Process.whereis(AutonomousOpponentV2Core.VSM.S4.PatternHNSWBridge) do
       nil -> 
         %{error: "bridge_not_running"}
       _pid ->
-        AutonomousOpponent.VSM.S4.PatternHNSWBridge.get_stats()
+        AutonomousOpponentV2Core.VSM.S4.PatternHNSWBridge.get_stats()
     end
   end
   
   defp get_monitoring_info do
-    case Process.whereis(AutonomousOpponent.VSM.S4.PatternHNSWBridge) do
+    case Process.whereis(AutonomousOpponentV2Core.VSM.S4.PatternHNSWBridge) do
       nil -> 
         %{error: "bridge_not_running"}
       _pid ->
-        AutonomousOpponent.VSM.S4.PatternHNSWBridge.get_monitoring_info()
+        AutonomousOpponentV2Core.VSM.S4.PatternHNSWBridge.get_monitoring_info()
     end
   end
   

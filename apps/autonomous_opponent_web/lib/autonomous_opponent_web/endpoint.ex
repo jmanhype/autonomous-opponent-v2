@@ -19,7 +19,7 @@ defmodule AutonomousOpponentV2Web.Endpoint do
   socket "/live", Phoenix.LiveView.Socket, websocket: [connect_info: [session: @session_options]]
   
   # Pattern streaming WebSocket endpoint
-  socket "/socket", AutonomousOpponentWeb.UserSocket,
+  socket "/socket", AutonomousOpponentV2Web.UserSocket,
     websocket: true,
     longpoll: false
   

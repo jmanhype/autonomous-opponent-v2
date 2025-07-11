@@ -76,32 +76,20 @@ defmodule AutonomousOpponentV2Core.VSM.S4.PatternHNSWBridge do
   
   @impl true
   def init(opts) do
-    # Start HNSW index if not already running
-    hnsw_name = opts[:hnsw_name] || AutonomousOpponentV2Core.VSM.S4.HNSWIndex
-    case Process.whereis(hnsw_name) do
-      nil ->
-        {:ok, _} = HNSWIndex.start_link(
-          name: hnsw_name,
-          m: 16,
-          ef: 200,
-          distance_metric: :cosine,
-          persist: true
-        )
-      pid when is_pid(pid) ->
-        Logger.info("HNSW index already running: #{inspect(pid)}")
+    # Get references to the HNSW index and pattern indexer (started by supervisor)
+    hnsw_name = opts[:hnsw_name] || :hnsw_index
+    indexer_name = opts[:indexer_name] || AutonomousOpponentV2Core.VSM.S4.PatternIndexer
+    
+    # Wait briefly for supervisor to start them
+    Process.sleep(100)
+    
+    # Verify they're running
+    unless Process.whereis(hnsw_name) do
+      Logger.error("HNSW index not found: #{inspect(hnsw_name)}")
     end
     
-    # Start pattern indexer if not already running
-    indexer_name = opts[:indexer_name] || AutonomousOpponentV2Core.VSM.S4.PatternIndexer
-    case Process.whereis(indexer_name) do
-      nil ->
-        {:ok, _} = PatternIndexer.start_link(
-          name: indexer_name,
-          hnsw_server: hnsw_name,
-          vector_dimensions: @vector_dim
-        )
-      pid when is_pid(pid) ->
-        Logger.info("Pattern indexer already running: #{inspect(pid)}")
+    unless Process.whereis(indexer_name) do
+      Logger.error("Pattern indexer not found: #{inspect(indexer_name)}")
     end
     
     state = %__MODULE__{

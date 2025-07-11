@@ -1,4 +1,4 @@
-defmodule AutonomousOpponent.Metrics.Cluster.PatternAggregator do
+defmodule AutonomousOpponentV2Core.Metrics.Cluster.PatternAggregator do
   @moduledoc """
   Cluster-wide pattern aggregation for distributed HNSW indices.
   
@@ -12,9 +12,9 @@ defmodule AutonomousOpponent.Metrics.Cluster.PatternAggregator do
   use GenServer
   require Logger
   
-  alias AutonomousOpponent.EventBus
-  alias AutonomousOpponent.VSM.S4.VectorStore.HNSWIndex
-  alias AutonomousOpponent.Metrics.CRDTStore
+  alias AutonomousOpponentV2Core.EventBus
+  alias AutonomousOpponentV2Core.VSM.S4.VectorStore.HNSWIndex
+  alias AutonomousOpponentV2Core.Metrics.CRDTStore
   
   defstruct [
     :pattern_cache,
@@ -109,7 +109,7 @@ defmodule AutonomousOpponent.Metrics.Cluster.PatternAggregator do
     
     node_stats = :erpc.multicall(
       nodes,
-      AutonomousOpponent.VSM.S4.PatternHNSWBridge,
+      AutonomousOpponentV2Core.VSM.S4.PatternHNSWBridge,
       :get_stats,
       [],
       5000
@@ -182,7 +182,7 @@ defmodule AutonomousOpponent.Metrics.Cluster.PatternAggregator do
     nodes = [node() | Node.list()]
     
     Enum.filter(nodes, fn n ->
-      case :rpc.call(n, Process, :whereis, [AutonomousOpponent.VSM.S4.PatternHNSWBridge]) do
+      case :rpc.call(n, Process, :whereis, [AutonomousOpponentV2Core.VSM.S4.PatternHNSWBridge]) do
         pid when is_pid(pid) -> true
         _ -> false
       end
@@ -318,12 +318,12 @@ defmodule AutonomousOpponent.Metrics.Cluster.PatternAggregator do
   
   def get_local_pattern_summary do
     # This runs on each node to get pattern summary
-    case Process.whereis(AutonomousOpponent.VSM.S4.PatternHNSWBridge) do
+    case Process.whereis(AutonomousOpponentV2Core.VSM.S4.PatternHNSWBridge) do
       nil -> 
         %{node: node(), patterns: []}
       
       _pid ->
-        stats = AutonomousOpponent.VSM.S4.PatternHNSWBridge.get_stats()
+        stats = AutonomousOpponentV2Core.VSM.S4.PatternHNSWBridge.get_stats()
         
         # Get recent patterns from HNSW index
         patterns = case HNSWIndex.get_recent_patterns(:hnsw_index, 100) do

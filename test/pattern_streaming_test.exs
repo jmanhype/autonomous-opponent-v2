@@ -5,12 +5,12 @@ defmodule PatternStreamingTest do
   """
   
   use ExUnit.Case
-  use AutonomousOpponentWeb.ChannelCase
+  use AutonomousOpponentV2Web.ChannelCase
   
-  alias AutonomousOpponent.EventBus
-  alias AutonomousOpponent.VSM.S4.PatternHNSWBridge
-  alias AutonomousOpponent.VSM.S4.VectorStore.HNSWIndex
-  alias AutonomousOpponent.Metrics.Cluster.PatternAggregator
+  alias AutonomousOpponentV2Core.EventBus
+  alias AutonomousOpponentV2Core.VSM.S4.PatternHNSWBridge
+  alias AutonomousOpponentV2Core.VSM.S4.VectorStore.HNSWIndex
+  alias AutonomousOpponentV2Core.Metrics.Cluster.PatternAggregator
   
   @test_vector List.duplicate(0.5, 100)  # 100-dimensional test vector
   
@@ -20,9 +20,9 @@ defmodule PatternStreamingTest do
     
     # Connect to WebSocket
     {:ok, _, socket} =
-      AutonomousOpponentWeb.UserSocket
+      AutonomousOpponentV2Web.UserSocket
       |> socket("test_user", %{})
-      |> subscribe_and_join(AutonomousOpponentWeb.PatternsChannel, "patterns:stream")
+      |> subscribe_and_join(AutonomousOpponentV2Web.PatternsChannel, "patterns:stream")
     
     %{socket: socket}
   end
@@ -260,9 +260,9 @@ defmodule PatternStreamingTest do
     test "periodic stats updates via WebSocket" do
       # Join stats channel
       {:ok, _, stats_socket} =
-        AutonomousOpponentWeb.UserSocket
+        AutonomousOpponentV2Web.UserSocket
         |> socket("stats_user", %{})
-        |> subscribe_and_join(AutonomousOpponentWeb.PatternsChannel, "patterns:stats")
+        |> subscribe_and_join(AutonomousOpponentV2Web.PatternsChannel, "patterns:stats")
       
       # Should receive initial stats
       assert_push "initial_stats", %{stats: stats, monitoring: _}, 2000
@@ -277,9 +277,9 @@ defmodule PatternStreamingTest do
     test "pattern flow through VSM subsystems" do
       # Join VSM-specific channel
       {:ok, _, vsm_socket} =
-        AutonomousOpponentWeb.UserSocket
+        AutonomousOpponentV2Web.UserSocket
         |> socket("vsm_user", %{})
-        |> subscribe_and_join(AutonomousOpponentWeb.PatternsChannel, "patterns:vsm", %{
+        |> subscribe_and_join(AutonomousOpponentV2Web.PatternsChannel, "patterns:vsm", %{
           "subsystem" => "s4"
         })
       
@@ -302,8 +302,8 @@ defmodule PatternStreamingTest do
   
   defp ensure_processes_started do
     # Ensure HNSW index is running
-    unless Process.whereis(AutonomousOpponentV2Core.VSM.S4.HNSWIndex) do
-      {:ok, _} = HNSWIndex.start_link(name: AutonomousOpponentV2Core.VSM.S4.HNSWIndex)
+    unless Process.whereis(:hnsw_index) do
+      {:ok, _} = HNSWIndex.start_link(name: :hnsw_index)
     end
     
     # Ensure PatternHNSWBridge is running

@@ -10,11 +10,11 @@ defmodule AutonomousOpponentWeb.PatternFlowLive do
   - Cluster-wide pattern consensus
   """
   
-  use AutonomousOpponentWeb, :live_view
+  use AutonomousOpponentV2Web, :live_view
   require Logger
   
-  alias AutonomousOpponent.EventBus
-  alias AutonomousOpponent.VSM.S4.PatternHNSWBridge
+  alias AutonomousOpponentV2Core.EventBus
+  alias AutonomousOpponentV2Core.VSM.S4.PatternHNSWBridge
   alias Phoenix.Socket.Broadcast
   
   @refresh_interval 1000  # 1 second
@@ -262,11 +262,11 @@ defmodule AutonomousOpponentWeb.PatternFlowLive do
   end
   
   defp load_stats(socket) do
-    stats = case Process.whereis(AutonomousOpponent.VSM.S4.PatternHNSWBridge) do
+    stats = case Process.whereis(AutonomousOpponentV2Core.VSM.S4.PatternHNSWBridge) do
       nil -> %{}
       _pid -> 
         try do
-          AutonomousOpponent.VSM.S4.PatternHNSWBridge.get_stats()
+          AutonomousOpponentV2Core.VSM.S4.PatternHNSWBridge.get_stats()
         rescue
           _ -> %{}
         end
@@ -276,11 +276,11 @@ defmodule AutonomousOpponentWeb.PatternFlowLive do
   end
   
   defp load_monitoring(socket) do
-    monitoring = case Process.whereis(AutonomousOpponent.VSM.S4.PatternHNSWBridge) do
+    monitoring = case Process.whereis(AutonomousOpponentV2Core.VSM.S4.PatternHNSWBridge) do
       nil -> %{}
       _pid -> 
         try do
-          AutonomousOpponent.VSM.S4.PatternHNSWBridge.get_monitoring_info()
+          AutonomousOpponentV2Core.VSM.S4.PatternHNSWBridge.get_monitoring_info()
         rescue
           _ -> %{}
         end

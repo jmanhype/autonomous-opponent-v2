@@ -1,4 +1,4 @@
-defmodule AutonomousOpponentWeb.UserSocket do
+defmodule AutonomousOpponentV2Web.UserSocket do
   use Phoenix.Socket
 
   # A Socket handler
@@ -9,9 +9,9 @@ defmodule AutonomousOpponentWeb.UserSocket do
   ## Channels
   
   # Pattern streaming channels
-  channel "patterns:stream", AutonomousOpponentWeb.PatternsChannel
-  channel "patterns:stats", AutonomousOpponentWeb.PatternsChannel
-  channel "patterns:vsm", AutonomousOpponentWeb.PatternsChannel
+  channel "patterns:stream", AutonomousOpponentV2Web.PatternsChannel
+  channel "patterns:stats", AutonomousOpponentV2Web.PatternsChannel
+  channel "patterns:vsm", AutonomousOpponentV2Web.PatternsChannel
 
 
   # Socket params are passed from the client and can

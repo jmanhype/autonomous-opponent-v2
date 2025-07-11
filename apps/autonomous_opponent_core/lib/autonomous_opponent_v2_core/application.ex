@@ -63,8 +63,6 @@ defmodule AutonomousOpponentV2Core.Application do
       AutonomousOpponentV2Core.AMCP.Events.SemanticFusion,
       # Consciousness module for AI self-awareness
       AutonomousOpponentV2Core.Consciousness,
-      # Pattern HNSW Bridge - connects pattern matching to vector indexing
-      AutonomousOpponentV2Core.VSM.S4.PatternHNSWBridge,
       # Goldrush Event Processor for pattern matching
       AutonomousOpponentV2Core.AMCP.Goldrush.EventProcessor
     ]
