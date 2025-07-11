@@ -384,6 +384,9 @@ defmodule AutonomousOpponentV2Core.VSM.S5.Policy do
         :ok
     end
     
+    # Publish VSM pattern events for HNSW streaming
+    publish_pattern_events(state)
+    
     {:noreply, state}
   end
   
@@ -2324,6 +2327,102 @@ defmodule AutonomousOpponentV2Core.VSM.S5.Policy do
       environmental_model.change_rate > 0.6 -> :agile
       environmental_model.complexity > 0.7 -> :conservative
       true -> :balanced
+    end
+  end
+
+  # VSM Pattern Publishing - Complete VSM Integration
+  defp publish_pattern_events(state) do
+    # Publish S5-specific policy patterns for VSM integration
+    try do
+      # Create S5 policy pattern from current state
+      pattern_data = %{
+        subsystem: "S5",
+        type: "policy_pattern",
+        timestamp: DateTime.utc_now(),
+        metrics: %{
+          health_score: calculate_health_score(state),
+          identity_coherence: state.health_metrics.identity_coherence,
+          ethos_alignment: state.ethos_state.alignment,
+          governance_effectiveness: calculate_governance_effectiveness(state),
+          policy_compliance: calculate_policy_compliance(state),
+          violation_rate: calculate_violation_rate(state),
+          adaptation_stress: calculate_adaptation_stress(state)
+        },
+        policy_data: %{
+          active_constraints: map_size(state.constraints),
+          policy_rules_count: length(state.policy_rules),
+          environmental_assessment: state.environmental_model,
+          constraint_violations: Map.get(state, :constraint_violations, []),
+          governance_mode: Map.get(Map.get(state, :governance_state, %{}), :mode, :normal),
+          identity_drift: calculate_identity_drift(state)
+        },
+        system_identity: %{
+          core_values: state.values,
+          adaptation_strategy: determine_adaptation_strategy(state.environmental_model),
+          identity_stable: state.health_metrics.identity_coherence > 0.8,
+          ethos_coherent: state.ethos_state.alignment > 0.7
+        }
+      }
+
+      # Publish to S5-specific pattern channel
+      EventBus.publish(:vsm_s5_patterns, pattern_data)
+      
+      # Also publish to general VSM pattern flow
+      EventBus.publish(:vsm_pattern_flow, pattern_data)
+      
+      # Publish governance patterns
+      governance_pattern = %{
+        subsystem: "S5",
+        type: "governance_pattern",
+        timestamp: DateTime.utc_now(),
+        governance_active: state.governance_state.mode != :normal,
+        decisions_made: length(state.decisions.history),
+        constraint_adjustments: count_recent_constraint_changes(state),
+        emergency_responses: state.emergency_state.responses_triggered,
+        policy_effectiveness: measure_policy_effectiveness(state)
+      }
+      
+      EventBus.publish(:vsm_s5_patterns, governance_pattern)
+      EventBus.publish(:vsm_pattern_flow, governance_pattern)
+      
+    catch
+      :exit, {:noproc, _} ->
+        # EventBus not available, skip publishing
+        :ok
+      error ->
+        Logger.warning("S5: Failed to publish pattern events: #{inspect(error)}")
+    end
+  end
+  
+  defp calculate_identity_drift(state) do
+    # Calculate how much identity has drifted from baseline
+    baseline_coherence = 1.0  # Perfect coherence baseline
+    current_coherence = state.health_metrics.identity_coherence
+    
+    baseline_coherence - current_coherence
+  end
+  
+  defp count_recent_constraint_changes(state) do
+    # Count constraint changes in recent history
+    now = System.monotonic_time(:millisecond)
+    recent_cutoff = now - 300_000  # Last 5 minutes
+    
+    state.constraint_violations
+    |> Enum.filter(fn violation -> violation.timestamp > recent_cutoff end)
+    |> length()
+  end
+  
+  defp measure_policy_effectiveness(state) do
+    # Measure how effective policies are at maintaining system health
+    total_decisions = length(state.decisions.history)
+    
+    if total_decisions > 0 do
+      successful_decisions = state.decisions.history
+      |> Enum.count(fn decision -> decision.outcome == :success end)
+      
+      successful_decisions / total_decisions
+    else
+      1.0  # Default to perfect effectiveness if no decisions yet
     end
   end
 end

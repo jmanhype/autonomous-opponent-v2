@@ -374,6 +374,9 @@ defmodule AutonomousOpponentV2Core.VSM.S1.Operations do
         :ok
     end
     
+    # Publish VSM pattern events for HNSW streaming
+    publish_pattern_events(state)
+    
     {:noreply, state}
   end
 
@@ -1030,4 +1033,98 @@ defmodule AutonomousOpponentV2Core.VSM.S1.Operations do
   #       operation_worker_loop()
   #   end
   # end
+
+  # VSM Pattern Publishing - Complete VSM Integration
+  defp publish_pattern_events(state) do
+    # Publish S1-specific patterns for VSM integration
+    try do
+      # Create S1 operations pattern from current state
+      pattern_data = %{
+        subsystem: "S1",
+        type: "operations_pattern",
+        timestamp: DateTime.utc_now(),
+        metrics: %{
+          health_score: calculate_health_score(state),
+          current_load: state.current_load,
+          variety_ratio: calculate_variety_ratio(state),
+          entropy: state.system_capacity.current_entropy,
+          processed_requests: state.health_metrics.processed,
+          rejected_requests: state.health_metrics.rejected,
+          failed_requests: state.health_metrics.failed
+        },
+        variety_data: %{
+          request_types: Map.keys(state.variety_tracker.request_types),
+          unique_data_shapes: map_size(state.variety_tracker.data_shapes),
+          source_diversity: map_size(state.variety_tracker.source_addresses),
+          entropy_score: calculate_shannon_entropy(state.variety_tracker)
+        },
+        system_status: %{
+          control_mode: state.control_mode,
+          cpu_usage: state.health_metrics.cpu_usage,
+          memory_usage: state.health_metrics.memory_usage,
+          io_wait: state.health_metrics.io_wait,
+          system_capacity: state.system_capacity.theoretical_max_requests
+        }
+      }
+
+      # Publish to S1-specific pattern channel
+      EventBus.publish(:vsm_s1_patterns, pattern_data)
+      
+      # Also publish to general VSM pattern flow
+      EventBus.publish(:vsm_pattern_flow, pattern_data)
+      
+      # Publish variety management patterns
+      variety_pattern = %{
+        subsystem: "S1",
+        type: "variety_absorption_pattern", 
+        timestamp: DateTime.utc_now(),
+        absorption_rate: calculate_absorption_rate(state),
+        attenuation_active: state.current_load > 0.7,
+        variety_categories: categorize_variety(state.variety_tracker),
+        prediction: predict_variety_trend(state)
+      }
+      
+      EventBus.publish(:vsm_s1_patterns, variety_pattern)
+      EventBus.publish(:vsm_pattern_flow, variety_pattern)
+      
+    catch
+      :exit, {:noproc, _} ->
+        # EventBus not available, skip publishing
+        :ok
+      error ->
+        Logger.warning("S1: Failed to publish pattern events: #{inspect(error)}")
+    end
+  end
+  
+  defp calculate_absorption_rate(state) do
+    total_input = state.health_metrics.processed + state.health_metrics.rejected + state.health_metrics.failed
+    if total_input > 0 do
+      state.health_metrics.processed / total_input
+    else
+      1.0
+    end
+  end
+  
+  defp categorize_variety(variety_tracker) do
+    %{
+      request_diversity: map_size(variety_tracker.request_types),
+      structural_diversity: map_size(variety_tracker.data_shapes), 
+      source_diversity: map_size(variety_tracker.source_addresses),
+      temporal_patterns: length(variety_tracker.timing_patterns)
+    }
+  end
+  
+  defp predict_variety_trend(state) do
+    # Simple trend prediction based on recent entropy changes
+    if length(state.entropy_window) >= 2 do
+      recent = Enum.take(state.entropy_window, 2)
+      case recent do
+        [current, previous] when current > previous -> "increasing"
+        [current, previous] when current < previous -> "decreasing" 
+        _ -> "stable"
+      end
+    else
+      "insufficient_data"
+    end
+  end
 end

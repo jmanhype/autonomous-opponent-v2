@@ -418,7 +418,10 @@ defmodule AutonomousOpponentV2Core.VSM.S4.Intelligence do
       end
     end
     
-    {:noreply, new_state}
+    # Publish VSM pattern events for HNSW streaming
+    final_state = publish_pattern_events(new_state)
+    
+    {:noreply, final_state}
   end
   
   # Private Functions
@@ -3262,5 +3265,153 @@ defmodule AutonomousOpponentV2Core.VSM.S4.Intelligence do
       true ->
         ["Continue normal operations", "Maintain current policies"]
     end
+  end
+
+  # VSM Pattern Publishing - Complete VSM Integration
+  defp publish_pattern_events(state) do
+    # Publish S4-specific intelligence patterns for VSM integration
+    try do
+      # Create S4 intelligence pattern from current state
+      pattern_data = %{
+        subsystem: "S4",
+        type: "intelligence_pattern",
+        timestamp: DateTime.utc_now(),
+        metrics: %{
+          health_score: calculate_health_score(state),
+          environmental_complexity: state.health_metrics.environmental_complexity,
+          prediction_accuracy: prediction_accuracy(state),
+          pattern_detection_rate: Map.get(state.health_metrics, :total_patterns, 0) / max(1, Map.get(state.health_metrics, :scans_performed, 1)),
+          scan_frequency: state.health_metrics.scans_performed,
+          anomaly_detection_rate: calculate_anomaly_rate(state)
+        },
+        intelligence_data: %{
+          environmental_model: state.environmental_model,
+          detected_patterns: summarize_recent_patterns(state),
+          prediction_quality: assess_prediction_quality(state),
+          adaptation_signals: extract_adaptation_signals(state),
+          learning_rate: calculate_learning_effectiveness(state)
+        },
+        analysis_status: %{
+          algorithms_active: length(state.pattern_detector.algorithms),
+          llm_integration_active: state.llm_integration.enabled,
+          environmental_scan_active: true,
+          pattern_cache_size: map_size(state.pattern_cache),
+          recent_anomalies: count_recent_anomalies(state)
+        }
+      }
+
+      # Publish to S4-specific pattern channel
+      EventBus.publish(:vsm_s4_patterns, pattern_data)
+      
+      # Also publish to general VSM pattern flow
+      EventBus.publish(:vsm_pattern_flow, pattern_data)
+      
+      # Publish environmental scanning patterns
+      scan_pattern = %{
+        subsystem: "S4",
+        type: "environmental_scan_pattern",
+        timestamp: DateTime.utc_now(),
+        environmental_complexity: state.health_metrics.environmental_complexity,
+        threats_detected: calculate_threat_level(state.environmental_model.last_scan_patterns),
+        opportunities_detected: calculate_opportunity_level(state.environmental_model.last_scan_patterns),
+        change_velocity: assess_environmental_change_rate(state),
+        predictive_accuracy: prediction_accuracy(state),
+        adaptation_needed: state.health_metrics.environmental_complexity > 0.7
+      }
+      
+      EventBus.publish(:vsm_s4_patterns, scan_pattern)
+      EventBus.publish(:vsm_pattern_flow, scan_pattern)
+      
+    catch
+      :exit, {:noproc, _} ->
+        # EventBus not available, skip publishing
+        :ok
+      error ->
+        Logger.warning("S4: Failed to publish pattern events: #{inspect(error)}")
+    end
+  end
+  
+  defp calculate_anomaly_rate(state) do
+    if state.health_metrics.scans_performed > 0 do
+      state.health_metrics.anomalies_detected / state.health_metrics.scans_performed
+    else
+      0.0
+    end
+  end
+  
+  defp summarize_recent_patterns(state) do
+    # Get recent patterns from cache
+    now = System.monotonic_time(:millisecond)
+    recent_cutoff = now - 300_000  # Last 5 minutes
+    
+    recent_patterns = state.pattern_cache
+    |> Enum.filter(fn {_, pattern} -> pattern.timestamp > recent_cutoff end)
+    |> Enum.map(fn {_, pattern} -> %{type: pattern.type, confidence: pattern.confidence} end)
+    
+    %{
+      total_recent: length(recent_patterns),
+      pattern_types: recent_patterns |> Enum.map(& &1.type) |> Enum.frequencies(),
+      avg_confidence: if(length(recent_patterns) > 0, 
+        do: Enum.sum(Enum.map(recent_patterns, & &1.confidence)) / length(recent_patterns), 
+        else: 0.0)
+    }
+  end
+  
+  defp assess_prediction_quality(state) do
+    accuracy = prediction_accuracy(state)
+    %{
+      accuracy_score: accuracy,
+      quality_level: cond do
+        accuracy > 0.8 -> "excellent"
+        accuracy > 0.6 -> "good"
+        accuracy > 0.4 -> "fair"
+        true -> "poor"
+      end,
+      predictions_made: state.health_metrics.predictions_made,
+      correct_predictions: state.health_metrics.correct_predictions
+    }
+  end
+  
+  defp extract_adaptation_signals(state) do
+    # Extract signals that indicate need for system adaptation
+    %{
+      complexity_rising: state.health_metrics.environmental_complexity > 0.7,
+      pattern_diversity_high: map_size(state.pattern_cache) > 100,
+      prediction_degrading: prediction_accuracy(state) < 0.6,
+      anomaly_frequency_high: calculate_anomaly_rate(state) > 0.1,
+      environmental_volatility: state.environmental_model.volatility > 0.5
+    }
+  end
+  
+  defp calculate_learning_effectiveness(state) do
+    # Measure how effectively the system is learning from patterns
+    if state.health_metrics.scans_performed > 10 do
+      # Learning effectiveness based on improvement in accuracy over time
+      recent_accuracy = prediction_accuracy(state)
+      baseline_accuracy = 0.5  # Assume 50% baseline
+      
+      (recent_accuracy - baseline_accuracy) / baseline_accuracy
+    else
+      0.0  # Not enough data to assess learning
+    end
+  end
+  
+  defp count_recent_anomalies(state) do
+    # Count anomalies detected in recent scans
+    now = System.monotonic_time(:millisecond)
+    recent_cutoff = now - 600_000  # Last 10 minutes
+    
+    state.pattern_cache
+    |> Enum.count(fn {_, pattern} -> 
+      pattern.timestamp > recent_cutoff and pattern.type == :anomaly
+    end)
+  end
+  
+  defp assess_environmental_change_rate(state) do
+    # Assess how quickly the environment is changing
+    volatility = state.environmental_model.volatility
+    complexity_change = abs(state.health_metrics.environmental_complexity - 0.5)
+    
+    (volatility + complexity_change) / 2
   end
 end
