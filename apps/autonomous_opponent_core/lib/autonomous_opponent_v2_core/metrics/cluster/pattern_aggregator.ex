@@ -55,6 +55,13 @@ defmodule AutonomousOpponentV2Core.Metrics.Cluster.PatternAggregator do
     GenServer.call(__MODULE__, {:get_consensus_patterns, min_nodes})
   end
   
+  @doc """
+  Get WebSocket connection statistics across all nodes.
+  """
+  def get_cluster_connection_stats do
+    GenServer.call(__MODULE__, :get_cluster_connection_stats)
+  end
+  
   # Server callbacks
   
   @impl true
@@ -137,6 +144,32 @@ defmodule AutonomousOpponentV2Core.Metrics.Cluster.PatternAggregator do
     end)
     
     {:reply, {:ok, consensus_patterns}, state}
+  end
+  
+  @impl true
+  def handle_call(:get_cluster_connection_stats, _from, state) do
+    # Get all nodes
+    nodes = [node() | Node.list()]
+    
+    # Collect connection stats from all nodes
+    case :erpc.multicall(
+      nodes,
+      AutonomousOpponentV2Web.PatternsChannel,
+      :get_connection_stats,
+      [],
+      5000
+    ) do
+      {node_stats, []} ->
+        # All nodes responded
+        aggregated = aggregate_connection_stats(node_stats)
+        {:reply, {:ok, aggregated}, state}
+      
+      {node_stats, bad_nodes} ->
+        # Some nodes failed
+        Logger.warning("Failed to get connection stats from nodes: #{inspect(bad_nodes)}")
+        aggregated = aggregate_connection_stats(node_stats)
+        {:reply, {:ok, Map.put(aggregated, :failed_nodes, bad_nodes)}, state}
+    end
   end
   
   @impl true
@@ -415,5 +448,64 @@ defmodule AutonomousOpponentV2Core.Metrics.Cluster.PatternAggregator do
   
   defp schedule_aggregation do
     Process.send_after(self(), :aggregate_patterns, @aggregation_interval)
+  end
+  
+  defp aggregate_connection_stats(node_stats) do
+    # Initialize accumulator
+    initial_acc = %{
+      by_topic: %{},
+      by_node: %{},
+      total: 0,
+      timestamp: DateTime.utc_now()
+    }
+    
+    # Aggregate stats from all nodes
+    aggregated = Enum.reduce(node_stats, initial_acc, fn node_stat, acc ->
+      node = node_stat.node
+      
+      # Update by_node
+      acc = put_in(acc.by_node[node], %{
+        connections: node_stat.connections,
+        total: node_stat.total
+      })
+      
+      # Update by_topic and total
+      acc = Enum.reduce(node_stat.connections, acc, fn {topic, node_counts}, acc ->
+        # Sum connections for this topic
+        topic_total = node_counts
+        |> Map.values()
+        |> Enum.sum()
+        
+        acc
+        |> update_in([:by_topic, topic], fn existing ->
+          Map.merge(existing || %{}, node_counts, fn _k, v1, v2 -> v1 + v2 end)
+        end)
+        |> update_in([:total], &(&1 + topic_total))
+      end)
+      
+      acc
+    end)
+    
+    # Calculate topic totals
+    topic_totals = aggregated.by_topic
+    |> Enum.map(fn {topic, node_counts} ->
+      total = node_counts
+      |> Map.values()
+      |> Enum.sum()
+      
+      {topic, %{
+        nodes: node_counts,
+        total: total
+      }}
+    end)
+    |> Map.new()
+    
+    %{
+      topics: topic_totals,
+      nodes: aggregated.by_node,
+      total_connections: aggregated.total,
+      cluster_size: length(node_stats),
+      timestamp: aggregated.timestamp
+    }
   end
 end

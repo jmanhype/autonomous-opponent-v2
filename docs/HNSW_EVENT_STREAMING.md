@@ -135,6 +135,19 @@ config :autonomous_opponent_core, :pattern_hnsw_bridge,
 
 ## Monitoring
 
+### Connection Count Use Cases
+
+WebSocket connection counts are critical for:
+
+1. **Auto-scaling**: Scale up when connections exceed thresholds
+2. **Capacity Protection**: Reject new connections at 90-95% of limits
+3. **Real-time Presence**: Display active user counts
+4. **Billing/Licensing**: Track concurrent connections for SaaS plans
+5. **Security**: Detect connection floods or DDoS attempts
+6. **Performance Dashboards**: Correlate with system load
+7. **Cost Attribution**: Calculate cloud egress costs
+8. **Feature Rollouts**: Monitor connection churn during deployments
+
 ### Key Metrics
 
 1. **Variety Metrics**
@@ -168,6 +181,51 @@ channel.push("get_monitoring", {})
   console.log("Health:", monitoring.health.status)
   console.log("Backpressure:", monitoring.backpressure.active)
   console.log("Dedup rate:", monitoring.deduplication.dedup_rate)
+  console.log("WebSocket connections:", monitoring.websocket_connections)
+})
+```
+
+### Connection Monitoring
+
+Monitor WebSocket connections per topic and node:
+
+```javascript
+// Get local node connection stats
+channel.push("get_connection_stats", {})
+.receive("ok", stats => {
+  console.log("Total connections:", stats.total)
+  console.log("By topic:", stats.connections)
+  // Example output:
+  // {
+  //   "patterns:stream": {"node@host": 45},
+  //   "patterns:stats": {"node@host": 12},
+  //   "patterns:vsm": {"node@host": 8}
+  // }
+})
+
+// Get cluster-wide connection stats
+channel.push("get_cluster_connection_stats", {})
+.receive("ok", stats => {
+  console.log("Total cluster connections:", stats.total_connections)
+  console.log("Connections by topic:", stats.topics)
+  console.log("Connections by node:", stats.nodes)
+  
+  // Use for auto-scaling decisions
+  if (stats.total_connections > 1000) {
+    console.warn("High connection count - consider scaling")
+  }
+})
+```
+
+Connection stats are also included in periodic updates:
+
+```javascript
+statsChannel.on("stats_update", update => {
+  console.log("Pattern stats:", update.stats)
+  console.log("Connection stats:", update.connections)
+  
+  // Update monitoring dashboard
+  updateConnectionMetrics(update.connections)
 })
 ```
 

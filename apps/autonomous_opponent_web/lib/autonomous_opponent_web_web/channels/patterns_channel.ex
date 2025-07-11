@@ -7,6 +7,7 @@ defmodule AutonomousOpponentV2Web.PatternsChannel do
   - Pattern statistics and monitoring
   - VSM subsystem pattern flow
   - Algedonic pattern alerts
+  - Connection count metrics for operational monitoring
   """
   use AutonomousOpponentV2Web, :channel
   require Logger
@@ -14,9 +15,25 @@ defmodule AutonomousOpponentV2Web.PatternsChannel do
   alias AutonomousOpponentV2Core.EventBus
   alias AutonomousOpponentV2Core.VSM.S4.PatternHNSWBridge
   alias AutonomousOpponentV2Core.VSM.S4.VectorStore.HNSWIndex
+  
+  # ETS table for connection tracking
+  @connection_table :pattern_channel_connections
+  
+  # Initialize the connection tracking table
+  def init_connection_tracking do
+    if :ets.whereis(@connection_table) == :undefined do
+      :ets.new(@connection_table, [:public, :named_table, :set, {:write_concurrency, true}])
+    end
+  end
 
   @impl true
   def join("patterns:stream", _payload, socket) do
+    # Initialize connection tracking if not already done
+    init_connection_tracking()
+    
+    # Increment connection counter for this topic
+    :ets.update_counter(@connection_table, {"patterns:stream", node()}, 1, {{"patterns:stream", node()}, 0})
+    
     # Try to subscribe to pattern events, but don't crash if EventBus isn't available
     try do
       EventBus.subscribe(:patterns_indexed)
@@ -38,6 +55,12 @@ defmodule AutonomousOpponentV2Web.PatternsChannel do
   
   @impl true
   def join("patterns:stats", _payload, socket) do
+    # Initialize connection tracking if not already done
+    init_connection_tracking()
+    
+    # Increment connection counter for this topic
+    :ets.update_counter(@connection_table, {"patterns:stats", node()}, 1, {{"patterns:stats", node()}, 0})
+    
     # Stats-only channel - no event subscriptions
     send(self(), :send_stats)
     
@@ -50,6 +73,12 @@ defmodule AutonomousOpponentV2Web.PatternsChannel do
   @impl true
   def join("patterns:vsm", payload, socket) do
     subsystem = Map.get(payload, "subsystem", "all")
+    
+    # Initialize connection tracking if not already done
+    init_connection_tracking()
+    
+    # Increment connection counter for this topic
+    :ets.update_counter(@connection_table, {"patterns:vsm", node()}, 1, {{"patterns:vsm", node()}, 0})
     
     # Subscribe to VSM-specific pattern events
     if subsystem == "all" do
@@ -130,9 +159,11 @@ defmodule AutonomousOpponentV2Web.PatternsChannel do
   @impl true
   def handle_info(:send_stats, socket) do
     stats = get_pattern_stats()
+    connection_stats = get_connection_stats()
     
     push(socket, "stats_update", %{
       stats: stats,
+      connections: connection_stats,
       timestamp: DateTime.utc_now()
     })
     
@@ -183,9 +214,35 @@ defmodule AutonomousOpponentV2Web.PatternsChannel do
         {:reply, {:error, %{reason: to_string(reason)}}, socket}
     end
   end
+  
+  @impl true
+  def handle_in("get_connection_stats", _payload, socket) do
+    stats = get_connection_stats()
+    {:reply, {:ok, stats}, socket}
+  end
+  
+  @impl true
+  def handle_in("get_cluster_connection_stats", _payload, socket) do
+    case AutonomousOpponentV2Core.Metrics.Cluster.PatternAggregator.get_cluster_connection_stats() do
+      {:ok, stats} ->
+        {:reply, {:ok, stats}, socket}
+      {:error, reason} ->
+        {:reply, {:error, %{reason: to_string(reason)}}, socket}
+    end
+  end
 
   @impl true
   def terminate(_reason, socket) do
+    # Decrement connection counter
+    topic = socket.topic
+    try do
+      :ets.update_counter(@connection_table, {topic, node()}, -1, {{topic, node()}, 0})
+    catch
+      :error, :badarg ->
+        # Table might not exist, ignore
+        :ok
+    end
+    
     # Unsubscribe from all EventBus topics
     EventBus.unsubscribe(:patterns_indexed)
     EventBus.unsubscribe(:pattern_matched)
@@ -213,13 +270,49 @@ defmodule AutonomousOpponentV2Web.PatternsChannel do
     end
   end
   
+  @doc """
+  Get WebSocket connection statistics for this node.
+  """
+  def get_connection_stats do
+    init_connection_tracking()
+    
+    # Collect all connection data
+    connections = :ets.tab2list(@connection_table)
+    
+    # Group by topic
+    stats = Enum.reduce(connections, %{}, fn {{topic, node}, count}, acc ->
+      Map.update(acc, topic, %{node => count}, fn existing ->
+        Map.put(existing, node, count)
+      end)
+    end)
+    
+    # Calculate totals
+    total_connections = connections
+    |> Enum.map(fn {_, count} -> count end)
+    |> Enum.sum()
+    
+    %{
+      connections: stats,
+      total: total_connections,
+      node: node(),
+      timestamp: DateTime.utc_now()
+    }
+  end
+  
   defp get_monitoring_info do
-    case Process.whereis(AutonomousOpponentV2Core.VSM.S4.PatternHNSWBridge) do
+    bridge_info = case Process.whereis(AutonomousOpponentV2Core.VSM.S4.PatternHNSWBridge) do
       nil -> 
         %{error: "bridge_not_running"}
       _pid ->
         AutonomousOpponentV2Core.VSM.S4.PatternHNSWBridge.get_monitoring_info()
     end
+    
+    # Add connection stats to monitoring info
+    connection_stats = get_connection_stats()
+    
+    Map.merge(bridge_info, %{
+      websocket_connections: connection_stats
+    })
   end
   
   defp sanitize_context(context) when is_map(context) do
