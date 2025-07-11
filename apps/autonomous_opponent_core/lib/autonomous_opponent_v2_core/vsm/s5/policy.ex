@@ -80,6 +80,10 @@ defmodule AutonomousOpponentV2Core.VSM.S5.Policy do
     EventBus.subscribe(:resource_allocation)
     EventBus.subscribe(:decision_made)
     
+    # Subscribe to pattern policy events - Issue #92
+    EventBus.subscribe(:s5_pattern_policy)
+    EventBus.subscribe(:vsm_emergency_pattern)
+    
     # Start monitoring loops
     Process.send_after(self(), :evaluate_identity, 10_000)
     Process.send_after(self(), :report_health, 100)  # Report health immediately to prevent "dead" detection
@@ -339,6 +343,40 @@ defmodule AutonomousOpponentV2Core.VSM.S5.Policy do
     end
     
     {:noreply, updated_state}
+  end
+  
+  @impl true
+  def handle_info({:event, :s5_pattern_policy, policy_adjustment}, state) do
+    # Pattern-based policy adjustment from S4 Intelligence - Issue #92
+    Logger.info("📋 S5: Received pattern-based policy adjustment - #{policy_adjustment.pattern_type}")
+    
+    # Evaluate policy implications
+    new_state = process_pattern_policy(policy_adjustment, state)
+    
+    # Report policy update result
+    EventBus.publish(:s5_policy_updated, %{
+      pattern_id: policy_adjustment.pattern_id,
+      pattern_type: policy_adjustment.pattern_type,
+      adjustments_made: policy_adjustment.recommended_constraints,
+      system_impact: evaluate_policy_impact(new_state, state),
+      timestamp: DateTime.utc_now()
+    })
+    
+    {:noreply, new_state}
+  end
+  
+  @impl true
+  def handle_info({:event, :vsm_emergency_pattern, emergency_data}, state) do
+    # Emergency pattern policy override - bypass normal governance
+    Logger.error("🚨 S5: EMERGENCY PATTERN POLICY - #{emergency_data.pattern_type}")
+    
+    # Immediate policy suspension for emergency
+    new_state = execute_emergency_pattern_policy(emergency_data, state)
+    
+    # Algedonic confirmation
+    Algedonic.report_pain(:s5_emergency_policy, emergency_data.pattern_type, 1.0)
+    
+    {:noreply, new_state}
   end
   
   @impl true
@@ -2444,5 +2482,142 @@ defmodule AutonomousOpponentV2Core.VSM.S5.Policy do
     else
       1.0  # Default to perfect effectiveness if no decisions yet
     end
+  end
+  
+  # Pattern Policy Functions - Issue #92
+  
+  defp process_pattern_policy(policy_adjustment, state) do
+    # Process pattern-based policy adjustments
+    Logger.info("📋 S5: Processing pattern policy implications")
+    
+    # Apply recommended constraints if they align with identity
+    new_constraints = Enum.reduce(policy_adjustment.recommended_constraints, state.constraints, fn {name, value}, acc ->
+      if constraint_aligns_with_identity?(name, value, state) do
+        Logger.info("✓ S5: Applying constraint #{name} = #{value}")
+        Map.put(acc, name, value)
+      else
+        Logger.warning("✗ S5: Rejecting constraint #{name} - violates identity")
+        acc
+      end
+    end)
+    
+    # Adjust environmental assessment based on pattern
+    new_environmental = update_environmental_assessment_from_pattern(
+      state.environmental_assessment,
+      policy_adjustment
+    )
+    
+    # Update governance state if needed
+    new_governance = adjust_governance_for_pattern(state.governance_state, policy_adjustment)
+    
+    # Record policy adjustment
+    adjustment_record = %{
+      pattern_id: policy_adjustment.pattern_id,
+      pattern_type: policy_adjustment.pattern_type,
+      constraints_applied: Map.keys(new_constraints),
+      timestamp: DateTime.utc_now()
+    }
+    
+    new_decisions = [adjustment_record | state.decisions] |> Enum.take(100)
+    
+    %{state |
+      constraints: new_constraints,
+      environmental_assessment: new_environmental,
+      governance_state: new_governance,
+      decisions: new_decisions
+    }
+  end
+  
+  defp update_environmental_assessment_from_pattern(assessment, policy_adjustment) do
+    # Update environmental model based on pattern implications
+    implications = policy_adjustment.policy_implications
+    
+    Map.merge(assessment, %{
+      threat_level: max(assessment.threat_level, implications[:strategic_risk] || 0.0),
+      opportunity_level: implications[:opportunity_level] || assessment.opportunity_level,
+      complexity: max(assessment.complexity, implications[:complexity] || 0.5),
+      last_update: DateTime.utc_now()
+    })
+  end
+  
+  defp adjust_governance_for_pattern(governance_state, policy_adjustment) do
+    # Adjust governance mode based on pattern severity
+    case policy_adjustment[:severity] do
+      :critical ->
+        %{governance_state | 
+          mode: :crisis,
+          active_governance_level: :maximum,
+          governance_load: 1.0
+        }
+        
+      :high ->
+        %{governance_state |
+          mode: :adaptive,
+          active_governance_level: :enhanced,
+          governance_load: min(governance_state.governance_load + 0.2, 1.0)
+        }
+        
+      _ ->
+        governance_state
+    end
+  end
+  
+  defp execute_emergency_pattern_policy(emergency_data, state) do
+    Logger.error("🚨🚨🚨 S5: EMERGENCY PATTERN POLICY OVERRIDE 🚨🚨🚨")
+    
+    # Suspend normal constraints for emergency
+    emergency_constraints = %{
+      survival_mode: true,
+      identity_flexibility: 1.0,  # Maximum flexibility
+      value_suspension: emergency_data.pattern_type,
+      emergency_started: DateTime.utc_now()
+    }
+    
+    # Update emergency state
+    new_emergency_state = %{
+      active: true,
+      level: :critical,
+      triggered_at: DateTime.utc_now(),
+      response_actions: emergency_data.immediate_actions,
+      escalation_path: [:s3_control, :s1_operations, :algedonic_bypass]
+    }
+    
+    # Broadcast emergency policy
+    EventBus.publish(:s5_emergency_policy_override, %{
+      pattern_type: emergency_data.pattern_type,
+      emergency_constraints: emergency_constraints,
+      directive: :survival_priority,
+      override_duration: :until_resolved
+    })
+    
+    %{state |
+      constraints: Map.merge(state.constraints, emergency_constraints),
+      emergency_state: new_emergency_state,
+      governance_state: %{state.governance_state | mode: :emergency}
+    }
+  end
+  
+  defp evaluate_policy_impact(new_state, old_state) do
+    # Evaluate the impact of policy changes
+    constraint_changes = map_size(new_state.constraints) - map_size(old_state.constraints)
+    governance_change = governance_impact(new_state.governance_state, old_state.governance_state)
+    
+    %{
+      constraint_impact: constraint_changes,
+      governance_impact: governance_change,
+      overall_impact: calculate_overall_impact(constraint_changes, governance_change)
+    }
+  end
+  
+  defp governance_impact(new_governance, old_governance) do
+    old_load = old_governance[:governance_load] || 0.5
+    new_load = new_governance[:governance_load] || 0.5
+    
+    abs(new_load - old_load)
+  end
+  
+  defp calculate_overall_impact(constraint_changes, governance_change) do
+    # Simple impact calculation
+    abs(constraint_changes) * 0.5 + governance_change * 0.5
   end
 end

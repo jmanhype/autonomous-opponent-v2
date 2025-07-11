@@ -69,6 +69,9 @@ defmodule AutonomousOpponentV2Web.Router do
     
     # Pattern Flow Dashboard
     live "/patterns/flow", PatternFlowLive, :index
+    
+    # Pattern Analytics Dashboard - Issue #92
+    live "/patterns/analytics", PatternAnalyticsLive, :index
   end
   
   # Web Gateway endpoints

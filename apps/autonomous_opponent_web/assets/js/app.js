@@ -22,10 +22,87 @@ import {Socket} from "phoenix"
 import {LiveSocket} from "phoenix_live_view"
 import topbar from "../vendor/topbar"
 
+// Hooks for LiveView components
+let Hooks = {
+  // Pattern Analytics Chart Hook
+  PatternChart: {
+    mounted() {
+      this.chart = null
+      this.initChart()
+      
+      // Listen for data updates from server
+      this.handleEvent("update_chart", ({data}) => {
+        this.updateChart(data)
+      })
+    },
+    
+    destroyed() {
+      if (this.chart) {
+        // Clean up chart instance
+        this.chart = null
+      }
+    },
+    
+    initChart() {
+      const canvas = this.el
+      const ctx = canvas.getContext('2d')
+      
+      // Simple line chart rendering
+      this.chart = {
+        ctx: ctx,
+        width: canvas.width,
+        height: canvas.height,
+        data: []
+      }
+      
+      this.render()
+    },
+    
+    updateChart(newData) {
+      if (!this.chart) return
+      
+      this.chart.data = newData
+      this.render()
+    },
+    
+    render() {
+      if (!this.chart || !this.chart.data.length) return
+      
+      const {ctx, width, height, data} = this.chart
+      
+      // Clear canvas
+      ctx.clearRect(0, 0, width, height)
+      
+      // Simple line chart
+      ctx.strokeStyle = '#3b82f6'
+      ctx.lineWidth = 2
+      ctx.beginPath()
+      
+      const xStep = width / (data.length - 1)
+      const maxValue = Math.max(...data.map(d => d.value))
+      const yScale = (height - 20) / maxValue
+      
+      data.forEach((point, index) => {
+        const x = index * xStep
+        const y = height - (point.value * yScale) - 10
+        
+        if (index === 0) {
+          ctx.moveTo(x, y)
+        } else {
+          ctx.lineTo(x, y)
+        }
+      })
+      
+      ctx.stroke()
+    }
+  }
+}
+
 let csrfToken = document.querySelector("meta[name='csrf-token']").getAttribute("content")
 let liveSocket = new LiveSocket("/live", Socket, {
   longPollFallbackMs: 2500,
-  params: {_csrf_token: csrfToken}
+  params: {_csrf_token: csrfToken},
+  hooks: Hooks
 })
 
 // Show progress bar on live navigation and form submits

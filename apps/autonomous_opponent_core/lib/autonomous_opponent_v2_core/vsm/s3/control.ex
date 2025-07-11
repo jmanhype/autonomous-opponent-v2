@@ -86,6 +86,10 @@ defmodule AutonomousOpponentV2Core.VSM.S3.Control do
     EventBus.subscribe(:s5_policy)
     EventBus.subscribe(:s1_performance)
     
+    # Subscribe to pattern intervention events - Issue #92
+    EventBus.subscribe(:s3_pattern_intervention)
+    EventBus.subscribe(:vsm_emergency_pattern)
+    
     # Start monitoring cycles
     Process.send_after(self(), :optimize_cycle, @optimization_interval)
     Process.send_after(self(), :report_health, 1000)
@@ -111,7 +115,9 @@ defmodule AutonomousOpponentV2Core.VSM.S3.Control do
         decisions_made: 0,
         interventions: 0,
         optimization_cycles: 0,
-        control_effectiveness: 1.0
+        control_effectiveness: 1.0,
+        pattern_interventions: 0,
+        emergency_interventions: 0
       },
       resource_monitors: init_resource_monitors(),
       performance_history: :queue.new(),
@@ -261,6 +267,40 @@ defmodule AutonomousOpponentV2Core.VSM.S3.Control do
     new_optimizer = update_policy_constraints(state.resource_optimizer, policy_data)
     
     {:noreply, %{state | resource_optimizer: new_optimizer}}
+  end
+
+  @impl true
+  def handle_info({:event, :s3_pattern_intervention, intervention_data}, state) do
+    # Pattern-based intervention from S4 Intelligence - Issue #92
+    Logger.info("🎯 S3: Received pattern intervention - #{intervention_data.pattern_type}")
+    
+    # Execute recommended actions
+    new_state = execute_pattern_intervention(intervention_data, state)
+    
+    # Report intervention result
+    EventBus.publish(:s3_intervention_complete, %{
+      pattern_id: intervention_data.pattern_id,
+      pattern_type: intervention_data.pattern_type,
+      success: true,
+      actions_taken: intervention_data.recommended_actions,
+      timestamp: DateTime.utc_now()
+    })
+    
+    {:noreply, new_state}
+  end
+  
+  @impl true
+  def handle_info({:event, :vsm_emergency_pattern, emergency_data}, state) do
+    # Emergency pattern override - bypass normal control loops
+    Logger.error("🚨 S3: EMERGENCY PATTERN CONTROL - #{emergency_data.pattern_type}")
+    
+    # Immediate emergency actions
+    new_state = execute_emergency_pattern_control(emergency_data, state)
+    
+    # Algedonic signal to confirm emergency handling
+    Algedonic.report_pain(:s3_emergency_control, emergency_data.pattern_type, 1.0)
+    
+    {:noreply, new_state}
   end
 
   @impl true
@@ -1709,5 +1749,178 @@ defmodule AutonomousOpponentV2Core.VSM.S3.Control do
     ]
     
     Enum.sum(utilizations) / length(utilizations)
+  end
+  
+  # Pattern Intervention Functions - Issue #92
+  
+  defp execute_pattern_intervention(intervention_data, state) do
+    # Execute pattern-based control interventions
+    Logger.info("🎯 S3: Executing pattern intervention actions")
+    
+    # Process each recommended action
+    new_state = Enum.reduce(intervention_data.recommended_actions, state, fn action, acc_state ->
+      execute_intervention_action(action, acc_state)
+    end)
+    
+    # Update intervention history
+    intervention_record = %{
+      pattern_id: intervention_data.pattern_id,
+      pattern_type: intervention_data.pattern_type,
+      actions: intervention_data.recommended_actions,
+      timestamp: DateTime.utc_now(),
+      effectiveness: nil  # Will be measured later
+    }
+    
+    new_intervention_engine = Map.update!(new_state.intervention_engine, :history, fn history ->
+      [intervention_record | history] |> Enum.take(100)
+    end)
+    
+    # Update metrics
+    new_metrics = Map.update!(new_state.health_metrics, :pattern_interventions, &(&1 + 1))
+    
+    %{new_state | 
+      intervention_engine: new_intervention_engine,
+      health_metrics: new_metrics
+    }
+  end
+  
+  defp execute_intervention_action({:reallocate_resources, params}, state) do
+    Logger.info("🔄 S3: Reallocating resources from #{params.from} to #{params.to}")
+    
+    # Send resource reallocation commands to S1 units
+    VarietyChannel.transmit(:s3_control, :control, %{
+      command: :reallocate_resources,
+      parameters: params,
+      priority: :high
+    })
+    
+    state
+  end
+  
+  defp execute_intervention_action({:throttle_operations, params}, state) do
+    Logger.info("⚡ S3: Throttling operations to #{params.level * 100}%")
+    
+    # Apply throttling across S1 operations
+    VarietyChannel.transmit(:s3_control, :control, %{
+      command: :throttle,
+      level: params.level,
+      scope: :all_operations
+    })
+    
+    state
+  end
+  
+  defp execute_intervention_action({:optimize_algorithms, params}, state) do
+    Logger.info("🧮 S3: Optimizing algorithms for #{params.target}")
+    
+    # Trigger algorithm optimization in affected subsystems
+    EventBus.publish(:algorithm_optimization_required, %{
+      target: params.target,
+      optimization_level: :aggressive
+    })
+    
+    state
+  end
+  
+  defp execute_intervention_action({:increase_parallelism, params}, state) do
+    Logger.info("🔀 S3: Increasing parallelism by factor of #{params.factor}")
+    
+    # Scale up parallel processing
+    VarietyChannel.transmit(:s3_control, :control, %{
+      command: :scale_parallelism,
+      factor: params.factor
+    })
+    
+    state
+  end
+  
+  defp execute_intervention_action({:filter_inputs, params}, state) do
+    Logger.info("🔍 S3: Filtering inputs at threshold #{params.threshold}")
+    
+    # Apply input filtering
+    VarietyChannel.transmit(:s3_control, :control, %{
+      command: :filter_variety,
+      threshold: params.threshold,
+      type: :input_filtering
+    })
+    
+    state
+  end
+  
+  defp execute_intervention_action({action, params}, state) do
+    # Generic action handler
+    Logger.debug("S3: Executing generic intervention #{action} with #{inspect(params)}")
+    
+    VarietyChannel.transmit(:s3_control, :control, %{
+      command: action,
+      parameters: params
+    })
+    
+    state
+  end
+  
+  defp execute_emergency_pattern_control(emergency_data, state) do
+    Logger.error("🚨🚨🚨 S3: EMERGENCY PATTERN CONTROL ACTIVATED 🚨🚨🚨")
+    
+    # Execute all emergency actions immediately
+    Enum.each(emergency_data.immediate_actions, fn action ->
+      execute_emergency_action(action, state)
+    end)
+    
+    # Update control state to emergency mode
+    new_control_state = Map.merge(state.control_state, %{
+      mode: :emergency,
+      emergency_pattern: emergency_data.pattern_type,
+      emergency_started: DateTime.utc_now()
+    })
+    
+    # Override all resource limits for emergency
+    new_optimizer = Map.put(state.resource_optimizer, :enabled, false)
+    
+    # Update metrics
+    new_metrics = Map.update!(state.health_metrics, :emergency_interventions, &(&1 + 1))
+    
+    %{state | 
+      control_state: new_control_state,
+      resource_optimizer: new_optimizer,
+      health_metrics: new_metrics
+    }
+  end
+  
+  defp execute_emergency_action({:freeze_non_critical, _params}, _state) do
+    # Freeze all non-critical operations
+    VarietyChannel.transmit(:s3_control, :emergency, %{
+      command: :freeze_operations,
+      scope: :non_critical,
+      reason: :emergency_pattern
+    })
+  end
+  
+  defp execute_emergency_action({:activate_all_reserves, _params}, _state) do
+    # Activate all reserve resources
+    EventBus.publish(:activate_emergency_reserves, %{
+      level: :maximum,
+      source: :s3_emergency_control
+    })
+  end
+  
+  defp execute_emergency_action({:broadcast_emergency, params}, _state) do
+    # Broadcast emergency to all subsystems
+    EventBus.publish(:vsm_emergency_broadcast, %{
+      source: :s3_control,
+      targets: params[:to] || :all_subsystems,
+      priority: :critical
+    })
+  end
+  
+  defp execute_emergency_action({action, params}, _state) do
+    Logger.error("S3: Executing emergency action #{action} with #{inspect(params)}")
+    
+    # Generic emergency action
+    VarietyChannel.transmit(:s3_control, :emergency, %{
+      command: action,
+      parameters: params,
+      override: true
+    })
   end
 end

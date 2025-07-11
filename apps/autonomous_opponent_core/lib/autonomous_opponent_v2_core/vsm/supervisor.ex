@@ -73,7 +73,11 @@ defmodule AutonomousOpponentV2Core.VSM.Supervisor do
       {AutonomousOpponentV2Core.VSM.Integrations.RateLimiterIntegration, [
         rate_limiter: :vsm_rate_limiter,
         adaptation_enabled: true
-      ]}
+      ]},
+      
+      # S3/S5 Pattern Alert System - Issue #92
+      # Bridges pattern detection with control and policy responses
+      {AutonomousOpponentV2Core.VSM.S3S5PatternAlertSystem, []}
     ]
     
     # Strategy: If a subsystem dies, restart just that subsystem
