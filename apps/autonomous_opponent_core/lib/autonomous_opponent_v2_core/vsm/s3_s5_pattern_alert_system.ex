@@ -181,6 +181,34 @@ defmodule AutonomousOpponentV2Core.VSM.S3S5PatternAlertSystem do
     {:noreply, new_state}
   end
   
+  @impl true
+  def handle_info({:event_bus_hlc, event}, state) do
+    # Handle HLC-formatted events from EventBus
+    case event.type do
+      :pattern_detected ->
+        handle_info({:event, :pattern_detected, event.data}, state)
+      :pattern_causality_detected ->
+        handle_info({:event, :pattern_causality_detected, event.data}, state)
+      :algedonic_correlation_detected ->
+        handle_info({:event, :algedonic_correlation_detected, event.data}, state)
+      :s3_intervention_complete ->
+        handle_info({:event, :s3_intervention_complete, event.data}, state)
+      :s5_policy_updated ->
+        handle_info({:event, :s5_policy_updated, event.data}, state)
+      :s4_intelligence ->
+        # S4 intelligence events might contain pattern data
+        if event.data[:type] == :pattern_detected && event.data[:data] do
+          handle_info({:event, :pattern_detected, event.data[:data]}, state)
+        else
+          {:noreply, state}
+        end
+      _ ->
+        # Log and ignore other HLC events
+        Logger.debug("S3S5PatternAlertSystem ignoring HLC event type: #{event.type}")
+        {:noreply, state}
+    end
+  end
+  
   # Private Functions
   
   defp init_alert_thresholds do

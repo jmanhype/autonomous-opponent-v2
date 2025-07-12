@@ -436,6 +436,26 @@ defmodule AutonomousOpponentV2Core.VSM.S4.VectorStore.HNSWIndex do
         %{k: k, ef: ef, vector_size: length(query_vector), m: state.m}
       )
       
+      # Publish pattern detection events for high-confidence results
+      if state.eventbus_integration && length(formatted_results) > 0 do
+        Enum.each(formatted_results, fn result ->
+          # Only publish patterns with high similarity (low distance)
+          if result.distance < 0.3 do  # Threshold for significant patterns
+            pattern_data = Map.merge(result.metadata || %{}, %{
+              type: :vector_pattern_match,
+              pattern_type: result.metadata[:pattern_type] || :similarity_match,
+              source: :s4_hnsw_search,
+              confidence: 1.0 - result.distance,  # Convert distance to confidence
+              timestamp: DateTime.utc_now(),
+              vector_distance: result.distance,
+              node_id: result.node_id
+            })
+            
+            publish_eventbus_event(:pattern_detected, pattern_data)
+          end
+        end)
+      end
+      
       {:reply, {:ok, formatted_results}, state}
     end
   end
@@ -546,6 +566,30 @@ defmodule AutonomousOpponentV2Core.VSM.S4.VectorStore.HNSWIndex do
         %{duration: duration, batch_size: length(query_vectors)},
         %{k: k, ef: opts[:ef] || state.ef, max_concurrency: max_concurrency}
       )
+      
+      # Publish pattern detection events for high-confidence results from batch
+      if state.eventbus_integration do
+        Enum.each(results, fn batch_results ->
+          if is_list(batch_results) do
+            Enum.each(batch_results, fn result ->
+              # Only publish patterns with high similarity (low distance)
+              if result.distance < 0.3 do  # Threshold for significant patterns
+                pattern_data = Map.merge(result.metadata || %{}, %{
+                  type: :vector_pattern_match,
+                  pattern_type: result.metadata[:pattern_type] || :similarity_match,
+                  source: :s4_hnsw_batch_search,
+                  confidence: 1.0 - result.distance,
+                  timestamp: DateTime.utc_now(),
+                  vector_distance: result.distance,
+                  node_id: result.node_id
+                })
+                
+                publish_eventbus_event(:pattern_detected, pattern_data)
+              end
+            end)
+          end
+        end)
+      end
       
       {:reply, {:ok, results}, state}
     end

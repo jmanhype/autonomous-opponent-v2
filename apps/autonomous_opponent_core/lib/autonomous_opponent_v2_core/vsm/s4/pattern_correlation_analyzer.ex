@@ -270,6 +270,46 @@ defmodule AutonomousOpponentV2Core.VSM.S4.PatternCorrelationAnalyzer do
     # Update causality graph if causal relationship detected
     new_causality = update_causality_graph(state.causality_graph, pattern, state)
     
+    # Check for significant correlations with recent patterns
+    recent_patterns = get_recent_patterns(new_history, @correlation_window_ms)
+    strong_correlations = Enum.filter(recent_patterns, fn other_pattern ->
+      if other_pattern.id != pattern.id do
+        correlation = calculate_correlation(pattern, other_pattern, state)
+        abs(correlation) >= @min_correlation_strength
+      else
+        false
+      end
+    end)
+    
+    # Publish correlation detection events
+    Enum.each(strong_correlations, fn correlated_pattern ->
+      correlation_strength = calculate_correlation(pattern, correlated_pattern, state)
+      
+      correlation_event = %{
+        type: :pattern_correlation,
+        pattern_a: pattern,
+        pattern_b: correlated_pattern,
+        correlation: correlation_strength,
+        timestamp: DateTime.utc_now(),
+        detector: :pattern_correlation_analyzer,
+        confidence: abs(correlation_strength),
+        relationship: cond do
+          correlation_strength > 0.8 -> :strong_positive
+          correlation_strength > 0.5 -> :moderate_positive
+          correlation_strength < -0.8 -> :strong_negative
+          correlation_strength < -0.5 -> :moderate_negative
+          true -> :weak
+        end
+      }
+      
+      EventBus.publish(:pattern_correlation_detected, correlation_event)
+      
+      # Also check for causality
+      if detect_causality(pattern, correlated_pattern, state) do
+        EventBus.publish(:pattern_causality_detected, Map.put(correlation_event, :causality, true))
+      end
+    end)
+    
     # Update metrics
     new_metrics = update_metrics(state.metrics, :pattern_processed)
     
@@ -564,4 +604,51 @@ defmodule AutonomousOpponentV2Core.VSM.S4.PatternCorrelationAnalyzer do
   defp get_recent_patterns(history, _window_ms), do: :queue.to_list(history)
   defp find_similar_contexts(_current, _history), do: []
   defp predict_from_context(_context, _horizon, _state), do: nil
+  
+  defp detect_causality(pattern_a, pattern_b, _state) do
+    # Simple causality detection based on temporal ordering and correlation
+    # In a real system, this would use more sophisticated causal inference
+    
+    # Check temporal ordering - pattern_a should precede pattern_b
+    time_diff = DateTime.diff(pattern_b.timestamp, pattern_a.timestamp, :millisecond)
+    
+    # Causality requires:
+    # 1. Temporal precedence (pattern_a before pattern_b)
+    # 2. Close temporal proximity (within 5 seconds)
+    # 3. Same subsystem or related subsystems
+    temporal_precedence = time_diff > 0 && time_diff < 5000
+    
+    # Check subsystem relationship
+    subsystem_related = pattern_a[:source] == pattern_b[:source] ||
+                       are_subsystems_related?(pattern_a[:source], pattern_b[:source])
+    
+    temporal_precedence && subsystem_related
+  end
+  
+  defp are_subsystems_related?(source_a, source_b) do
+    # Define subsystem relationships
+    relationships = %{
+      s1: [:s2, :s3],         # S1 operations affect S2 coordination and S3 control
+      s2: [:s1, :s3],         # S2 coordination affects operations and control
+      s3: [:s1, :s2, :s4, :s5], # S3 control affects all subsystems
+      s4: [:s3, :s5],         # S4 intelligence affects control and intelligence
+      s5: [:s3, :s4]          # S5 policy affects control and intelligence
+    }
+    
+    source_a_atom = to_atom_safe(source_a)
+    source_b_atom = to_atom_safe(source_b)
+    
+    related = Map.get(relationships, source_a_atom, [])
+    source_b_atom in related
+  end
+  
+  defp to_atom_safe(value) when is_atom(value), do: value
+  defp to_atom_safe(value) when is_binary(value) do
+    try do
+      String.to_existing_atom(value)
+    rescue
+      _ -> String.to_atom(value)
+    end
+  end
+  defp to_atom_safe(_), do: :unknown
 end

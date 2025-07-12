@@ -656,9 +656,36 @@ defmodule AutonomousOpponentV2Core.VSM.S4.Intelligence do
     llm_patterns = detect_patterns_with_llm(scan_result, traditional_patterns)
     
     # Combine traditional and LLM patterns
-    (traditional_patterns ++ llm_patterns)
+    all_patterns = (traditional_patterns ++ llm_patterns)
     |> Enum.uniq_by(fn pattern -> {pattern.type, pattern.subtype} end)
     |> Enum.sort_by(& &1.confidence, :desc)
+    
+    # Publish detected patterns to EventBus for system-wide awareness
+    Enum.each(all_patterns, fn pattern ->
+      pattern_data = Map.merge(pattern, %{
+        source: :s4_internal_detection,
+        detector: :s4_intelligence,
+        timestamp: scan_result.timestamp,
+        scan_context: %{
+          metrics: scan_result.metrics,
+          anomaly_count: length(scan_result.anomalies)
+        }
+      })
+      
+      # Publish to EventBus
+      EventBus.publish(:pattern_detected, pattern_data)
+      
+      # Also publish urgent patterns as environmental signals
+      if pattern.confidence > 0.9 || pattern[:severity] == :critical do
+        EventBus.publish(:s4_environmental_signal, %{
+          pattern: pattern_data,
+          urgency: pattern.confidence,
+          scan_timestamp: scan_result.timestamp
+        })
+      end
+    end)
+    
+    all_patterns
   end
   
   defp detect_patterns_with_algorithm(algorithm, scan_result) do
