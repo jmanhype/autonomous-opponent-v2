@@ -77,7 +77,11 @@ defmodule AutonomousOpponentV2Core.VSM.Supervisor do
       
       # S3/S5 Pattern Alert System - Issue #92
       # Bridges pattern detection with control and policy responses
-      {AutonomousOpponentV2Core.VSM.S3S5PatternAlertSystem, []}
+      {AutonomousOpponentV2Core.VSM.S3S5PatternAlertSystem, []},
+      
+      # Belief Consensus System - Issue #93
+      # CRDT-based distributed belief consensus with Byzantine fault tolerance
+      {AutonomousOpponentV2Core.VSM.BeliefConsensus.Supervisor, []}
     ]
     
     # Strategy: If a subsystem dies, restart just that subsystem
