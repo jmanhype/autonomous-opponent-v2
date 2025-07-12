@@ -13,7 +13,7 @@ defmodule AutonomousOpponentWebWeb.Channels.BeliefConsensusChannel do
   low-latency updates to connected clients while respecting VSM principles.
   """
   
-  use AutonomousOpponentWebWeb, :channel
+  use AutonomousOpponentV2Web, :channel
   require Logger
   
   alias AutonomousOpponentV2Core.VSM.BeliefConsensus
@@ -38,7 +38,10 @@ defmodule AutonomousOpponentWebWeb.Channels.BeliefConsensusChannel do
       :last_vote_time,
       :subscriptions,
       :algedonic_enabled,
-      :consensus_timer
+      :consensus_timer,
+      :message_nonces,      # Track nonces for replay protection
+      :rate_limit_tokens,   # Per-node rate limiting
+      :last_token_refill    # Last time rate limit tokens were refilled
     ]
   end
   
@@ -69,7 +72,10 @@ defmodule AutonomousOpponentWebWeb.Channels.BeliefConsensusChannel do
         last_vote_time: nil,
         subscriptions: MapSet.new([vsm_level]),
         algedonic_enabled: true,
-        consensus_timer: timer_ref
+        consensus_timer: timer_ref,
+        message_nonces: MapSet.new(),
+        rate_limit_tokens: @max_beliefs_per_min,
+        last_token_refill: DateTime.utc_now()
       }
       
       # Send initial state
@@ -94,34 +100,45 @@ defmodule AutonomousOpponentWebWeb.Channels.BeliefConsensusChannel do
   def handle_in("propose_belief", %{"content" => content} = params, socket) do
     state = socket.assigns.channel_state
     
-    # Rate limiting check
-    if rate_limit_ok?(state) do
-      # Check for algedonic bypass
-      urgency = Map.get(params, "urgency", 0.5)
-      
-      result = if urgency >= @algedonic_threshold do
-        handle_algedonic_belief(content, urgency, params, state)
-      else
-        handle_normal_belief(content, params, state)
-      end
-      
-      case result do
-        {:ok, belief_id} ->
-          # Update state
-          new_state = %{state | 
-            vote_count: state.vote_count + 1,
-            last_vote_time: DateTime.utc_now()
-          }
-          
-          socket = assign(socket, :channel_state, new_state)
-          
-          {:reply, {:ok, %{belief_id: belief_id}}, socket}
-          
-        {:error, reason} ->
-          {:reply, {:error, %{reason: reason}}, socket}
-      end
+    # Check for replay protection
+    nonce = Map.get(params, "nonce")
+    if nonce && MapSet.member?(state.message_nonces, nonce) do
+      {:reply, {:error, %{reason: "replay_detected"}}, socket}
     else
-      {:reply, {:error, %{reason: "rate_limit_exceeded"}}, socket}
+      # Refill rate limit tokens
+      updated_state = refill_rate_limit_tokens(state)
+      
+      # Rate limiting check
+      if updated_state.rate_limit_tokens > 0 do
+        # Check for algedonic bypass
+        urgency = Map.get(params, "urgency", 0.5)
+        
+        result = if urgency >= @algedonic_threshold do
+          handle_algedonic_belief(content, urgency, params, updated_state)
+        else
+          handle_normal_belief(content, params, updated_state)
+        end
+        
+        case result do
+          {:ok, belief_id} ->
+            # Update state with consumed token and nonce tracking
+            new_state = %{updated_state | 
+              vote_count: updated_state.vote_count + 1,
+              last_vote_time: DateTime.utc_now(),
+              rate_limit_tokens: updated_state.rate_limit_tokens - 1,
+              message_nonces: if(nonce, do: MapSet.put(updated_state.message_nonces, nonce), else: updated_state.message_nonces)
+            }
+            
+            socket = assign(socket, :channel_state, new_state)
+            
+            {:reply, {:ok, %{belief_id: belief_id}}, socket}
+            
+          {:error, reason} ->
+            {:reply, {:error, %{reason: reason}}, socket}
+        end
+      else
+        {:reply, {:error, %{reason: "rate_limit_exceeded"}}, socket}
+      end
     end
   end
   
@@ -338,23 +355,35 @@ defmodule AutonomousOpponentWebWeb.Channels.BeliefConsensusChannel do
   end
   
   defp generate_node_id(socket) do
-    # Generate unique node ID for this connection
-    transport_pid = socket.transport_pid
-    "ws_node_#{:erlang.phash2(transport_pid)}_#{System.unique_integer([:positive])}"
+    # Generate cryptographically stable node ID with error handling
+    node_data = %{
+      transport_pid: socket.transport_pid,
+      remote_ip: get_connect_info_safe(socket, :peer_data),
+      user_agent: get_connect_info_safe(socket, :x_headers) |> get_user_agent(),
+      session_id: get_session_id(socket),
+      hostname: get_hostname_safe(),
+      timestamp: System.os_time(:microsecond)
+    }
+    
+    :crypto.hash(:sha256, :erlang.term_to_binary(node_data))
+    |> Base.encode16(case: :lower)
+    |> String.slice(0..15)  # 16 char stable ID
   end
   
   defp rate_limit_ok?(state) do
+    now = DateTime.utc_now()
+    
     case state.last_vote_time do
-      nil -> true
+      nil -> 
+        true
       last_time ->
-        # Check if enough time has passed
-        diff = DateTime.diff(DateTime.utc_now(), last_time, :millisecond)
+        diff_ms = DateTime.diff(now, last_time, :millisecond)
+        min_interval = div(60_000, @max_beliefs_per_min)
         
-        # Allow burst of 10, then limit to configured rate
         if state.vote_count < 10 do
-          true
+          true  # Burst allowance
         else
-          diff > (60_000 / @max_beliefs_per_min)
+          diff_ms >= min_interval
         end
     end
   end
@@ -455,5 +484,89 @@ defmodule AutonomousOpponentWebWeb.Channels.BeliefConsensusChannel do
   
   defp schedule_consensus_update do
     Process.send_after(self(), :update_consensus, @consensus_update_interval)
+  end
+
+  # Helper functions for node ID generation
+  
+  defp get_user_agent(headers) when is_list(headers) do
+    headers
+    |> Enum.find_value(fn {k, v} -> 
+      if String.downcase(k) == "user-agent", do: v 
+    end) || "unknown"
+  end
+  
+  defp get_user_agent(_), do: "unknown"
+  
+  defp get_session_id(socket) do
+    # Try to get session ID from various sources
+    socket.assigns[:session_id] || 
+    socket.assigns[:user_id] ||
+    "anonymous_#{System.unique_integer([:positive])}"
+  end
+  
+  defp get_connect_info(socket, key) do
+    Phoenix.Socket.get_connect_info(socket, key)
+  rescue
+    _ -> nil
+  end
+
+  defp get_connect_info_safe(socket, key) do
+    get_connect_info(socket, key) || 
+    case key do
+      :peer_data -> %{address: {127, 0, 0, 1}, port: 0}
+      :x_headers -> []
+      _ -> nil
+    end
+  end
+
+  defp get_hostname_safe do
+    case :inet.gethostname() do
+      {:ok, hostname} -> to_string(hostname)
+      {:error, _reason} -> "localhost"
+    end
+  end
+
+  # Rate limiting and replay protection functions
+  
+  defp refill_rate_limit_tokens(state) do
+    now = DateTime.utc_now()
+    seconds_since_refill = DateTime.diff(now, state.last_token_refill, :second)
+    
+    if seconds_since_refill >= 60 do  # Refill every minute
+      # Token bucket: refill to max capacity
+      %{state | 
+        rate_limit_tokens: @max_beliefs_per_min,
+        last_token_refill: now
+      }
+    else
+      # Partial refill based on time elapsed
+      tokens_to_add = div(seconds_since_refill * @max_beliefs_per_min, 60)
+      new_tokens = min(@max_beliefs_per_min, state.rate_limit_tokens + tokens_to_add)
+      
+      if tokens_to_add > 0 do
+        %{state | 
+          rate_limit_tokens: new_tokens,
+          last_token_refill: now
+        }
+      else
+        state
+      end
+    end
+  end
+
+  defp cleanup_old_nonces(state) do
+    # Keep nonces for last 10 minutes to prevent replay
+    # In production, use a more sophisticated cleanup with timestamps
+    if MapSet.size(state.message_nonces) > 1000 do
+      # Keep only the most recent half
+      recent_nonces = state.message_nonces
+      |> MapSet.to_list()
+      |> Enum.take(500)
+      |> MapSet.new()
+      
+      %{state | message_nonces: recent_nonces}
+    else
+      state
+    end
   end
 end

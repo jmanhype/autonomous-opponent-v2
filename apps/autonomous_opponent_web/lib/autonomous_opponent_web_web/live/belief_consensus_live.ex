@@ -71,12 +71,12 @@ defmodule AutonomousOpponentV2Web.BeliefConsensusLive do
   def render(assigns) do
     ~H"""
     <div class="belief-consensus-dashboard">
-      <.header>
-        🧠 CRDT Belief Consensus Monitor
-        <:subtitle>
+      <header class="mb-6">
+        <h1 class="text-3xl font-bold">🧠 CRDT Belief Consensus Monitor</h1>
+        <p class="text-gray-600 dark:text-gray-400">
           Real-time monitoring of distributed belief consensus across VSM levels
-        </:subtitle>
-      </.header>
+        </p>
+      </header>
       
       <!-- System Health Overview -->
       <div class="system-health-card bg-gray-50 dark:bg-gray-800 p-6 rounded-lg mb-6">
@@ -111,15 +111,21 @@ defmodule AutonomousOpponentV2Web.BeliefConsensusLive do
       
       <!-- VSM Level Selector -->
       <div class="level-selector mb-6">
-        <.simple_form for={%{}} phx-change="select_level">
-          <.input
-            name="level"
-            type="select"
-            label="VSM Level"
-            options={Enum.map(@vsm_levels, &{vsm_level_name(&1), &1})}
+        <form phx-change="select_level" class="flex items-center space-x-4">
+          <label for="level" class="text-sm font-medium">VSM Level:</label>
+          <select 
+            name="level" 
+            id="level"
             value={@selected_level}
-          />
-        </.simple_form>
+            class="rounded border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800"
+          >
+            <%= for level <- @vsm_levels do %>
+              <option value={level} selected={level == @selected_level}>
+                <%= vsm_level_name(level) %>
+              </option>
+            <% end %>
+          </select>
+        </form>
       </div>
       
       <!-- Main Content Grid -->
@@ -395,9 +401,11 @@ defmodule AutonomousOpponentV2Web.BeliefConsensusLive do
   defp load_byzantine_nodes(socket) do
     nodes = ByzantineDetector.get_byzantine_nodes()
     |> Enum.map(fn node_id ->
+      # Get actual patterns from detector
+      patterns = ByzantineDetector.get_node_patterns(node_id)
       %{
         node_id: node_id,
-        patterns: [:double_vote, :flooding],  # In production, get actual patterns
+        patterns: patterns,
         timestamp: DateTime.utc_now()
       }
     end)

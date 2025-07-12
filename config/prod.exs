@@ -40,15 +40,23 @@ config :autonomous_opponent_core,
 
 # CRDT Sync Configuration for Production
 config :autonomous_opponent_core, :crdt_sync,
-  max_peers: 50,  # Start conservative
-  max_crdts: 5_000,  # Lower for initial rollout
-  sync_interval_ms: 60_000,  # 1 minute for production
-  max_message_size: 500_000,  # 500KB limit
-  max_queue_size: 1000,  # Limit merge queue size
-  sync_timeout_ms: 10_000,  # 10 second timeout
+  # Start conservative
+  max_peers: 50,
+  # Lower for initial rollout
+  max_crdts: 5_000,
+  # 1 minute for production
+  sync_interval_ms: 60_000,
+  # 500KB limit
+  max_message_size: 500_000,
+  # Limit merge queue size
+  max_queue_size: 1000,
+  # 10 second timeout
+  sync_timeout_ms: 10_000,
   circuit_breaker: [
-    failure_threshold: 3,  # Open circuit after 3 failures
-    reset_timeout_ms: 60_000  # Try again after 1 minute
+    # Open circuit after 3 failures
+    failure_threshold: 3,
+    # Try again after 1 minute
+    reset_timeout_ms: 60_000
   ]
 
 # Runtime production configuration, including reading

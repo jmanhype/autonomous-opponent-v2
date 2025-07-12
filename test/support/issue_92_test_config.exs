@@ -1,27 +1,27 @@
 defmodule Issue92TestConfig do
   @moduledoc """
   Test configuration and shared utilities for Issue #92 tests
-  
+
   Provides common setup, test data generation, and assertion helpers
   for all Issue #92 test suites.
   """
-  
+
   # Test timeouts
   @default_timeout 5_000
   @integration_timeout 10_000
   @performance_timeout 30_000
   @property_test_iterations 100
-  
+
   # Pattern confidence thresholds
   @pattern_confidence_threshold 0.7
   @high_confidence_threshold 0.85
   @low_confidence_threshold 0.3
-  
+
   # Urgency thresholds
   @high_urgency_threshold 0.8
   @medium_urgency_threshold 0.5
   @low_urgency_threshold 0.2
-  
+
   def timeouts do
     %{
       default: @default_timeout,
@@ -29,7 +29,7 @@ defmodule Issue92TestConfig do
       performance: @performance_timeout
     }
   end
-  
+
   def thresholds do
     %{
       pattern_confidence: @pattern_confidence_threshold,
@@ -40,7 +40,7 @@ defmodule Issue92TestConfig do
       low_urgency: @low_urgency_threshold
     }
   end
-  
+
   def property_test_config do
     %{
       iterations: @property_test_iterations,
@@ -48,11 +48,11 @@ defmodule Issue92TestConfig do
       max_shrinking_steps: 2000
     }
   end
-  
+
   @doc """
   Standard test pattern for Issue #92 tests
   """
-  def standard_test_pattern(overrides \\\\ %{}) do
+  def standard_test_pattern(overrides \\ %{}) do
     base_pattern = %{
       id: "test_pattern_#{System.unique_integer()}",
       type: :rate_burst,
@@ -66,14 +66,14 @@ defmodule Issue92TestConfig do
         threshold: 10
       }
     }
-    
+
     Map.merge(base_pattern, overrides)
   end
-  
+
   @doc """
   High-urgency algedonic pattern for testing emergency responses
   """
-  def algedonic_storm_pattern(overrides \\\\ %{}) do
+  def algedonic_storm_pattern(overrides \\ %{}) do
     base_pattern = %{
       id: "algedonic_storm_#{System.unique_integer()}",
       type: :algedonic_storm,
@@ -88,14 +88,14 @@ defmodule Issue92TestConfig do
         affected_subsystems: [:s1, :s2, :s3]
       }
     }
-    
+
     Map.merge(base_pattern, overrides)
   end
-  
+
   @doc """
   Coordination breakdown pattern for S2/S3 testing
   """
-  def coordination_breakdown_pattern(overrides \\\\ %{}) do
+  def coordination_breakdown_pattern(overrides \\ %{}) do
     base_pattern = %{
       id: "coordination_breakdown_#{System.unique_integer()}",
       type: :coordination_breakdown,
@@ -110,14 +110,14 @@ defmodule Issue92TestConfig do
         urgency_indicators: [:s1_overload, :s2_failure]
       }
     }
-    
+
     Map.merge(base_pattern, overrides)
   end
-  
+
   @doc """
   Consciousness instability pattern for S5 policy testing
   """
-  def consciousness_instability_pattern(overrides \\\\ %{}) do
+  def consciousness_instability_pattern(overrides \\ %{}) do
     base_pattern = %{
       id: "consciousness_instability_#{System.unique_integer()}",
       type: :consciousness_instability,
@@ -132,22 +132,28 @@ defmodule Issue92TestConfig do
         window_ms: 120_000
       }
     }
-    
+
     Map.merge(base_pattern, overrides)
   end
-  
+
   @doc """
   Generate a batch of test patterns with different characteristics
   """
-  def pattern_batch(count, type \\\\ :mixed) do
+  def pattern_batch(count, type \\ :mixed) do
     case type do
       :mixed ->
-        pattern_types = [:rate_burst, :coordination_breakdown, :consciousness_instability, :algedonic_storm]
-        
+        pattern_types = [
+          :rate_burst,
+          :coordination_breakdown,
+          :consciousness_instability,
+          :algedonic_storm
+        ]
+
         for i <- 1..count do
           pattern_type = Enum.at(pattern_types, rem(i, length(pattern_types)))
-          confidence = 0.5 + (:rand.uniform() * 0.4)  # 0.5-0.9
-          
+          # 0.5-0.9
+          confidence = 0.5 + :rand.uniform() * 0.4
+
           %{
             id: "batch_pattern_#{i}_#{System.unique_integer()}",
             type: pattern_type,
@@ -160,8 +166,14 @@ defmodule Issue92TestConfig do
             }
           }
         end
-        
-      specific_type when specific_type in [:rate_burst, :coordination_breakdown, :consciousness_instability, :algedonic_storm] ->
+
+      specific_type
+      when specific_type in [
+             :rate_burst,
+             :coordination_breakdown,
+             :consciousness_instability,
+             :algedonic_storm
+           ] ->
         for i <- 1..count do
           standard_test_pattern(%{
             id: "#{specific_type}_batch_#{i}_#{System.unique_integer()}",
@@ -175,7 +187,7 @@ defmodule Issue92TestConfig do
         end
     end
   end
-  
+
   @doc """
   Expected S4-enhanced pattern structure for assertions
   """
@@ -191,7 +203,7 @@ defmodule Issue92TestConfig do
       :recommended_s4_actions
     ]
   end
-  
+
   @doc """
   Expected environmental context fields
   """
@@ -203,7 +215,7 @@ defmodule Issue92TestConfig do
       :control_loop_impact
     ]
   end
-  
+
   @doc """
   Expected VSM impact fields
   """
@@ -215,7 +227,7 @@ defmodule Issue92TestConfig do
       :recommended_vsm_actions
     ]
   end
-  
+
   @doc """
   Common assertion helpers for Issue #92 tests
   """
@@ -223,38 +235,42 @@ defmodule Issue92TestConfig do
     for field <- expected_s4_pattern_fields() do
       assert Map.has_key?(pattern, field), "Pattern should have field: #{field}"
     end
-    
+
     # Validate environmental context
     if Map.has_key?(pattern, :environmental_context) do
       context = pattern.environmental_context
-      
+
       for field <- expected_environmental_context_fields() do
         assert Map.has_key?(context, field), "Environmental context should have field: #{field}"
       end
-      
+
       assert is_list(context.affected_subsystems), "affected_subsystems should be a list"
-      assert context.variety_pressure in [:low, :medium, :high, :extreme], "variety_pressure should be valid"
+
+      assert context.variety_pressure in [:low, :medium, :high, :extreme],
+             "variety_pressure should be valid"
     end
-    
+
     # Validate VSM impact
     if Map.has_key?(pattern, :vsm_impact) do
       vsm_impact = pattern.vsm_impact
-      
+
       for field <- expected_vsm_impact_fields() do
         assert Map.has_key?(vsm_impact, field), "VSM impact should have field: #{field}"
       end
-      
-      assert vsm_impact.impact_level in [:low, :medium, :high, :critical], "impact_level should be valid"
+
+      assert vsm_impact.impact_level in [:low, :medium, :high, :critical],
+             "impact_level should be valid"
+
       assert is_list(vsm_impact.affected_control_loops), "affected_control_loops should be a list"
     end
-    
+
     # Validate urgency
     if Map.has_key?(pattern, :urgency) do
       urgency = pattern.urgency
       assert is_number(urgency), "Urgency should be a number"
       assert urgency >= 0.0 and urgency <= 1.0, "Urgency should be in [0.0, 1.0], got: #{urgency}"
     end
-    
+
     # Validate recommended actions
     if Map.has_key?(pattern, :recommended_s4_actions) do
       actions = pattern.recommended_s4_actions
@@ -262,17 +278,17 @@ defmodule Issue92TestConfig do
       assert Enum.all?(actions, &is_atom/1), "All recommended actions should be atoms"
     end
   end
-  
+
   @doc """
   Assert that S4 environmental signal has correct structure
   """
   def assert_s4_environmental_signal_structure(signal) do
     required_fields = [:type, :urgency, :pattern, :recommended_s4_actions, :environmental_context]
-    
+
     for field <- required_fields do
       assert Map.has_key?(signal, field), "Environmental signal should have field: #{field}"
     end
-    
+
     assert signal.type == :pattern_alert, "Environmental signal type should be :pattern_alert"
     assert is_number(signal.urgency), "Urgency should be a number"
     assert signal.urgency >= 0.0 and signal.urgency <= 1.0, "Urgency should be in [0.0, 1.0]"
@@ -280,7 +296,7 @@ defmodule Issue92TestConfig do
     assert is_list(signal.recommended_s4_actions), "Should have recommended actions list"
     assert is_map(signal.environmental_context), "Should have environmental context"
   end
-  
+
   @doc """
   Performance test helpers
   """
@@ -288,19 +304,19 @@ defmodule Issue92TestConfig do
     start_time = System.monotonic_time(:millisecond)
     result = fun.()
     end_time = System.monotonic_time(:millisecond)
-    
+
     {result, end_time - start_time}
   end
-  
+
   def assert_processing_time_under(time_ms, fun) do
     {result, actual_time} = measure_processing_time(fun)
-    
-    assert actual_time < time_ms, 
+
+    assert actual_time < time_ms,
            "Processing should complete within #{time_ms}ms, took #{actual_time}ms"
-    
+
     result
   end
-  
+
   @doc """
   Memory usage helpers
   """
@@ -310,20 +326,20 @@ defmodule Issue92TestConfig do
       nil -> 0
     end
   end
-  
+
   def assert_memory_growth_under(pid, max_growth_bytes, fun) do
     initial_memory = get_process_memory(pid)
     result = fun.()
     final_memory = get_process_memory(pid)
-    
+
     growth = final_memory - initial_memory
-    
+
     assert growth < max_growth_bytes,
            "Memory growth should be under #{max_growth_bytes} bytes, actual: #{growth}"
-    
+
     result
   end
-  
+
   @doc """
   Test data cleanup helpers
   """
@@ -332,7 +348,7 @@ defmodule Issue92TestConfig do
     # This would be called in test teardown
     :ok
   end
-  
+
   @doc """
   EventBus test helpers
   """
@@ -342,8 +358,8 @@ defmodule Issue92TestConfig do
     EventBus.subscribe(:s4_strategy_updated)
     EventBus.subscribe(:patterns_indexed)
   end
-  
-  def wait_for_pattern_event(timeout \\\\ 1000) do
+
+  def wait_for_pattern_event(timeout \\ 1000) do
     receive do
       {:event_bus, :pattern_detected, pattern} -> {:ok, pattern}
       {:event_bus, :s4_environmental_signal, signal} -> {:ok, signal}
@@ -351,14 +367,14 @@ defmodule Issue92TestConfig do
       timeout -> {:timeout, nil}
     end
   end
-  
-  def collect_pattern_events(count, timeout \\\\ 5000) do
+
+  def collect_pattern_events(count, timeout \\ 5000) do
     deadline = System.monotonic_time(:millisecond) + timeout
     collect_events([], count, deadline)
   end
-  
+
   defp collect_events(events, 0, _deadline), do: Enum.reverse(events)
-  
+
   defp collect_events(events, remaining, deadline) do
     if System.monotonic_time(:millisecond) > deadline do
       Enum.reverse(events)
@@ -366,6 +382,7 @@ defmodule Issue92TestConfig do
       receive do
         {:event_bus, :pattern_detected, pattern} ->
           collect_events([pattern | events], remaining - 1, deadline)
+
         {:event_bus, :s4_environmental_signal, signal} ->
           collect_events([signal | events], remaining - 1, deadline)
       after
@@ -374,7 +391,7 @@ defmodule Issue92TestConfig do
       end
     end
   end
-  
+
   @doc """
   Test environment setup helpers
   """
@@ -385,19 +402,20 @@ defmodule Issue92TestConfig do
       {AutonomousOpponentV2Core.VSM.S4.Intelligence, []},
       {AutonomousOpponentV2Core.AMCP.Temporal.PatternDetector, []}
     ]
-    
+
     {:ok, supervisor_pid} = Supervisor.start_link(children, strategy: :one_for_one)
-    
-    Process.sleep(200)  # Allow startup
-    
+
+    # Allow startup
+    Process.sleep(200)
+
     supervisor_pid
   end
-  
+
   def teardown_issue_92_test_environment(supervisor_pid) do
     if Process.alive?(supervisor_pid) do
       Supervisor.stop(supervisor_pid)
     end
-    
+
     cleanup_test_patterns()
   end
 end

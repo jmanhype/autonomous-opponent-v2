@@ -88,6 +88,13 @@ defmodule AutonomousOpponentV2Core.VSM.BeliefConsensus.ByzantineDetector do
   def get_byzantine_nodes do
     GenServer.call(__MODULE__, :get_byzantine_nodes)
   end
+
+  @doc """
+  Get detected patterns for a specific node.
+  """
+  def get_node_patterns(node_id) do
+    GenServer.call(__MODULE__, {:get_node_patterns, node_id})
+  end
   
   # Server Implementation
   
@@ -168,6 +175,15 @@ defmodule AutonomousOpponentV2Core.VSM.BeliefConsensus.ByzantineDetector do
   @impl true
   def handle_call(:get_byzantine_nodes, _from, state) do
     {:reply, MapSet.to_list(state.byzantine_nodes), state}
+  end
+
+  @impl true
+  def handle_call({:get_node_patterns, node_id}, _from, state) do
+    patterns = case Map.get(state.node_behaviors, node_id) do
+      nil -> []
+      behavior -> behavior.suspicious_patterns
+    end
+    {:reply, patterns, state}
   end
   
   @impl true

@@ -1183,7 +1183,7 @@ defmodule AutonomousOpponentV2Core.VSM.BeliefConsensus do
   defp generate_corrective_beliefs(problematic_beliefs, state) do
     # Generate corrective beliefs for problematic ones
     Enum.map(problematic_beliefs, fn belief ->
-      %BeliefConsensus.Belief{
+      %Belief{
         id: generate_belief_id(),
         content: "CORRECTIVE: Address issues with #{String.slice(belief.content, 0..50)}",
         source: "emergency_correction",
@@ -1351,7 +1351,7 @@ defmodule AutonomousOpponentV2Core.VSM.BeliefConsensus do
   
   defp aggregate_lower_belief(belief_data, state) do
     # Aggregate belief from lower VSM level
-    %BeliefConsensus.Belief{
+    %Belief{
       id: generate_belief_id(),
       content: "AGGREGATED: #{belief_data.content}",
       source: "aggregated_from_#{belief_data.level}",
@@ -1384,7 +1384,7 @@ defmodule AutonomousOpponentV2Core.VSM.BeliefConsensus do
   defp coordinate_peer_belief(belief_data, state) do
     # Coordinate with peer belief from same VSM level
     # For now, just add to our belief set with coordination marker
-    coordinated_belief = %BeliefConsensus.Belief{
+    coordinated_belief = %Belief{
       id: generate_belief_id(),
       content: belief_data.content,
       source: "coordinated_from_#{belief_data.source}",
