@@ -1,1 +1,0 @@
-Process.whereis(AutonomousOpponentV2Core.VSM.S4.PatternHNSWBridge)
