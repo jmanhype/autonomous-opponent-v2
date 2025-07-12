@@ -288,6 +288,27 @@ defmodule AutonomousOpponentV2Core.VSM.S1.Operations do
   end
 
   @impl true
+  def handle_info({:event, :s3_control, control_data}, state) do
+    # Handle S3 control commands and variety adjustments
+    Logger.debug("S1: Received S3 control signal: #{inspect(control_data.variety_type)}")
+    
+    new_state = case control_data.variety_type do
+      :coordinated ->
+        # S3 coordinated control - adjust operational parameters
+        adjust_operational_parameters(state, control_data)
+      :control ->
+        # Direct control commands from S3
+        execute_control_commands(state, control_data)
+      _ ->
+        # Unknown variety type, log and continue
+        Logger.debug("S1: Unknown S3 variety type: #{inspect(control_data.variety_type)}")
+        state
+    end
+    
+    {:noreply, new_state}
+  end
+
+  @impl true
   def handle_info({:event, :external_requests, requests}, state) do
     # Bulk variety absorption
     results = Enum.map(requests, fn request ->
@@ -1033,6 +1054,39 @@ defmodule AutonomousOpponentV2Core.VSM.S1.Operations do
   #       operation_worker_loop()
   #   end
   # end
+
+  # Helper functions for S3 control integration
+  defp adjust_operational_parameters(state, control_data) do
+    # Adjust S1 operations based on S3 coordination signals
+    new_control_mode = case control_data[:resource_requirements] do
+      %{cpu: :high} -> :throttled
+      %{memory: :high} -> :memory_conservative
+      %{io: :high} -> :io_optimized
+      _ -> state.control_mode
+    end
+    
+    %{state | control_mode: new_control_mode}
+  end
+  
+  defp execute_control_commands(state, control_data) do
+    # Execute direct control commands from S3
+    commands = Map.get(control_data, :commands, [])
+    
+    new_state = Enum.reduce(commands, state, fn command, acc_state ->
+      case command do
+        {:throttle, level} -> %{acc_state | control_mode: :throttled, current_load: level}
+        {:scale, factor} -> adjust_worker_capacity(acc_state, factor)
+        _ -> acc_state
+      end
+    end)
+    
+    new_state
+  end
+  
+  defp adjust_worker_capacity(state, _factor) do
+    # Placeholder for scaling worker capacity
+    state
+  end
 
   # VSM Pattern Publishing - Complete VSM Integration
   defp publish_pattern_events(state) do
