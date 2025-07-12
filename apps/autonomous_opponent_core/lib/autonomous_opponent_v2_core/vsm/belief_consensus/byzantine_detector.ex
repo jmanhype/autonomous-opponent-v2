@@ -95,6 +95,13 @@ defmodule AutonomousOpponentV2Core.VSM.BeliefConsensus.ByzantineDetector do
   def get_node_patterns(node_id) do
     GenServer.call(__MODULE__, {:get_node_patterns, node_id})
   end
+
+  @doc """
+  Get all reputation scores across the system.
+  """
+  def get_all_reputations do
+    GenServer.call(__MODULE__, :get_all_reputations)
+  end
   
   # Server Implementation
   
@@ -184,6 +191,11 @@ defmodule AutonomousOpponentV2Core.VSM.BeliefConsensus.ByzantineDetector do
       behavior -> behavior.suspicious_patterns
     end
     {:reply, patterns, state}
+  end
+
+  @impl true
+  def handle_call(:get_all_reputations, _from, state) do
+    {:reply, state.reputation_scores, state}
   end
   
   @impl true

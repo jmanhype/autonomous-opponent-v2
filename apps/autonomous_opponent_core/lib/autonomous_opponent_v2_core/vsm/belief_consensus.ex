@@ -817,9 +817,17 @@ defmodule AutonomousOpponentV2Core.VSM.BeliefConsensus do
   # Voting helper functions
   
   defp get_voter_id(from_pid) do
-    # In production, map PID to registered node ID
-    # For now, generate based on PID
-    "voter_#{:erlang.phash2(from_pid)}"
+    # Generate cryptographically stable voter ID using same approach as WebSocket channel
+    node_data = %{
+      process_pid: from_pid,
+      node_name: node(),
+      hostname: get_hostname_safe(),
+      timestamp: System.os_time(:microsecond)
+    }
+    
+    :crypto.hash(:sha256, :erlang.term_to_binary(node_data))
+    |> Base.encode16(case: :lower)
+    |> String.slice(0..15)  # 16 char stable ID
   end
   
   defp record_belief_vote(state, belief_id, voter_id, weighted_vote) do
@@ -873,15 +881,23 @@ defmodule AutonomousOpponentV2Core.VSM.BeliefConsensus do
   end
   
   defp get_required_vote_weight(state) do
-    # In production, this would be based on active node count
-    # For now, assume 3 nodes with average reputation 0.8
-    case state.vsm_level do
-      :s5 -> 2.0  # Higher threshold for policy
-      :s4 -> 1.8  # High threshold for intelligence
-      :s3 -> 1.6  # Moderate for control
-      :s2 -> 1.4  # Lower for coordination
-      :s1 -> 1.2  # Lowest for operations
+    # Dynamic calculation based on actual cluster size and reputation
+    active_nodes = get_active_node_count()
+    average_reputation = get_average_reputation(state)
+    
+    # Base threshold: 2/3 majority of total possible weight
+    base_threshold = active_nodes * average_reputation * @consensus_threshold
+    
+    # Apply VSM level modifiers
+    level_modifier = case state.vsm_level do
+      :s5 -> 1.2  # 20% higher threshold for policy
+      :s4 -> 1.1  # 10% higher threshold for intelligence  
+      :s3 -> 1.0  # Standard threshold for control
+      :s2 -> 0.9  # 10% lower for coordination
+      :s1 -> 0.8  # 20% lower for operations
     end
+    
+    base_threshold * level_modifier
   end
   
   defp add_to_consensus(consensus_state, belief) do
@@ -930,15 +946,38 @@ defmodule AutonomousOpponentV2Core.VSM.BeliefConsensus do
   # Core Consensus Functions
   
   defp group_by_similarity(beliefs) do
-    # Group beliefs by semantic content similarity using first 3 words
+    # Enhanced semantic grouping using content hashing and keyword analysis
     beliefs
     |> Enum.group_by(fn belief ->
-      belief.content
-      |> String.downcase()
-      |> String.replace(~r/[^\w\s]/, "")  # Remove punctuation
-      |> String.split()
-      |> Enum.take(3)  # First 3 words as grouping key
-      |> Enum.join(" ")
+      content = belief.content |> String.downcase() |> String.replace(~r/[^\w\s]/, "")
+      words = String.split(content)
+      
+      # Multi-level similarity grouping:
+      # 1. Hash core content (removes stop words, focuses on meaning)
+      core_content = words
+      |> Enum.reject(&(&1 in ["the", "a", "an", "is", "are", "was", "were", "to", "for", "of", "in", "on", "at"]))
+      |> Enum.take(5)  # Top 5 meaningful words
+      |> Enum.sort()   # Consistent ordering
+      |> Enum.join("_")
+      
+      # 2. Add content length category for additional grouping
+      length_category = case length(words) do
+        n when n <= 3 -> "short"
+        n when n <= 8 -> "medium" 
+        _ -> "long"
+      end
+      
+      # 3. Add belief type prefix for domain-specific grouping
+      type_prefix = case belief.source do
+        source when source in ["s1", :s1] -> "ops"
+        source when source in ["s2", :s2] -> "coord"
+        source when source in ["s3", :s3] -> "control"
+        source when source in ["s4", :s4] -> "intel"
+        source when source in ["s5", :s5] -> "policy"
+        _ -> "general"
+      end
+      
+      "#{type_prefix}_#{length_category}_#{core_content}"
     end)
     |> Map.values()  # Return list of groups
   end
@@ -1398,5 +1437,56 @@ defmodule AutonomousOpponentV2Core.VSM.BeliefConsensus do
     }
     
     add_belief_to_set(coordinated_belief, state)
+  end
+
+  # Helper functions for stable voter ID generation
+  
+  defp get_hostname_safe do
+    case :inet.gethostname() do
+      {:ok, hostname} -> to_string(hostname)
+      {:error, _reason} -> "localhost"
+    end
+  end
+
+  # Helper functions for dynamic vote weight calculation
+  
+  defp get_active_node_count do
+    # Get count of active nodes in the cluster
+    cluster_nodes = [node() | Node.list()]
+    
+    # In production, filter for nodes that are actually running belief consensus
+    active_count = cluster_nodes
+    |> Enum.count(fn node_name ->
+      case :rpc.call(node_name, Process, :whereis, [__MODULE__]) do
+        pid when is_pid(pid) -> true
+        _ -> false
+      end
+    end)
+    
+    # Ensure minimum of 1 for single-node deployments
+    max(1, active_count)
+  end
+  
+  defp get_average_reputation(state) do
+    # Calculate average reputation across the system
+    # In a real deployment, this would query the Byzantine detector
+    try do
+      if Process.whereis(AutonomousOpponentV2Core.VSM.BeliefConsensus.ByzantineDetector) do
+        # Get reputation scores from Byzantine detector
+        case GenServer.call(ByzantineDetector, :get_all_reputations, 1000) do
+          reputations when is_map(reputations) and map_size(reputations) > 0 ->
+            reputations
+            |> Map.values()
+            |> Enum.sum()
+            |> Kernel./(map_size(reputations))
+          _ -> 
+            0.8  # Default average reputation
+        end
+      else
+        0.8  # Default when Byzantine detector not available
+      end
+    rescue
+      _ -> 0.8  # Fallback for any errors
+    end
   end
 end

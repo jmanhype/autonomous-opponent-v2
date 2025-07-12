@@ -650,7 +650,7 @@ defmodule AutonomousOpponentV2Core.VSM.BeliefConsensus.DeltaSync do
     0..(depth - 1)
     |> Enum.map(fn level ->
       byte = :binary.at(hash, level)
-      rem(byte, :math.pow(2, level) |> round())
+      rem(byte, 2)  # Binary tree path: 0 or 1
     end)
   end
   
