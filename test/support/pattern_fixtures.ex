@@ -17,8 +17,10 @@ defmodule AutonomousOpponentV2Core.PatternFixtures do
         affected_subsystems: [:s1, :s2],
         variety_pressure: 0.9,
         temporal_characteristics: %{
-          duration: 300_000,  # 5 minutes
-          frequency: 15,      # 15 occurrences
+          # 5 minutes
+          duration: 300_000,
+          # 15 occurrences
+          frequency: 15,
           trend: :accelerating
         },
         system_stress_indicators: [:emergency_level_critical, :rate_threshold_exceeded]
@@ -36,7 +38,7 @@ defmodule AutonomousOpponentV2Core.PatternFixtures do
       actual_rate: 300,
       threshold: 100
     }
-    
+
     Map.merge(base_pattern, attrs)
   end
 
@@ -50,7 +52,8 @@ defmodule AutonomousOpponentV2Core.PatternFixtures do
         affected_subsystems: [:s1, :s3, :s5],
         variety_pressure: 0.95,
         temporal_characteristics: %{
-          duration: 180_000,  # 3 minutes
+          # 3 minutes
+          duration: 180_000,
           frequency: 50,
           trend: :critical_spike
         },
@@ -68,7 +71,7 @@ defmodule AutonomousOpponentV2Core.PatternFixtures do
       emergency_level: :extreme,
       urgency: 0.95
     }
-    
+
     Map.merge(base_pattern, attrs)
   end
 
@@ -82,7 +85,8 @@ defmodule AutonomousOpponentV2Core.PatternFixtures do
         affected_subsystems: [:s1, :s2],
         variety_pressure: 0.7,
         temporal_characteristics: %{
-          duration: 600_000,  # 10 minutes
+          # 10 minutes
+          duration: 600_000,
           frequency: 8,
           trend: :increasing
         },
@@ -92,14 +96,19 @@ defmodule AutonomousOpponentV2Core.PatternFixtures do
         impact_level: :moderate,
         variety_pressure: 0.7,
         cybernetic_implications: [:anti_oscillation_failure, :s2_dysfunction],
-        affected_control_loops: [:coordination_loop, :anti_oscillation_loop, :s1_control_loop, :s2_control_loop]
+        affected_control_loops: [
+          :coordination_loop,
+          :anti_oscillation_loop,
+          :s1_control_loop,
+          :s2_control_loop
+        ]
       },
       timestamp: Clock.now() |> elem(1),
       source: :temporal_pattern_detector,
       s4_processing_priority: :high,
       subsystems: [:s1, :s2]
     }
-    
+
     Map.merge(base_pattern, attrs)
   end
 
@@ -113,7 +122,8 @@ defmodule AutonomousOpponentV2Core.PatternFixtures do
         affected_subsystems: [:s1],
         variety_pressure: 0.8,
         temporal_characteristics: %{
-          duration: 900_000,  # 15 minutes
+          # 15 minutes
+          duration: 900_000,
           frequency: 5,
           trend: :stable
         },
@@ -131,7 +141,7 @@ defmodule AutonomousOpponentV2Core.PatternFixtures do
       actual_rate: 200,
       threshold: 150
     }
-    
+
     Map.merge(base_pattern, attrs)
   end
 
@@ -145,7 +155,8 @@ defmodule AutonomousOpponentV2Core.PatternFixtures do
         affected_subsystems: [:s3, :s4, :s5],
         variety_pressure: 0.65,
         temporal_characteristics: %{
-          duration: 1_200_000,  # 20 minutes
+          # 20 minutes
+          duration: 1_200_000,
           frequency: 12,
           trend: :increasing
         },
@@ -155,13 +166,19 @@ defmodule AutonomousOpponentV2Core.PatternFixtures do
         impact_level: :moderate,
         variety_pressure: 0.65,
         cybernetic_implications: [:metacognitive_disruption, :state_regulation_failure],
-        affected_control_loops: [:cognitive_loop, :metacognitive_loop, :s3_control_loop, :s4_control_loop, :s5_control_loop]
+        affected_control_loops: [
+          :cognitive_loop,
+          :metacognitive_loop,
+          :s3_control_loop,
+          :s4_control_loop,
+          :s5_control_loop
+        ]
       },
       timestamp: Clock.now() |> elem(1),
       source: :temporal_pattern_detector,
       s4_processing_priority: :high
     }
-    
+
     Map.merge(base_pattern, attrs)
   end
 
@@ -175,7 +192,8 @@ defmodule AutonomousOpponentV2Core.PatternFixtures do
         affected_subsystems: [:s1],
         variety_pressure: 0.6,
         temporal_characteristics: %{
-          duration: 60_000,  # 1 minute
+          # 1 minute
+          duration: 60_000,
           frequency: 100,
           trend: :stable
         },
@@ -193,7 +211,7 @@ defmodule AutonomousOpponentV2Core.PatternFixtures do
       actual_rate: 180,
       threshold: 100
     }
-    
+
     Map.merge(base_pattern, attrs)
   end
 
@@ -207,7 +225,8 @@ defmodule AutonomousOpponentV2Core.PatternFixtures do
         affected_subsystems: [:s4, :s5],
         variety_pressure: 0.75,
         temporal_characteristics: %{
-          duration: 3_600_000,  # 1 hour
+          # 1 hour
+          duration: 3_600_000,
           frequency: 3,
           trend: :escalating
         },
@@ -223,7 +242,7 @@ defmodule AutonomousOpponentV2Core.PatternFixtures do
       source: :temporal_pattern_detector,
       s4_processing_priority: :high
     }
-    
+
     Map.merge(base_pattern, attrs)
   end
 
@@ -234,7 +253,8 @@ defmodule AutonomousOpponentV2Core.PatternFixtures do
       pattern_type: :unknown_pattern,
       pattern_name: "ambiguous_signal",
       severity: :low,
-      confidence: 0.45,  # Below threshold
+      # Below threshold
+      confidence: 0.45,
       environmental_context: %{
         affected_subsystems: [],
         variety_pressure: 0.2,
@@ -255,7 +275,7 @@ defmodule AutonomousOpponentV2Core.PatternFixtures do
       source: :temporal_pattern_detector,
       s4_processing_priority: :low
     }
-    
+
     Map.merge(base_pattern, attrs)
   end
 
@@ -279,52 +299,71 @@ defmodule AutonomousOpponentV2Core.PatternFixtures do
       source: :temporal_pattern_detector,
       s4_processing_priority: :normal
     }
-    
+
     Map.merge(base_pattern, attrs)
   end
 
   def malformed_pattern(attrs \\ %{}) do
     # Pattern with invalid structure
     base_pattern = %{
-      pattern_type: "invalid_string_type",  # Should be atom
-      pattern_name: nil,  # Should be string
-      severity: "invalid",  # Should be atom
-      confidence: 1.5,  # Should be 0.0-1.0
-      environmental_context: "not_a_map",  # Should be map
-      timestamp: "not_a_timestamp",  # Should be HLC timestamp
+      # Should be atom
+      pattern_type: "invalid_string_type",
+      # Should be string
+      pattern_name: nil,
+      # Should be atom
+      severity: "invalid",
+      # Should be 0.0-1.0
+      confidence: 1.5,
+      # Should be map
+      environmental_context: "not_a_map",
+      # Should be HLC timestamp
+      timestamp: "not_a_timestamp",
       source: :temporal_pattern_detector
     }
-    
+
     Map.merge(base_pattern, attrs)
   end
 
   # High-volume pattern sets for load testing
 
   def generate_pattern_batch(count, type \\ :mixed) do
-    pattern_generators = case type do
-      :error_cascade -> [&error_cascade_pattern/1]
-      :algedonic_storm -> [&algedonic_storm_pattern/1]
-      :coordination_breakdown -> [&coordination_breakdown_pattern/1]
-      :variety_overload -> [&variety_overload_pattern/1]
-      :rate_burst -> [&rate_burst_pattern/1]
-      :mixed -> [
-        &error_cascade_pattern/1,
-        &algedonic_storm_pattern/1,
-        &coordination_breakdown_pattern/1,
-        &variety_overload_pattern/1,
-        &consciousness_instability_pattern/1,
-        &rate_burst_pattern/1,
-        &environmental_shift_pattern/1
-      ]
-    end
-    
+    pattern_generators =
+      case type do
+        :error_cascade ->
+          [&error_cascade_pattern/1]
+
+        :algedonic_storm ->
+          [&algedonic_storm_pattern/1]
+
+        :coordination_breakdown ->
+          [&coordination_breakdown_pattern/1]
+
+        :variety_overload ->
+          [&variety_overload_pattern/1]
+
+        :rate_burst ->
+          [&rate_burst_pattern/1]
+
+        :mixed ->
+          [
+            &error_cascade_pattern/1,
+            &algedonic_storm_pattern/1,
+            &coordination_breakdown_pattern/1,
+            &variety_overload_pattern/1,
+            &consciousness_instability_pattern/1,
+            &rate_burst_pattern/1,
+            &environmental_shift_pattern/1
+          ]
+      end
+
     Enum.map(1..count, fn i ->
       generator = Enum.at(pattern_generators, rem(i, length(pattern_generators)))
       {:ok, timestamp} = Clock.now()
-      
+
       generator.(%{
         pattern_name: "batch_pattern_#{i}",
-        confidence: 0.7 + :rand.uniform() * 0.29,  # 0.7-0.99
+        # 0.7-0.99
+        confidence: 0.7 + :rand.uniform() * 0.29,
         timestamp: %{
           physical: timestamp.physical + i * 100,
           logical: timestamp.logical + i,
@@ -345,22 +384,27 @@ defmodule AutonomousOpponentV2Core.PatternFixtures do
         detection_confidence: 0.87
       }
     }
-    
+
     Map.merge(base_event, attrs)
   end
 
   # S4 environmental signal for testing
   def s4_environmental_signal(urgency \\ 0.8, attrs \\ %{}) do
     pattern = if urgency >= 0.9, do: algedonic_storm_pattern(), else: error_cascade_pattern()
-    
+
     base_signal = %{
       type: :pattern_alert,
       pattern: pattern,
       urgency: urgency,
-      recommended_s4_actions: [:increase_monitoring, :prepare_isolation, :alert_s3_control, :scenario_modeling],
+      recommended_s4_actions: [
+        :increase_monitoring,
+        :prepare_isolation,
+        :alert_s3_control,
+        :scenario_modeling
+      ],
       environmental_impact: :cascading_failure_risk
     }
-    
+
     Map.merge(base_signal, attrs)
   end
 
@@ -373,7 +417,7 @@ defmodule AutonomousOpponentV2Core.PatternFixtures do
       timestamp: Clock.now() |> elem(1),
       status: :success
     }
-    
+
     Map.merge(base_event, attrs)
   end
 end

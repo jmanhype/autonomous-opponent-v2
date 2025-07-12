@@ -3,7 +3,7 @@ defmodule AutonomousOpponentV2Core.VSM.S4.PatternPropertyTest do
   Property-based tests for pattern processing in S4 Intelligence.
   Tests system properties with randomized pattern data.
   """
-  
+
   use ExUnit.Case
   import ExUnit.CaptureLog
 
@@ -20,7 +20,7 @@ defmodule AutonomousOpponentV2Core.VSM.S4.PatternPropertyTest do
     end
 
     {:ok, s4_pid} = Intelligence.start_link(id: "test_s4_property")
-    
+
     {:ok, s4_pid: s4_pid}
   end
 
@@ -45,7 +45,7 @@ defmodule AutonomousOpponentV2Core.VSM.S4.PatternPropertyTest do
   defp random_confidence, do: :rand.uniform()
   defp random_urgency, do: :rand.uniform()
   defp random_emergency_level, do: Enum.random(@emergency_levels)
-  
+
   defp random_subsystems do
     count = :rand.uniform(5) - 1
     Enum.take_random(@subsystems, count)
@@ -54,6 +54,7 @@ defmodule AutonomousOpponentV2Core.VSM.S4.PatternPropertyTest do
   defp random_timestamp do
     {:ok, base} = Clock.now()
     offset = :rand.uniform(1_000_000)
+
     %{
       physical: base.physical + offset,
       logical: rem(offset, 1000),
@@ -83,42 +84,44 @@ defmodule AutonomousOpponentV2Core.VSM.S4.PatternPropertyTest do
       # Test with 100 random patterns
       for _ <- 1..100 do
         pattern = generate_random_pattern()
-        
+
         # Add required environmental context
-        enhanced_pattern = Map.merge(pattern, %{
-          environmental_context: %{
-            affected_subsystems: pattern.affected_subsystems,
-            variety_pressure: :rand.uniform(),
-            temporal_characteristics: %{
-              duration: pattern.duration_ms,
-              frequency: pattern.actual_rate,
-              trend: :stable
+        enhanced_pattern =
+          Map.merge(pattern, %{
+            environmental_context: %{
+              affected_subsystems: pattern.affected_subsystems,
+              variety_pressure: :rand.uniform(),
+              temporal_characteristics: %{
+                duration: pattern.duration_ms,
+                frequency: pattern.actual_rate,
+                trend: :stable
+              },
+              system_stress_indicators: []
             },
-            system_stress_indicators: []
-          },
-          vsm_impact: %{
-            impact_level: :moderate,
-            variety_pressure: :rand.uniform(),
-            cybernetic_implications: [:environmental_variation],
-            affected_control_loops: [:monitoring_loop]
-          },
-          s4_processing_priority: :normal
-        })
-        
+            vsm_impact: %{
+              impact_level: :moderate,
+              variety_pressure: :rand.uniform(),
+              cybernetic_implications: [:environmental_variation],
+              affected_control_loops: [:monitoring_loop]
+            },
+            s4_processing_priority: :normal
+          })
+
         # Process pattern
-        result = capture_log(fn ->
-          send(s4_pid, {:event, :pattern_detected, enhanced_pattern})
-          Process.sleep(50)
-        end)
-        
+        result =
+          capture_log(fn ->
+            send(s4_pid, {:event, :pattern_detected, enhanced_pattern})
+            Process.sleep(50)
+          end)
+
         # Should not crash
         assert Process.alive?(s4_pid)
-        
+
         # Should log reception (unless confidence too low)
         if enhanced_pattern.confidence >= 0.7 do
           assert result =~ "S4: Received pattern"
         end
-        
+
         # Should not have errors
         refute result =~ "Error storing pattern in vector store"
         refute result =~ "crash"
@@ -130,21 +133,22 @@ defmodule AutonomousOpponentV2Core.VSM.S4.PatternPropertyTest do
       for _ <- 1..50 do
         confidence = random_confidence()
         pattern = create_test_pattern_with_confidence(confidence)
-        
-        log = capture_log(fn ->
-          send(s4_pid, {:event, :pattern_detected, pattern})
-          Process.sleep(50)
-        end)
-        
+
+        log =
+          capture_log(fn ->
+            send(s4_pid, {:event, :pattern_detected, pattern})
+            Process.sleep(50)
+          end)
+
         # Should process without errors
         assert Process.alive?(s4_pid)
-        
+
         # Verify confidence threshold behavior
         if confidence >= 0.7 do
           refute log =~ "Pattern below confidence threshold"
         else
           assert log =~ "Pattern below confidence threshold" or
-                 log =~ "not storing"
+                   log =~ "not storing"
         end
       end
     end
@@ -154,16 +158,18 @@ defmodule AutonomousOpponentV2Core.VSM.S4.PatternPropertyTest do
       for _ <- 1..100 do
         pattern = generate_random_pattern()
         # Make it urgent enough to generate environmental signal
-        urgent_pattern = Map.merge(pattern, %{
-          pattern_type: Enum.random([:error_cascade, :algedonic_storm, :coordination_breakdown]),
-          emergency_level: :critical
-        })
-        
+        urgent_pattern =
+          Map.merge(pattern, %{
+            pattern_type:
+              Enum.random([:error_cascade, :algedonic_storm, :coordination_breakdown]),
+            emergency_level: :critical
+          })
+
         # Process through emit function to test urgency calculation
         capture_log(fn ->
           PatternDetector.emit_pattern_detection(urgent_pattern)
         end)
-        
+
         # Check if environmental signal was sent (for urgent patterns)
         receive do
           {:event, :s4_environmental_signal, signal} ->
@@ -171,7 +177,8 @@ defmodule AutonomousOpponentV2Core.VSM.S4.PatternPropertyTest do
             assert signal.urgency <= 1.0
             assert is_float(signal.urgency)
         after
-          100 -> :ok  # Not all patterns generate signals
+          # Not all patterns generate signals
+          100 -> :ok
         end
       end
     end
@@ -181,21 +188,21 @@ defmodule AutonomousOpponentV2Core.VSM.S4.PatternPropertyTest do
       for _ <- 1..20 do
         pattern_count = :rand.uniform(10)
         patterns = for _ <- 1..pattern_count, do: generate_random_pattern()
-        
+
         # Send all patterns
         Enum.each(patterns, fn pattern ->
           enhanced_pattern = enhance_pattern_for_s4(pattern)
           send(s4_pid, {:event, :pattern_detected, enhanced_pattern})
         end)
-        
+
         Process.sleep(100 * length(patterns))
-        
+
         # Get state
         state = :sys.get_state(s4_pid)
-        
+
         # Verify environmental model integrity
         assert is_map(state.environmental_model)
-        
+
         # Each pattern type should have valid structure if present
         Enum.each(state.environmental_model, fn {key, value} ->
           if is_atom(key) and key != :environmental_complexity do
@@ -206,7 +213,7 @@ defmodule AutonomousOpponentV2Core.VSM.S4.PatternPropertyTest do
             assert is_list(value.vsm_impacts)
           end
         end)
-        
+
         # Environmental complexity should be in valid range
         if Map.has_key?(state.environmental_model, :environmental_complexity) do
           complexity = state.environmental_model.environmental_complexity
@@ -222,31 +229,33 @@ defmodule AutonomousOpponentV2Core.VSM.S4.PatternPropertyTest do
       # Test with 50 random patterns through event publishing
       for _ <- 1..50 do
         pattern_type = random_pattern_type()
-        rate_multiplier = 0.5 + :rand.uniform() * 2.5  # 0.5 to 3.0
-        
-        pattern = enhance_pattern_for_s4(%{
-          pattern_type: pattern_type,
-          pattern_name: "severity_test",
-          actual_rate: round(100 * rate_multiplier),
-          threshold: 100,
-          confidence: 0.8,
-          timestamp: random_timestamp(),
-          source: :temporal_pattern_detector
-        })
-        
+        # 0.5 to 3.0
+        rate_multiplier = 0.5 + :rand.uniform() * 2.5
+
+        pattern =
+          enhance_pattern_for_s4(%{
+            pattern_type: pattern_type,
+            pattern_name: "severity_test",
+            actual_rate: round(100 * rate_multiplier),
+            threshold: 100,
+            confidence: 0.8,
+            timestamp: random_timestamp(),
+            source: :temporal_pattern_detector
+          })
+
         # Subscribe to events
         EventBus.subscribe(:pattern_detected)
-        
+
         capture_log(fn ->
           PatternDetector.emit_pattern_detection(pattern)
         end)
-        
+
         assert_receive {:event, :pattern_detected, s4_pattern}, 500
         severity = s4_pattern.severity
-        
+
         # Verify severity is valid
         assert severity in [:critical, :high, :medium, :low, :minimal]
-        
+
         # Verify consistency rules
         case pattern_type do
           :error_cascade -> assert severity == :critical
@@ -256,7 +265,7 @@ defmodule AutonomousOpponentV2Core.VSM.S4.PatternPropertyTest do
           :rate_burst when rate_multiplier > 2.0 -> assert severity == :high
           _ -> assert severity in [:medium, :low, :minimal, :high]
         end
-        
+
         EventBus.unsubscribe(:pattern_detected)
       end
     end
@@ -268,47 +277,57 @@ defmodule AutonomousOpponentV2Core.VSM.S4.PatternPropertyTest do
       for _ <- 1..50 do
         pattern_type = random_pattern_type()
         emergency_level = random_emergency_level()
-        
-        pattern = enhance_pattern_for_s4(%{
-          pattern_type: pattern_type,
-          pattern_name: "priority_test",
-          emergency_level: emergency_level,
-          confidence: 0.8,
-          timestamp: random_timestamp(),
-          source: :temporal_pattern_detector
-        })
-        
+
+        pattern =
+          enhance_pattern_for_s4(%{
+            pattern_type: pattern_type,
+            pattern_name: "priority_test",
+            emergency_level: emergency_level,
+            confidence: 0.8,
+            timestamp: random_timestamp(),
+            source: :temporal_pattern_detector
+          })
+
         EventBus.subscribe(:pattern_detected)
-        
+
         capture_log(fn ->
           PatternDetector.emit_pattern_detection(pattern)
         end)
-        
+
         assert_receive {:event, :pattern_detected, s4_pattern}, 500
         priority = s4_pattern.s4_processing_priority
-        
+
         # Verify priority is valid
         assert priority in [:immediate, :high, :normal, :low]
-        
+
         # Verify emergency override
         case emergency_level do
-          :extreme -> assert priority == :immediate
-          :critical -> assert priority == :immediate
-          :high -> assert priority == :high
+          :extreme ->
+            assert priority == :immediate
+
+          :critical ->
+            assert priority == :immediate
+
+          :high ->
+            assert priority == :high
+
           _ ->
             # Should follow base priority rules
             case pattern_type do
-              p when p in [:error_cascade, :algedonic_storm] -> 
+              p when p in [:error_cascade, :algedonic_storm] ->
                 assert priority == :immediate
-              p when p in [:coordination_breakdown, :consciousness_instability] -> 
+
+              p when p in [:coordination_breakdown, :consciousness_instability] ->
                 assert priority == :high
-              :rate_burst -> 
+
+              :rate_burst ->
                 assert priority == :normal
-              _ -> 
+
+              _ ->
                 assert priority == :low
             end
         end
-        
+
         EventBus.unsubscribe(:pattern_detected)
       end
     end
@@ -318,25 +337,26 @@ defmodule AutonomousOpponentV2Core.VSM.S4.PatternPropertyTest do
     test "cache size remains bounded under any pattern load", %{s4_pid: s4_pid} do
       # Test with 5 different pattern loads
       for _ <- 1..5 do
-        pattern_count = 100 + :rand.uniform(900)  # 100 to 1000
+        # 100 to 1000
+        pattern_count = 100 + :rand.uniform(900)
         patterns = for _ <- 1..pattern_count, do: generate_random_pattern()
-        
+
         # Send all patterns
         Enum.each(patterns, fn pattern ->
           enhanced_pattern = enhance_pattern_for_s4(pattern)
           send(s4_pid, {:event, :pattern_detected, enhanced_pattern})
         end)
-        
+
         # Allow processing
         Process.sleep(min(pattern_count * 10, 2000))
-        
+
         # Verify cache bounds
         state = :sys.get_state(s4_pid)
         cache_size = map_size(state.pattern_cache || %{})
-        
+
         # Cache should never exceed limit
         assert cache_size <= 10_000
-        
+
         # Process should still be healthy
         assert Process.alive?(s4_pid)
       end
@@ -348,24 +368,24 @@ defmodule AutonomousOpponentV2Core.VSM.S4.PatternPropertyTest do
       # Test with 100 random patterns through published events
       for _ <- 1..100 do
         pattern = enhance_pattern_for_s4(generate_random_pattern())
-        
+
         EventBus.subscribe(:pattern_detected)
-        
+
         capture_log(fn ->
           PatternDetector.emit_pattern_detection(pattern)
         end)
-        
+
         assert_receive {:event, :pattern_detected, s4_pattern}, 500
-        
+
         # Check variety pressure in VSM impact
         pressure = s4_pattern.vsm_impact.variety_pressure
-        
+
         # Should be non-negative
         assert pressure >= 0.0
-        
+
         # Should have reasonable upper bound
         assert pressure <= 2.0
-        
+
         EventBus.unsubscribe(:pattern_detected)
       end
     end
@@ -376,28 +396,30 @@ defmodule AutonomousOpponentV2Core.VSM.S4.PatternPropertyTest do
       # Test with 50 random patterns through published events
       for _ <- 1..50 do
         base_pattern = generate_random_pattern()
-        intensity_escalation = 0.5 + :rand.uniform() * 1.5  # 0.5 to 2.0
-        
-        enhanced_pattern = enhance_pattern_for_s4(
-          Map.put(base_pattern, :intensity_escalation, intensity_escalation)
-        )
-        
+        # 0.5 to 2.0
+        intensity_escalation = 0.5 + :rand.uniform() * 1.5
+
+        enhanced_pattern =
+          enhance_pattern_for_s4(
+            Map.put(base_pattern, :intensity_escalation, intensity_escalation)
+          )
+
         EventBus.subscribe(:pattern_detected)
-        
+
         capture_log(fn ->
           PatternDetector.emit_pattern_detection(enhanced_pattern)
         end)
-        
+
         assert_receive {:event, :pattern_detected, s4_pattern}, 500
         trend = s4_pattern.environmental_context.temporal_characteristics.trend
-        
+
         # Trend should be one of the valid values
         assert trend in [:escalating, :increasing, :critical_spike, :stable]
-        
+
         # Only one trend should apply
         trends = [:escalating, :increasing, :critical_spike, :stable]
         assert Enum.count(trends, &(&1 == trend)) == 1
-        
+
         EventBus.unsubscribe(:pattern_detected)
       end
     end
@@ -406,7 +428,7 @@ defmodule AutonomousOpponentV2Core.VSM.S4.PatternPropertyTest do
   # Helper functions
   defp create_test_pattern_with_confidence(confidence) do
     {:ok, timestamp} = Clock.now()
-    
+
     %{
       pattern_type: :test_pattern,
       pattern_name: "confidence_test_#{confidence}",

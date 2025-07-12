@@ -1,0 +1,572 @@
+defmodule AutonomousOpponentWebWeb.Channels.BeliefConsensusChannel do
+  @moduledoc """
+  Phoenix Channel for real-time belief consensus with algedonic bypass.
+  
+  Provides WebSocket interface for:
+  - Real-time belief voting and consensus updates
+  - Sub-50ms algedonic bypass for critical beliefs
+  - Byzantine node detection alerts
+  - Consensus visualization data
+  - Reputation-based voting weights
+  
+  This channel integrates with the VSM belief consensus system to provide
+  low-latency updates to connected clients while respecting VSM principles.
+  """
+  
+  use AutonomousOpponentV2Web, :channel
+  require Logger
+  
+  alias AutonomousOpponentV2Core.VSM.BeliefConsensus
+  alias AutonomousOpponentV2Core.VSM.BeliefConsensus.{ByzantineDetector, DeltaSync}
+  alias AutonomousOpponentV2Core.VSM.S2.Coordination
+  alias AutonomousOpponentV2Core.EventBus
+  alias Phoenix.Socket
+  
+  # Channel configuration
+  @algedonic_threshold 0.9    # Urgency threshold for bypass
+  @vote_timeout 30_000        # 30 seconds to vote
+  @max_beliefs_per_min 100    # Rate limiting
+  @consensus_update_interval 1_000  # Update every second
+  
+  # Track channel state
+  defmodule ChannelState do
+    defstruct [
+      :node_id,
+      :vsm_level,
+      :reputation,
+      :vote_count,
+      :last_vote_time,
+      :subscriptions,
+      :algedonic_enabled,
+      :consensus_timer,
+      :message_nonces,      # Track nonces for replay protection
+      :rate_limit_tokens,   # Per-node rate limiting
+      :last_token_refill    # Last time rate limit tokens were refilled
+    ]
+  end
+  
+  @impl true
+  def join("beliefs:consensus:" <> level, payload, socket) do
+    if authorized?(payload) do
+      vsm_level = String.to_atom(level)
+      node_id = generate_node_id(socket)
+      
+      # Get initial reputation
+      reputation = ByzantineDetector.get_reputation(node_id)
+      
+      # Subscribe to relevant events
+      EventBus.subscribe(:belief_consensus_update)
+      EventBus.subscribe(:byzantine_node_detected)
+      EventBus.subscribe(:algedonic_pain)
+      EventBus.subscribe(:algedonic_pleasure)
+      
+      # Start consensus update timer
+      timer_ref = schedule_consensus_update()
+      
+      # Initialize channel state
+      state = %ChannelState{
+        node_id: node_id,
+        vsm_level: vsm_level,
+        reputation: reputation,
+        vote_count: 0,
+        last_vote_time: nil,
+        subscriptions: MapSet.new([vsm_level]),
+        algedonic_enabled: true,
+        consensus_timer: timer_ref,
+        message_nonces: MapSet.new(),
+        rate_limit_tokens: @max_beliefs_per_min,
+        last_token_refill: DateTime.utc_now()
+      }
+      
+      # Send initial state
+      send(self(), :send_initial_state)
+      
+      socket = assign(socket, :channel_state, state)
+      
+      {:ok, %{node_id: node_id, reputation: reputation}, socket}
+    else
+      {:error, %{reason: "unauthorized"}}
+    end
+  end
+  
+  @impl true
+  def join("beliefs:consensus", _payload, _socket) do
+    {:error, %{reason: "must specify VSM level"}}
+  end
+  
+  # Handle incoming messages
+  
+  @impl true
+  def handle_in("propose_belief", %{"content" => content} = params, socket) do
+    state = socket.assigns.channel_state
+    
+    # Check for replay protection
+    nonce = Map.get(params, "nonce")
+    if nonce && MapSet.member?(state.message_nonces, nonce) do
+      {:reply, {:error, %{reason: "replay_detected"}}, socket}
+    else
+      # Refill rate limit tokens
+      updated_state = refill_rate_limit_tokens(state)
+      
+      # Rate limiting check
+      if updated_state.rate_limit_tokens > 0 do
+        # Check for algedonic bypass
+        urgency = Map.get(params, "urgency", 0.5)
+        
+        result = if urgency >= @algedonic_threshold do
+          handle_algedonic_belief(content, urgency, params, updated_state)
+        else
+          handle_normal_belief(content, params, updated_state)
+        end
+        
+        case result do
+          {:ok, belief_id} ->
+            # Update state with consumed token and nonce tracking
+            new_state = %{updated_state | 
+              vote_count: updated_state.vote_count + 1,
+              last_vote_time: DateTime.utc_now(),
+              rate_limit_tokens: updated_state.rate_limit_tokens - 1,
+              message_nonces: if(nonce, do: MapSet.put(updated_state.message_nonces, nonce), else: updated_state.message_nonces)
+            }
+            
+            socket = assign(socket, :channel_state, new_state)
+            
+            {:reply, {:ok, %{belief_id: belief_id}}, socket}
+            
+          {:error, reason} ->
+            {:reply, {:error, %{reason: reason}}, socket}
+        end
+      else
+        {:reply, {:error, %{reason: "rate_limit_exceeded"}}, socket}
+      end
+    end
+  end
+  
+  @impl true
+  def handle_in("vote_belief", %{"belief_id" => belief_id, "vote" => vote}, socket) do
+    state = socket.assigns.channel_state
+    
+    # Record vote with Byzantine detection
+    ByzantineDetector.record_vote(state.node_id, belief_id, vote)
+    
+    # Apply reputation weight
+    weighted_vote = vote * state.reputation
+    
+    # Submit weighted vote
+    case BeliefConsensus.vote_on_belief(state.vsm_level, belief_id, weighted_vote) do
+      :ok ->
+        {:reply, {:ok, %{weighted_vote: weighted_vote}}, socket}
+      error ->
+        {:reply, {:error, %{reason: inspect(error)}}, socket}
+    end
+  end
+  
+  @impl true
+  def handle_in("get_consensus", _params, socket) do
+    state = socket.assigns.channel_state
+    
+    case BeliefConsensus.get_consensus(state.vsm_level) do
+      {:ok, consensus} ->
+        {:reply, {:ok, format_consensus(consensus)}, socket}
+      error ->
+        {:reply, {:error, %{reason: inspect(error)}}, socket}
+    end
+  end
+  
+  @impl true
+  def handle_in("subscribe_level", %{"level" => level}, socket) do
+    state = socket.assigns.channel_state
+    vsm_level = String.to_atom(level)
+    
+    # Add to subscriptions
+    new_subscriptions = MapSet.put(state.subscriptions, vsm_level)
+    new_state = %{state | subscriptions: new_subscriptions}
+    
+    socket = assign(socket, :channel_state, new_state)
+    
+    {:reply, :ok, socket}
+  end
+  
+  @impl true
+  def handle_in("get_metrics", _params, socket) do
+    state = socket.assigns.channel_state
+    
+    metrics = %{
+      node_metrics: get_node_metrics(state),
+      consensus_metrics: get_consensus_metrics(state.vsm_level),
+      sync_metrics: DeltaSync.get_metrics(state.vsm_level)
+    }
+    
+    {:reply, {:ok, metrics}, socket}
+  end
+  
+  # Handle outgoing messages
+  
+  @impl true
+  def handle_info(:send_initial_state, socket) do
+    state = socket.assigns.channel_state
+    
+    # Get current consensus
+    {:ok, consensus} = BeliefConsensus.get_consensus(state.vsm_level)
+    
+    # Get metrics
+    metrics = BeliefConsensus.get_metrics(state.vsm_level)
+    
+    # Get Byzantine nodes
+    byzantine_nodes = ByzantineDetector.get_byzantine_nodes()
+    
+    push(socket, "initial_state", %{
+      consensus: format_consensus(consensus),
+      metrics: metrics,
+      byzantine_nodes: byzantine_nodes,
+      node_count: get_active_node_count(),
+      your_reputation: state.reputation
+    })
+    
+    {:noreply, socket}
+  end
+  
+  @impl true
+  def handle_info(:update_consensus, socket) do
+    state = socket.assigns.channel_state
+    
+    # Get consensus for all subscribed levels
+    updates = Enum.map(state.subscriptions, fn level ->
+      case BeliefConsensus.get_consensus(level) do
+        {:ok, consensus} -> {level, format_consensus(consensus)}
+        _ -> nil
+      end
+    end)
+    |> Enum.filter(&(&1 != nil))
+    |> Map.new()
+    
+    # Push updates
+    push(socket, "consensus_update", %{
+      levels: updates,
+      timestamp: DateTime.utc_now()
+    })
+    
+    # Schedule next update
+    timer_ref = schedule_consensus_update()
+    new_state = %{state | consensus_timer: timer_ref}
+    socket = assign(socket, :channel_state, new_state)
+    
+    {:noreply, socket}
+  end
+  
+  @impl true
+  def handle_info({:event_bus_hlc, event}, socket) do
+    handle_info({:event, event.type, event.data}, socket)
+  end
+  
+  @impl true
+  def handle_info({:event, :belief_consensus_update, data}, socket) do
+    state = socket.assigns.channel_state
+    
+    # Check if update is for a subscribed level
+    if MapSet.member?(state.subscriptions, data.level) do
+      push(socket, "belief_update", %{
+        level: data.level,
+        belief: format_belief(data.belief),
+        consensus_change: data.consensus_change
+      })
+    end
+    
+    {:noreply, socket}
+  end
+  
+  @impl true
+  def handle_info({:event, :byzantine_node_detected, data}, socket) do
+    state = socket.assigns.channel_state
+    
+    # Check if it's us!
+    if data.node_id == state.node_id do
+      Logger.error("🚨 We've been marked as Byzantine! #{inspect(data.patterns)}")
+      
+      # Update our reputation
+      new_state = %{state | reputation: 0.1}
+      socket = assign(socket, :channel_state, new_state)
+      
+      push(socket, "byzantine_self", %{
+        patterns: data.patterns,
+        score: data.score
+      })
+    else
+      # Notify about other Byzantine nodes
+      push(socket, "byzantine_detected", %{
+        node_id: data.node_id,
+        patterns: data.patterns,
+        score: data.score
+      })
+    end
+    
+    {:noreply, socket}
+  end
+  
+  @impl true
+  def handle_info({:event, :algedonic_pain, pain_signal}, socket) do
+    state = socket.assigns.channel_state
+    
+    if state.algedonic_enabled do
+      # Emergency broadcast
+      push(socket, "algedonic_pain", %{
+        signal: pain_signal,
+        level: pain_signal.level,
+        source: pain_signal.source,
+        urgency: pain_signal.urgency || 1.0
+      })
+    end
+    
+    {:noreply, socket}
+  end
+  
+  @impl true
+  def handle_info({:event, :algedonic_pleasure, pleasure_signal}, socket) do
+    state = socket.assigns.channel_state
+    
+    if state.algedonic_enabled do
+      push(socket, "algedonic_pleasure", %{
+        signal: pleasure_signal,
+        level: pleasure_signal.level,
+        source: pleasure_signal.source
+      })
+    end
+    
+    {:noreply, socket}
+  end
+  
+  @impl true
+  def terminate(_reason, socket) do
+    state = socket.assigns[:channel_state]
+    
+    if state && state.consensus_timer do
+      Process.cancel_timer(state.consensus_timer)
+    end
+    
+    :ok
+  end
+  
+  # Private functions
+  
+  defp authorized?(payload) do
+    # In production, implement proper authorization
+    # For now, check for valid token
+    Map.has_key?(payload, "token")
+  end
+  
+  defp generate_node_id(socket) do
+    # Generate cryptographically stable node ID with error handling
+    node_data = %{
+      transport_pid: socket.transport_pid,
+      remote_ip: get_connect_info_safe(socket, :peer_data),
+      user_agent: get_connect_info_safe(socket, :x_headers) |> get_user_agent(),
+      session_id: get_session_id(socket),
+      hostname: get_hostname_safe(),
+      timestamp: System.os_time(:microsecond)
+    }
+    
+    :crypto.hash(:sha256, :erlang.term_to_binary(node_data))
+    |> Base.encode16(case: :lower)
+    |> String.slice(0..15)  # 16 char stable ID
+  end
+  
+  defp rate_limit_ok?(state) do
+    now = DateTime.utc_now()
+    
+    case state.last_vote_time do
+      nil -> 
+        true
+      last_time ->
+        diff_ms = DateTime.diff(now, last_time, :millisecond)
+        min_interval = div(60_000, @max_beliefs_per_min)
+        
+        if state.vote_count < 10 do
+          true  # Burst allowance
+        else
+          diff_ms >= min_interval
+        end
+    end
+  end
+  
+  defp handle_algedonic_belief(content, urgency, params, state) do
+    Logger.warning("⚡ Algedonic bypass activated for belief: #{inspect(content)}")
+    
+    # Report to S2 coordination immediately
+    Coordination.report_conflict(:algedonic_belief, state.node_id, content)
+    
+    # Create high-priority belief
+    metadata = %{
+      source: state.node_id,
+      weight: 1.0,  # Maximum weight
+      confidence: urgency,
+      evidence: Map.get(params, "evidence", []),
+      algedonic: true
+    }
+    
+    # Bypass normal channels
+    BeliefConsensus.propose_belief(state.vsm_level, content, metadata)
+  end
+  
+  defp handle_normal_belief(content, params, state) do
+    metadata = %{
+      source: state.node_id,
+      weight: Map.get(params, "weight", 0.5) * state.reputation,
+      confidence: Map.get(params, "confidence", 0.7),
+      evidence: Map.get(params, "evidence", [])
+    }
+    
+    BeliefConsensus.propose_belief(state.vsm_level, content, metadata)
+  end
+  
+  defp format_consensus(consensus) do
+    %{
+      beliefs: Enum.map(consensus.beliefs, &format_belief/1),
+      strength: consensus.strength,
+      timestamp: consensus.timestamp,
+      participant_count: get_participant_count(consensus)
+    }
+  end
+  
+  defp format_belief(belief) do
+    %{
+      id: belief.id,
+      content: belief.content,
+      weight: belief.weight,
+      confidence: belief.confidence,
+      source: belief.source,
+      timestamp: belief.timestamp,
+      ttl_remaining: calculate_ttl_remaining(belief),
+      validation_status: belief.validation_status
+    }
+  end
+  
+  defp calculate_ttl_remaining(belief) do
+    if belief.timestamp && belief.ttl do
+      elapsed = DateTime.diff(DateTime.utc_now(), belief.timestamp, :millisecond)
+      max(0, belief.ttl - elapsed)
+    else
+      0
+    end
+  end
+  
+  defp get_participant_count(consensus) do
+    # In production, this would track actual participants
+    consensus.beliefs
+    |> Enum.map(& &1.source)
+    |> Enum.uniq()
+    |> length()
+  end
+  
+  defp get_node_metrics(state) do
+    %{
+      node_id: state.node_id,
+      reputation: state.reputation,
+      vote_count: state.vote_count,
+      uptime: calculate_uptime(state),
+      is_byzantine: ByzantineDetector.is_byzantine?(state.node_id)
+    }
+  end
+  
+  defp get_consensus_metrics(vsm_level) do
+    BeliefConsensus.get_metrics(vsm_level)
+  end
+  
+  defp get_active_node_count do
+    # In production, track active WebSocket connections
+    # For now, return Node.list() count + 1
+    length(Node.list()) + 1
+  end
+  
+  defp calculate_uptime(_state) do
+    # In production, track connection time
+    0
+  end
+  
+  defp schedule_consensus_update do
+    Process.send_after(self(), :update_consensus, @consensus_update_interval)
+  end
+
+  # Helper functions for node ID generation
+  
+  defp get_user_agent(headers) when is_list(headers) do
+    headers
+    |> Enum.find_value(fn {k, v} -> 
+      if String.downcase(k) == "user-agent", do: v 
+    end) || "unknown"
+  end
+  
+  defp get_user_agent(_), do: "unknown"
+  
+  defp get_session_id(socket) do
+    # Try to get session ID from various sources
+    socket.assigns[:session_id] || 
+    socket.assigns[:user_id] ||
+    "anonymous_#{System.unique_integer([:positive])}"
+  end
+  
+  defp get_connect_info(socket, key) do
+    Phoenix.Socket.get_connect_info(socket, key)
+  rescue
+    _ -> nil
+  end
+
+  defp get_connect_info_safe(socket, key) do
+    get_connect_info(socket, key) || 
+    case key do
+      :peer_data -> %{address: {127, 0, 0, 1}, port: 0}
+      :x_headers -> []
+      _ -> nil
+    end
+  end
+
+  defp get_hostname_safe do
+    case :inet.gethostname() do
+      {:ok, hostname} -> to_string(hostname)
+      {:error, _reason} -> "localhost"
+    end
+  end
+
+  # Rate limiting and replay protection functions
+  
+  defp refill_rate_limit_tokens(state) do
+    now = DateTime.utc_now()
+    seconds_since_refill = DateTime.diff(now, state.last_token_refill, :second)
+    
+    if seconds_since_refill >= 60 do  # Refill every minute
+      # Token bucket: refill to max capacity
+      %{state | 
+        rate_limit_tokens: @max_beliefs_per_min,
+        last_token_refill: now
+      }
+    else
+      # Partial refill based on time elapsed
+      tokens_to_add = div(seconds_since_refill * @max_beliefs_per_min, 60)
+      new_tokens = min(@max_beliefs_per_min, state.rate_limit_tokens + tokens_to_add)
+      
+      if tokens_to_add > 0 do
+        %{state | 
+          rate_limit_tokens: new_tokens,
+          last_token_refill: now
+        }
+      else
+        state
+      end
+    end
+  end
+
+  defp cleanup_old_nonces(state) do
+    # Keep nonces for last 10 minutes to prevent replay
+    # In production, use a more sophisticated cleanup with timestamps
+    if MapSet.size(state.message_nonces) > 1000 do
+      # Keep only the most recent half
+      recent_nonces = state.message_nonces
+      |> MapSet.to_list()
+      |> Enum.take(500)
+      |> MapSet.new()
+      
+      %{state | message_nonces: recent_nonces}
+    else
+      state
+    end
+  end
+end

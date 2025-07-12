@@ -12,6 +12,9 @@ defmodule AutonomousOpponentV2Web.UserSocket do
   channel "patterns:stream", AutonomousOpponentV2Web.PatternsChannel
   channel "patterns:stats", AutonomousOpponentV2Web.PatternsChannel
   channel "patterns:vsm", AutonomousOpponentV2Web.PatternsChannel
+  
+  # Belief consensus channels
+  channel "beliefs:consensus:*", AutonomousOpponentV2Web.Channels.BeliefConsensusChannel
 
 
   # Socket params are passed from the client and can

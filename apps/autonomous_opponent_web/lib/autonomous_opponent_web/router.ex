@@ -72,6 +72,9 @@ defmodule AutonomousOpponentV2Web.Router do
     
     # Pattern Flow Dashboard
     live "/patterns/flow", PatternFlowLive, :index
+    
+    # Belief Consensus Dashboard
+    live "/beliefs/consensus", BeliefConsensusLive, :index
   end
   
   # Web Gateway endpoints
