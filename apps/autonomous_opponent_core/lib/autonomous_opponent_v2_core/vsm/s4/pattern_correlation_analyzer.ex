@@ -609,8 +609,21 @@ defmodule AutonomousOpponentV2Core.VSM.S4.PatternCorrelationAnalyzer do
     # Simple causality detection based on temporal ordering and correlation
     # In a real system, this would use more sophisticated causal inference
     
+    # Extract timestamps - handle both DateTime and HLC formats
+    timestamp_a = extract_timestamp(pattern_a.timestamp)
+    timestamp_b = extract_timestamp(pattern_b.timestamp)
+    
     # Check temporal ordering - pattern_a should precede pattern_b
-    time_diff = DateTime.diff(pattern_b.timestamp, pattern_a.timestamp, :millisecond)
+    time_diff = case {timestamp_a, timestamp_b} do
+      {%DateTime{} = ts_a, %DateTime{} = ts_b} ->
+        DateTime.diff(ts_b, ts_a, :millisecond)
+      {ts_a, ts_b} when is_integer(ts_a) and is_integer(ts_b) ->
+        # Unix timestamps in milliseconds
+        ts_b - ts_a
+      _ ->
+        # Can't determine temporal ordering
+        0
+    end
     
     # Causality requires:
     # 1. Temporal precedence (pattern_a before pattern_b)
@@ -623,6 +636,26 @@ defmodule AutonomousOpponentV2Core.VSM.S4.PatternCorrelationAnalyzer do
                        are_subsystems_related?(pattern_a[:source], pattern_b[:source])
     
     temporal_precedence && subsystem_related
+  end
+  
+  defp extract_timestamp(%{physical: physical} = _hlc_timestamp) when is_integer(physical) do
+    # HLC timestamp - use physical component (Unix timestamp in milliseconds)
+    physical
+  end
+  
+  defp extract_timestamp(%DateTime{} = timestamp) do
+    # Regular DateTime
+    timestamp
+  end
+  
+  defp extract_timestamp(timestamp) when is_integer(timestamp) do
+    # Unix timestamp
+    timestamp
+  end
+  
+  defp extract_timestamp(_) do
+    # Unknown format - use current time
+    System.system_time(:millisecond)
   end
   
   defp are_subsystems_related?(source_a, source_b) do

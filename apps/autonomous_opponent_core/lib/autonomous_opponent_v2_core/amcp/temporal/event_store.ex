@@ -185,6 +185,18 @@ defmodule AutonomousOpponentV2Core.AMCP.Temporal.EventStore do
     {:noreply, state}
   end
   
+  @impl true
+  def handle_cast({:record, _metric_type, _metric_name, _value, _tags}, state) do
+    # Metrics recording - ignore to prevent circular dependency
+    # EventStore generates metrics but shouldn't record its own metrics
+    {:noreply, state}
+  end
+  
+  def handle_cast(msg, state) do
+    Logger.debug("Temporal EventStore received unexpected cast: #{inspect(msg)}")
+    {:noreply, state}
+  end
+  
   # Private Implementation
   
   defp setup_ets_tables do
