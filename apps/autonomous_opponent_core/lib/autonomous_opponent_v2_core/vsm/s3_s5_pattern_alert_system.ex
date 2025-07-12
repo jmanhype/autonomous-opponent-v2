@@ -197,10 +197,11 @@ defmodule AutonomousOpponentV2Core.VSM.S3S5PatternAlertSystem do
         handle_info({:event, :s5_policy_updated, event.data}, state)
       :s4_intelligence ->
         # S4 intelligence events might contain pattern data
-        if event.data[:type] == :pattern_detected && event.data[:data] do
-          handle_info({:event, :pattern_detected, event.data[:data]}, state)
-        else
-          {:noreply, state}
+        case event.data do
+          %{type: :pattern_detected, data: pattern_data} when not is_nil(pattern_data) ->
+            handle_info({:event, :pattern_detected, pattern_data}, state)
+          _ ->
+            {:noreply, state}
         end
       _ ->
         # Log and ignore other HLC events

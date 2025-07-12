@@ -660,6 +660,16 @@ defmodule AutonomousOpponentV2Core.VSM.S4.Intelligence do
     |> Enum.uniq_by(fn pattern -> {pattern.type, pattern.subtype} end)
     |> Enum.sort_by(& &1.confidence, :desc)
     
+    # Emit telemetry for pattern detection
+    :telemetry.execute(
+      [:s4, :intelligence, :patterns_detected],
+      %{count: length(all_patterns)},
+      %{
+        source: :environmental_scan,
+        pattern_types: Enum.frequencies_by(all_patterns, & &1.type)
+      }
+    )
+    
     # Publish detected patterns to EventBus for system-wide awareness
     Enum.each(all_patterns, fn pattern ->
       pattern_data = Map.merge(pattern, %{
@@ -672,16 +682,44 @@ defmodule AutonomousOpponentV2Core.VSM.S4.Intelligence do
         }
       })
       
-      # Publish to EventBus
-      EventBus.publish(:pattern_detected, pattern_data)
+      # Publish to EventBus with telemetry
+      try do
+        EventBus.publish(:pattern_detected, pattern_data)
+        
+        # Emit telemetry for successful publish
+        :telemetry.execute(
+          [:s4, :intelligence, :eventbus_publish],
+          %{count: 1},
+          %{event_type: :pattern_detected, pattern_type: pattern.type}
+        )
+      rescue
+        error ->
+          Logger.warning("S4: Failed to publish pattern: #{inspect(error)}")
+          :telemetry.execute(
+            [:s4, :intelligence, :eventbus_publish_failed],
+            %{count: 1},
+            %{event_type: :pattern_detected, error: inspect(error)}
+          )
+      end
       
       # Also publish urgent patterns as environmental signals
       if pattern.confidence > 0.9 || pattern[:severity] == :critical do
-        EventBus.publish(:s4_environmental_signal, %{
-          pattern: pattern_data,
-          urgency: pattern.confidence,
-          scan_timestamp: scan_result.timestamp
-        })
+        try do
+          EventBus.publish(:s4_environmental_signal, %{
+            pattern: pattern_data,
+            urgency: pattern.confidence,
+            scan_timestamp: scan_result.timestamp
+          })
+          
+          :telemetry.execute(
+            [:s4, :intelligence, :environmental_signal],
+            %{count: 1},
+            %{urgency: pattern.confidence}
+          )
+        rescue
+          error ->
+            Logger.warning("S4: Failed to publish environmental signal: #{inspect(error)}")
+        end
       end
     end)
     

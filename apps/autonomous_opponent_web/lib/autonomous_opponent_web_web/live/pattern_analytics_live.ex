@@ -32,7 +32,7 @@ defmodule AutonomousOpponentV2Web.PatternAnalyticsLive do
     
     if connected?(socket) do
       # Try to subscribe to pattern events if EventBus is available
-      spawn(fn ->
+      Task.start(fn ->
         try do
           if Process.whereis(AutonomousOpponentV2Core.EventBus) do
             EventBus.subscribe(:pattern_detected)
@@ -44,7 +44,8 @@ defmodule AutonomousOpponentV2Web.PatternAnalyticsLive do
             EventBus.subscribe(:vsm_pattern_flow)
           end
         rescue
-          _ -> :ok
+          error -> 
+            Logger.warning("Failed to subscribe to EventBus: #{inspect(error)}")
         end
       end)
       

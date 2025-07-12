@@ -614,9 +614,9 @@ defmodule AutonomousOpponentV2Core.VSM.S4.PatternCorrelationAnalyzer do
     
     # Causality requires:
     # 1. Temporal precedence (pattern_a before pattern_b)
-    # 2. Close temporal proximity (within 5 seconds)
+    # 2. Close temporal proximity (within configured threshold)
     # 3. Same subsystem or related subsystems
-    temporal_precedence = time_diff > 0 && time_diff < 5000
+    temporal_precedence = time_diff > 0 && time_diff < @temporal_lag_threshold
     
     # Check subsystem relationship
     subsystem_related = pattern_a[:source] == pattern_b[:source] ||
@@ -644,10 +644,23 @@ defmodule AutonomousOpponentV2Core.VSM.S4.PatternCorrelationAnalyzer do
   
   defp to_atom_safe(value) when is_atom(value), do: value
   defp to_atom_safe(value) when is_binary(value) do
-    try do
-      String.to_existing_atom(value)
-    rescue
-      _ -> String.to_atom(value)
+    # Whitelist approach to prevent atom table exhaustion
+    case value do
+      "s1" -> :s1
+      "s2" -> :s2
+      "s3" -> :s3
+      "s4" -> :s4
+      "s5" -> :s5
+      "intelligence" -> :intelligence
+      "operations" -> :operations
+      "coordination" -> :coordination
+      "control" -> :control
+      "policy" -> :policy
+      "algedonic" -> :algedonic
+      "temporal_detector" -> :temporal_detector
+      "pattern_detector" -> :pattern_detector
+      "hnsw_search" -> :hnsw_search
+      _ -> :unknown
     end
   end
   defp to_atom_safe(_), do: :unknown
