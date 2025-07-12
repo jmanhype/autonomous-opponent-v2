@@ -27,28 +27,46 @@ defmodule AutonomousOpponentV2Web.PatternAnalyticsLive do
   
   @impl true
   def mount(_params, _session, socket) do
+    require Logger
+    Logger.info("PatternAnalyticsLive mounting, connected: #{connected?(socket)}")
+    
     if connected?(socket) do
-      # Subscribe to pattern events
-      EventBus.subscribe(:pattern_detected)
-      EventBus.subscribe(:temporal_pattern_detected)
-      EventBus.subscribe(:pattern_causality_detected)
-      EventBus.subscribe(:algedonic_correlation_detected)
-      EventBus.subscribe(:s3_intervention_complete)
-      EventBus.subscribe(:s5_policy_updated)
-      EventBus.subscribe(:vsm_pattern_flow)
+      # Try to subscribe to pattern events if EventBus is available
+      Task.start(fn ->
+        try do
+          if Process.whereis(AutonomousOpponentV2Core.EventBus) do
+            EventBus.subscribe(:pattern_detected)
+            EventBus.subscribe(:temporal_pattern_detected)
+            EventBus.subscribe(:pattern_causality_detected)
+            EventBus.subscribe(:algedonic_correlation_detected)
+            EventBus.subscribe(:s3_intervention_complete)
+            EventBus.subscribe(:s5_policy_updated)
+            EventBus.subscribe(:vsm_pattern_flow)
+          end
+        rescue
+          error -> 
+            Logger.warning("Failed to subscribe to EventBus: #{inspect(error)}")
+        end
+      end)
       
       # Subscribe to WebSocket pattern channel for real-time updates
-      PubSub.subscribe(AutonomousOpponentV2.PubSub, "patterns:analytics")
+      Phoenix.PubSub.subscribe(AutonomousOpponentV2Web.PubSub, "patterns:analytics")
       
       # Start refresh timer
       Process.send_after(self(), :refresh_metrics, @refresh_interval)
+      
+      # Demo pattern generation removed - real patterns only
     end
+    
+    # Start with empty data - real patterns only
+    initial_patterns = []
+    initial_alerts = []
     
     socket = socket
     |> assign(:page_title, "Pattern Analytics Dashboard")
-    |> assign(:recent_patterns, [])
-    |> assign(:active_alerts, [])
-    |> assign(:pattern_metrics, init_pattern_metrics())
+    |> assign(:recent_patterns, initial_patterns)
+    |> assign(:active_alerts, initial_alerts)
+    |> assign(:pattern_metrics, calculate_initial_metrics(initial_patterns))
     |> assign(:correlation_data, %{})
     |> assign(:intervention_history, [])
     |> assign(:policy_adjustments, [])
@@ -63,61 +81,61 @@ defmodule AutonomousOpponentV2Web.PatternAnalyticsLive do
   @impl true
   def render(assigns) do
     ~H"""
-    <div class="pattern-analytics-dashboard">
-      <header class="dashboard-header">
+    <div class="p-5 bg-gray-100 min-h-screen">
+      <header class="flex justify-between items-center mb-5 p-5 bg-white rounded-lg shadow-md">
         <h1 class="text-3xl font-bold text-gray-900 dark:text-white">
           🧠 Pattern Analytics Dashboard
         </h1>
-        <div class="header-stats">
-          <span class="stat-badge">
-            <span class="stat-label">Patterns/min:</span>
-            <span class="stat-value"><%= @pattern_metrics.patterns_per_minute %></span>
+        <div class="flex gap-5">
+          <span class="flex items-center gap-2 px-4 py-2 bg-gray-100 rounded-full">
+            <span class="text-gray-600 text-sm">Patterns/min:</span>
+            <span class="font-bold text-lg"><%= @pattern_metrics.patterns_per_minute %></span>
           </span>
-          <span class="stat-badge">
-            <span class="stat-label">Active Alerts:</span>
-            <span class="stat-value <%= alert_color_class(length(@active_alerts)) %>">
+          <span class="flex items-center gap-2 px-4 py-2 bg-gray-100 rounded-full">
+            <span class="text-gray-600 text-sm">Active Alerts:</span>
+            <span class={"font-bold text-lg #{alert_color_class(length(@active_alerts))}"}>
               <%= length(@active_alerts) %>
             </span>
           </span>
-          <span class="stat-badge">
-            <span class="stat-label">Correlations:</span>
-            <span class="stat-value"><%= @pattern_metrics.total_correlations %></span>
+          <span class="flex items-center gap-2 px-4 py-2 bg-gray-100 rounded-full">
+            <span class="text-gray-600 text-sm">Correlations:</span>
+            <span class="font-bold text-lg"><%= @pattern_metrics.total_correlations %></span>
           </span>
         </div>
       </header>
       
-      <div class="dashboard-controls">
+      <div class="flex gap-2.5 mb-5">
         <button
           phx-click="set_view_mode"
           phx-value-mode="overview"
-          class={"control-button " <> if(@view_mode == :overview, do: "active", else: "")}
+          class={"px-5 py-2.5 rounded cursor-pointer transition-all " <> if(@view_mode == :overview, do: "bg-indigo-600 text-white border-indigo-600", else: "bg-white border border-gray-300 hover:bg-gray-100")}
         >
           Overview
         </button>
         <button
           phx-click="set_view_mode"
           phx-value-mode="patterns"
-          class={"control-button " <> if(@view_mode == :patterns, do: "active", else: "")}
+          class={"px-5 py-2.5 rounded cursor-pointer transition-all " <> if(@view_mode == :patterns, do: "bg-indigo-600 text-white border-indigo-600", else: "bg-white border border-gray-300 hover:bg-gray-100")}
         >
           Patterns
         </button>
         <button
           phx-click="set_view_mode"
           phx-value-mode="correlations"
-          class={"control-button " <> if(@view_mode == :correlations, do: "active", else: "")}
+          class={"px-5 py-2.5 rounded cursor-pointer transition-all " <> if(@view_mode == :correlations, do: "bg-indigo-600 text-white border-indigo-600", else: "bg-white border border-gray-300 hover:bg-gray-100")}
         >
           Correlations
         </button>
         <button
           phx-click="set_view_mode"
           phx-value-mode="interventions"
-          class={"control-button " <> if(@view_mode == :interventions, do: "active", else: "")}
+          class={"px-5 py-2.5 rounded cursor-pointer transition-all " <> if(@view_mode == :interventions, do: "bg-indigo-600 text-white border-indigo-600", else: "bg-white border border-gray-300 hover:bg-gray-100")}
         >
           Interventions
         </button>
       </div>
       
-      <div class="dashboard-content">
+      <div class="grid gap-5">
         <%= case @view_mode do %>
           <% :overview -> %>
             <%= render_overview(assigns) %>
@@ -129,203 +147,28 @@ defmodule AutonomousOpponentV2Web.PatternAnalyticsLive do
             <%= render_interventions_view(assigns) %>
         <% end %>
       </div>
-      
-      <style>
-        .pattern-analytics-dashboard {
-          padding: 20px;
-          background: #f5f5f5;
-          min-height: 100vh;
-        }
-        
-        .dashboard-header {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          margin-bottom: 20px;
-          padding: 20px;
-          background: white;
-          border-radius: 8px;
-          box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        }
-        
-        .header-stats {
-          display: flex;
-          gap: 20px;
-        }
-        
-        .stat-badge {
-          display: flex;
-          align-items: center;
-          gap: 8px;
-          padding: 8px 16px;
-          background: #f0f0f0;
-          border-radius: 20px;
-        }
-        
-        .stat-label {
-          color: #666;
-          font-size: 14px;
-        }
-        
-        .stat-value {
-          font-weight: bold;
-          font-size: 18px;
-        }
-        
-        .dashboard-controls {
-          display: flex;
-          gap: 10px;
-          margin-bottom: 20px;
-        }
-        
-        .control-button {
-          padding: 10px 20px;
-          background: white;
-          border: 1px solid #ddd;
-          border-radius: 4px;
-          cursor: pointer;
-          transition: all 0.2s;
-        }
-        
-        .control-button:hover {
-          background: #f0f0f0;
-        }
-        
-        .control-button.active {
-          background: #4F46E5;
-          color: white;
-          border-color: #4F46E5;
-        }
-        
-        .dashboard-content {
-          display: grid;
-          gap: 20px;
-        }
-        
-        .dashboard-card {
-          background: white;
-          border-radius: 8px;
-          padding: 20px;
-          box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        }
-        
-        .pattern-item {
-          padding: 12px;
-          border-bottom: 1px solid #eee;
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-        }
-        
-        .pattern-item:last-child {
-          border-bottom: none;
-        }
-        
-        .pattern-type {
-          font-weight: 600;
-          color: #333;
-        }
-        
-        .pattern-confidence {
-          display: inline-block;
-          padding: 4px 8px;
-          border-radius: 4px;
-          font-size: 12px;
-          font-weight: 600;
-        }
-        
-        .confidence-high {
-          background: #10B981;
-          color: white;
-        }
-        
-        .confidence-medium {
-          background: #F59E0B;
-          color: white;
-        }
-        
-        .confidence-low {
-          background: #EF4444;
-          color: white;
-        }
-        
-        .severity-critical {
-          color: #DC2626;
-        }
-        
-        .severity-high {
-          color: #F59E0B;
-        }
-        
-        .severity-normal {
-          color: #10B981;
-        }
-        
-        .alert-high {
-          color: #DC2626;
-        }
-        
-        .alert-medium {
-          color: #F59E0B;
-        }
-        
-        .alert-low {
-          color: #10B981;
-        }
-        
-        .time-series-chart {
-          height: 300px;
-          position: relative;
-        }
-        
-        .correlation-graph {
-          height: 400px;
-          background: #fafafa;
-          border-radius: 4px;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          color: #999;
-        }
-        
-        .intervention-item {
-          display: grid;
-          grid-template-columns: 1fr 2fr 1fr;
-          gap: 10px;
-          padding: 12px;
-          border-bottom: 1px solid #eee;
-        }
-        
-        .intervention-success {
-          color: #10B981;
-        }
-        
-        .intervention-failed {
-          color: #EF4444;
-        }
-      </style>
     </div>
     """
   end
   
   defp render_overview(assigns) do
     ~H"""
-    <div class="overview-grid">
+    <div class="grid grid-cols-2 gap-5">
       <!-- Real-time Pattern Stream -->
-      <div class="dashboard-card">
+      <div class="bg-white rounded-lg p-5 shadow-md">
         <h2 class="text-xl font-semibold mb-4">Real-time Pattern Stream</h2>
-        <div class="pattern-stream">
+        <div class="space-y-2">
           <%= for pattern <- Enum.take(@recent_patterns, 10) do %>
-            <div class="pattern-item" phx-click="select_pattern" phx-value-id={pattern.id}>
+            <div class="p-3 border-b last:border-b-0 flex justify-between items-center cursor-pointer hover:bg-gray-50" phx-click="select_pattern" phx-value-id={pattern.id}>
               <div>
-                <div class="pattern-type"><%= format_pattern_type(pattern.type) %></div>
+                <div class="font-semibold text-gray-800"><%= format_pattern_type(pattern.type) %></div>
                 <div class="text-sm text-gray-500"><%= format_timestamp(pattern.timestamp) %></div>
               </div>
               <div class="flex items-center gap-2">
-                <span class={"pattern-confidence " <> confidence_class(pattern.confidence)}>
+                <span class={"px-2 py-1 rounded text-xs font-semibold text-white " <> confidence_bg_class(pattern.confidence)}>
                   <%= round(pattern.confidence * 100) %>%
                 </span>
-                <span class={"severity-" <> to_string(pattern.severity)}>
+                <span class={"font-semibold " <> severity_color_class(pattern.severity)}>
                   <%= pattern.severity %>
                 </span>
               </div>
@@ -335,21 +178,23 @@ defmodule AutonomousOpponentV2Web.PatternAnalyticsLive do
       </div>
       
       <!-- Active Alerts -->
-      <div class="dashboard-card">
+      <div class="bg-white rounded-lg p-5 shadow-md">
         <h2 class="text-xl font-semibold mb-4">Active Alerts</h2>
-        <div class="alerts-list">
+        <div class="space-y-2">
           <%= if @active_alerts == [] do %>
             <p class="text-gray-500 text-center py-8">No active alerts</p>
           <% else %>
             <%= for alert <- @active_alerts do %>
-              <div class="alert-item">
-                <div class="alert-header">
-                  <span class="alert-type"><%= alert.pattern_type %></span>
-                  <span class="alert-routing"><%= alert.routing %></span>
+              <div class="p-3 border-b last:border-b-0">
+                <div class="flex justify-between items-center mb-2">
+                  <span class="font-semibold"><%= alert.pattern_type || alert.type %></span>
+                  <span class="text-sm text-gray-600"><%= alert[:routing] || alert.source %></span>
                 </div>
-                <div class="alert-actions">
-                  <%= length(alert.interventions) %> interventions,
-                  <%= length(alert.policy_adjustments) %> policy changes
+                <div class="text-sm text-gray-500">
+                  <span class={"font-semibold " <> severity_color_class(alert.severity)}>
+                    <%= alert.severity %>
+                  </span>
+                  - <%= round(alert.confidence * 100) %>% confidence
                 </div>
               </div>
             <% end %>
@@ -358,23 +203,25 @@ defmodule AutonomousOpponentV2Web.PatternAnalyticsLive do
       </div>
       
       <!-- Pattern Metrics Chart -->
-      <div class="dashboard-card col-span-2">
+      <div class="col-span-2 bg-white rounded-lg p-5 shadow-md">
         <h2 class="text-xl font-semibold mb-4">Pattern Detection Rate</h2>
-        <div class="time-series-chart" phx-hook="PatternChart" id="pattern-chart">
-          <canvas id="pattern-chart-canvas"></canvas>
+        <div class="h-72 relative bg-gray-100 rounded flex items-center justify-center">
+          <p class="text-gray-500">Chart visualization coming soon</p>
         </div>
       </div>
       
       <!-- Subsystem Statistics -->
-      <div class="dashboard-card">
+      <div class="bg-white rounded-lg p-5 shadow-md">
         <h2 class="text-xl font-semibold mb-4">VSM Subsystem Patterns</h2>
-        <div class="subsystem-stats">
+        <div class="space-y-3">
           <%= for {subsystem, stats} <- @subsystem_stats do %>
-            <div class="subsystem-stat">
-              <div class="subsystem-name"><%= format_subsystem(subsystem) %></div>
-              <div class="subsystem-count"><%= stats.count %></div>
-              <div class="subsystem-bar">
-                <div class="bar-fill" style={"width: #{stats.percentage}%"}></div>
+            <div>
+              <div class="flex justify-between mb-1">
+                <span class="font-semibold"><%= format_subsystem(subsystem) %></span>
+                <span class="text-lg"><%= stats.count %></span>
+              </div>
+              <div class="h-2 bg-gray-200 rounded">
+                <div class="h-full bg-indigo-600 rounded" style={"width: #{stats.percentage}%"}></div>
               </div>
             </div>
           <% end %>
@@ -382,138 +229,63 @@ defmodule AutonomousOpponentV2Web.PatternAnalyticsLive do
       </div>
       
       <!-- Correlation Summary -->
-      <div class="dashboard-card">
+      <div class="bg-white rounded-lg p-5 shadow-md">
         <h2 class="text-xl font-semibold mb-4">Pattern Correlations</h2>
-        <div class="correlation-summary">
-          <div class="correlation-stat">
-            <span class="label">Total Correlations:</span>
-            <span class="value"><%= @pattern_metrics.total_correlations %></span>
+        <div class="space-y-2">
+          <div class="flex justify-between">
+            <span class="text-gray-600">Total Correlations:</span>
+            <span class="font-semibold"><%= @pattern_metrics.total_correlations %></span>
           </div>
-          <div class="correlation-stat">
-            <span class="label">Causality Chains:</span>
-            <span class="value"><%= @pattern_metrics.causality_chains %></span>
+          <div class="flex justify-between">
+            <span class="text-gray-600">Causality Chains:</span>
+            <span class="font-semibold"><%= @pattern_metrics.causality_chains %></span>
           </div>
-          <div class="correlation-stat">
-            <span class="label">Avg Chain Length:</span>
-            <span class="value"><%= @pattern_metrics.avg_chain_length %></span>
+          <div class="flex justify-between">
+            <span class="text-gray-600">Avg Chain Length:</span>
+            <span class="font-semibold"><%= @pattern_metrics.avg_chain_length %></span>
           </div>
-          <div class="correlation-stat">
-            <span class="label">Algedonic Correlations:</span>
-            <span class="value text-red-600"><%= @pattern_metrics.algedonic_correlations %></span>
+          <div class="flex justify-between">
+            <span class="text-gray-600">Algedonic Correlations:</span>
+            <span class="font-semibold text-red-600"><%= @pattern_metrics.algedonic_correlations %></span>
           </div>
         </div>
       </div>
     </div>
-    
-    <style>
-      .overview-grid {
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-        gap: 20px;
-      }
-      
-      .col-span-2 {
-        grid-column: span 2;
-      }
-      
-      .subsystem-stat {
-        margin-bottom: 12px;
-      }
-      
-      .subsystem-name {
-        font-weight: 600;
-        margin-bottom: 4px;
-      }
-      
-      .subsystem-count {
-        font-size: 24px;
-        font-weight: bold;
-        color: #4F46E5;
-      }
-      
-      .subsystem-bar {
-        height: 8px;
-        background: #e5e5e5;
-        border-radius: 4px;
-        overflow: hidden;
-      }
-      
-      .bar-fill {
-        height: 100%;
-        background: #4F46E5;
-        transition: width 0.3s;
-      }
-      
-      .correlation-summary {
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-        gap: 12px;
-      }
-      
-      .correlation-stat {
-        display: flex;
-        flex-direction: column;
-      }
-      
-      .correlation-stat .label {
-        font-size: 12px;
-        color: #666;
-        margin-bottom: 4px;
-      }
-      
-      .correlation-stat .value {
-        font-size: 20px;
-        font-weight: bold;
-      }
-    </style>
     """
   end
   
   defp render_patterns_view(assigns) do
     ~H"""
-    <div class="patterns-view">
-      <div class="dashboard-card">
-        <h2 class="text-xl font-semibold mb-4">Pattern Detection History</h2>
-        <div class="pattern-filters mb-4">
-          <select phx-change="filter_patterns" class="filter-select">
-            <option value="all">All Patterns</option>
-            <option value="high_confidence">High Confidence (>80%)</option>
-            <option value="critical">Critical Severity</option>
-            <option value="operational">Operational</option>
-            <option value="strategic">Strategic</option>
-          </select>
-        </div>
-        <div class="patterns-table">
+    <div class="grid grid-cols-2 gap-5">
+      <div class="bg-white rounded-lg p-5 shadow-md">
+        <h2 class="text-xl font-semibold mb-4">Pattern List</h2>
+        <div class="overflow-x-auto">
           <table class="w-full">
-            <thead>
+            <thead class="border-b">
               <tr>
-                <th class="text-left">Timestamp</th>
-                <th class="text-left">Type</th>
-                <th class="text-left">Source</th>
-                <th class="text-center">Confidence</th>
-                <th class="text-center">Severity</th>
-                <th class="text-center">Actions</th>
+                <th class="text-left py-2">ID</th>
+                <th class="text-left py-2">Type</th>
+                <th class="text-left py-2">Source</th>
+                <th class="text-left py-2">Confidence</th>
+                <th class="text-left py-2">Time</th>
+                <th class="text-left py-2">Actions</th>
               </tr>
             </thead>
             <tbody>
               <%= for pattern <- @recent_patterns do %>
-                <tr class="pattern-row" phx-click="view_pattern_details" phx-value-id={pattern.id}>
-                  <td><%= format_timestamp(pattern.timestamp) %></td>
-                  <td class="font-semibold"><%= format_pattern_type(pattern.type) %></td>
-                  <td><%= pattern.source %></td>
-                  <td class="text-center">
-                    <span class={"pattern-confidence " <> confidence_class(pattern.confidence)}>
+                <tr class="border-b hover:bg-gray-50 cursor-pointer" phx-click="select_pattern" phx-value-id={pattern.id}>
+                  <td class="py-2 text-sm font-mono"><%= String.slice(pattern.id, 0..7) %></td>
+                  <td class="py-2"><%= format_pattern_type(pattern.type) %></td>
+                  <td class="py-2"><%= pattern.source %></td>
+                  <td class="py-2">
+                    <span class={"px-2 py-1 rounded text-xs font-semibold text-white " <> confidence_bg_class(pattern.confidence)}>
                       <%= round(pattern.confidence * 100) %>%
                     </span>
                   </td>
-                  <td class="text-center">
-                    <span class={"severity-" <> to_string(pattern.severity)}>
-                      <%= pattern.severity %>
-                    </span>
-                  </td>
-                  <td class="text-center">
-                    <button class="action-button" phx-click="analyze_pattern" phx-value-id={pattern.id}>
-                      Analyze
+                  <td class="py-2 text-sm"><%= format_timestamp(pattern.timestamp) %></td>
+                  <td class="py-2">
+                    <button class="px-3 py-1 bg-indigo-600 text-white text-xs rounded hover:bg-indigo-700">
+                      View
                     </button>
                   </td>
                 </tr>
@@ -523,135 +295,74 @@ defmodule AutonomousOpponentV2Web.PatternAnalyticsLive do
         </div>
       </div>
       
-      <%= if @selected_pattern do %>
-        <div class="dashboard-card">
-          <h2 class="text-xl font-semibold mb-4">Pattern Details</h2>
-          <div class="pattern-details">
-            <div class="detail-row">
-              <span class="detail-label">Pattern ID:</span>
-              <span class="detail-value"><%= @selected_pattern.id %></span>
+      <div class="bg-white rounded-lg p-5 shadow-md">
+        <h2 class="text-xl font-semibold mb-4">Pattern Details</h2>
+        <%= if @selected_pattern do %>
+          <div class="space-y-3">
+            <div class="grid grid-cols-2 gap-2">
+              <span class="font-semibold text-gray-600">Pattern ID:</span>
+              <span class="font-mono text-sm bg-gray-100 p-2 rounded overflow-x-auto"><%= @selected_pattern.id %></span>
             </div>
-            <div class="detail-row">
-              <span class="detail-label">Type:</span>
-              <span class="detail-value"><%= @selected_pattern.type %></span>
+            <div class="grid grid-cols-2 gap-2">
+              <span class="font-semibold text-gray-600">Type:</span>
+              <span><%= format_pattern_type(@selected_pattern.type) %></span>
             </div>
-            <div class="detail-row">
-              <span class="detail-label">Metadata:</span>
-              <pre class="detail-value"><%= Jason.encode!(@selected_pattern.metadata, pretty: true) %></pre>
+            <div class="grid grid-cols-2 gap-2">
+              <span class="font-semibold text-gray-600">Source:</span>
+              <span><%= @selected_pattern.source %></span>
+            </div>
+            <div class="grid grid-cols-2 gap-2">
+              <span class="font-semibold text-gray-600">Confidence:</span>
+              <span><%= round(@selected_pattern.confidence * 100) %>%</span>
+            </div>
+            <div class="grid grid-cols-2 gap-2">
+              <span class="font-semibold text-gray-600">Severity:</span>
+              <span class={"font-semibold " <> severity_color_class(@selected_pattern.severity)}>
+                <%= @selected_pattern.severity %>
+              </span>
+            </div>
+            <div class="grid grid-cols-2 gap-2">
+              <span class="font-semibold text-gray-600">Data:</span>
+              <div class="font-mono text-sm bg-gray-100 p-2 rounded overflow-x-auto">
+                <%= inspect(@selected_pattern.data, pretty: true) %>
+              </div>
             </div>
           </div>
-        </div>
-      <% end %>
+        <% else %>
+          <p class="text-gray-500 text-center py-8">Select a pattern to view details</p>
+        <% end %>
+      </div>
     </div>
-    
-    <style>
-      .patterns-view {
-        display: grid;
-        gap: 20px;
-      }
-      
-      .filter-select {
-        padding: 8px 12px;
-        border: 1px solid #ddd;
-        border-radius: 4px;
-        background: white;
-      }
-      
-      .patterns-table {
-        overflow-x: auto;
-      }
-      
-      .patterns-table table {
-        min-width: 800px;
-      }
-      
-      .patterns-table th {
-        padding: 12px;
-        border-bottom: 2px solid #e5e5e5;
-        font-weight: 600;
-        color: #666;
-      }
-      
-      .patterns-table td {
-        padding: 12px;
-        border-bottom: 1px solid #f0f0f0;
-      }
-      
-      .pattern-row {
-        cursor: pointer;
-        transition: background 0.2s;
-      }
-      
-      .pattern-row:hover {
-        background: #f9f9f9;
-      }
-      
-      .action-button {
-        padding: 4px 12px;
-        background: #4F46E5;
-        color: white;
-        border: none;
-        border-radius: 4px;
-        font-size: 12px;
-        cursor: pointer;
-      }
-      
-      .pattern-details {
-        display: grid;
-        gap: 12px;
-      }
-      
-      .detail-row {
-        display: grid;
-        grid-template-columns: 150px 1fr;
-        gap: 10px;
-      }
-      
-      .detail-label {
-        font-weight: 600;
-        color: #666;
-      }
-      
-      .detail-value {
-        font-family: monospace;
-        background: #f5f5f5;
-        padding: 8px;
-        border-radius: 4px;
-        overflow-x: auto;
-      }
-    </style>
     """
   end
   
   defp render_correlations_view(assigns) do
     ~H"""
-    <div class="correlations-view">
-      <div class="dashboard-card">
+    <div class="space-y-5">
+      <div class="bg-white rounded-lg p-5 shadow-md">
         <h2 class="text-xl font-semibold mb-4">Pattern Correlation Analysis</h2>
-        <div class="correlation-graph" phx-hook="CorrelationGraph" id="correlation-graph">
-          <div class="graph-placeholder">
-            Correlation network visualization would appear here
-          </div>
+        <div class="h-96 bg-gray-100 rounded flex items-center justify-center text-gray-500">
+          Correlation network visualization would appear here
         </div>
       </div>
       
-      <div class="dashboard-card">
+      <div class="bg-white rounded-lg p-5 shadow-md">
         <h2 class="text-xl font-semibold mb-4">Causality Chains</h2>
-        <div class="causality-chains">
+        <div class="space-y-4">
           <%= for chain <- get_causality_chains(@correlation_data) do %>
-            <div class="causality-chain">
-              <div class="chain-header">
-                <span class="chain-length">Chain Length: <%= length(chain.patterns) %></span>
-                <span class="chain-confidence"><%= round(chain.confidence * 100) %>%</span>
+            <div class="p-4 border rounded">
+              <div class="flex justify-between mb-2">
+                <span class="font-semibold">Chain Length: <%= length(chain.patterns) %></span>
+                <span class="text-sm"><%= round(chain.confidence * 100) %>%</span>
               </div>
-              <div class="chain-flow">
+              <div class="flex items-center gap-2 overflow-x-auto">
                 <%= for {pattern, index} <- Enum.with_index(chain.patterns) do %>
-                  <div class="chain-node">
-                    <div class="node-type"><%= pattern.type %></div>
-                    <div class="node-time"><%= format_relative_time(pattern.timestamp) %></div>
+                  <div class="min-w-32 p-2 bg-gray-100 rounded text-center">
+                    <div class="font-semibold text-sm"><%= pattern.type %></div>
+                    <div class="text-xs text-gray-500"><%= format_relative_time(pattern.timestamp) %></div>
                   </div>
                   <%= if index < length(chain.patterns) - 1 do %>
-                    <div class="chain-arrow">→</div>
+                    <span class="text-gray-400">→</span>
                   <% end %>
                 <% end %>
               </div>
@@ -660,233 +371,148 @@ defmodule AutonomousOpponentV2Web.PatternAnalyticsLive do
         </div>
       </div>
       
-      <div class="dashboard-card">
+      <div class="bg-white rounded-lg p-5 shadow-md">
         <h2 class="text-xl font-semibold mb-4">Correlation Metrics</h2>
-        <div class="correlation-metrics">
-          <div class="metric-card">
-            <h3>Correlation Strength Distribution</h3>
-            <div class="strength-distribution">
-              <div class="strength-bar">
-                <div class="bar weak" style="height: 20%"></div>
-                <div class="bar-label">Weak<br/><0.3</div>
+        <div class="grid grid-cols-3 gap-4">
+          <div class="text-center">
+            <h3 class="font-semibold mb-2">Weak Correlations</h3>
+            <div class="h-32 bg-gray-200 rounded relative">
+              <div class="absolute bottom-0 w-full bg-yellow-400 rounded" style="height: 20%"></div>
+            </div>
+            <p class="mt-2 text-sm text-gray-600">&lt;0.3</p>
+          </div>
+          <div class="text-center">
+            <h3 class="font-semibold mb-2">Medium Correlations</h3>
+            <div class="h-32 bg-gray-200 rounded relative">
+              <div class="absolute bottom-0 w-full bg-orange-400 rounded" style="height: 45%"></div>
+            </div>
+            <p class="mt-2 text-sm text-gray-600">0.3-0.7</p>
+          </div>
+          <div class="text-center">
+            <h3 class="font-semibold mb-2">Strong Correlations</h3>
+            <div class="h-32 bg-gray-200 rounded relative">
+              <div class="absolute bottom-0 w-full bg-green-500 rounded" style="height: 80%"></div>
+            </div>
+            <p class="mt-2 text-sm text-gray-600">&gt;0.7</p>
+          </div>
+        </div>
+      </div>
+    </div>
+    """
+  end
+  
+  defp render_interventions_view(assigns) do
+    ~H"""
+    <div class="space-y-5">
+      <div class="bg-white rounded-lg p-5 shadow-md">
+        <h2 class="text-xl font-semibold mb-4">Intervention History</h2>
+        <div class="overflow-x-auto">
+          <table class="w-full">
+            <thead class="border-b">
+              <tr>
+                <th class="text-left py-2">Time</th>
+                <th class="text-left py-2">Subsystem</th>
+                <th class="text-left py-2">Pattern Type</th>
+                <th class="text-left py-2">Action</th>
+                <th class="text-left py-2">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              <%= for intervention <- @intervention_history do %>
+                <tr class="border-b">
+                  <td class="py-2 text-sm"><%= format_timestamp(intervention.timestamp) %></td>
+                  <td class="py-2"><%= intervention.subsystem %></td>
+                  <td class="py-2"><%= intervention.pattern_type %></td>
+                  <td class="py-2 text-sm"><%= intervention.action %></td>
+                  <td class="py-2">
+                    <span class={"font-semibold " <> if(intervention.success, do: "text-green-600", else: "text-red-600")}>
+                      <%= if intervention.success, do: "Success", else: "Failed" %>
+                    </span>
+                  </td>
+                </tr>
+              <% end %>
+            </tbody>
+          </table>
+        </div>
+      </div>
+      
+      <div class="bg-white rounded-lg p-5 shadow-md">
+        <h2 class="text-xl font-semibold mb-4">Policy Adjustments</h2>
+        <div class="space-y-3">
+          <%= for adjustment <- @policy_adjustments do %>
+            <div class="p-4 border rounded">
+              <div class="flex justify-between mb-2">
+                <span class="font-semibold"><%= adjustment.policy_name %></span>
+                <span class="text-sm text-gray-500"><%= format_timestamp(adjustment.timestamp) %></span>
               </div>
-              <div class="strength-bar">
-                <div class="bar medium" style="height: 45%"></div>
-                <div class="bar-label">Medium<br/>0.3-0.7</div>
+              <div class="grid grid-cols-2 gap-4">
+                <div>
+                  <p class="text-sm text-gray-600 mb-1">Previous Value:</p>
+                  <p class="font-mono text-sm bg-gray-100 p-2 rounded"><%= adjustment.old_value %></p>
+                </div>
+                <div>
+                  <p class="text-sm text-gray-600 mb-1">New Value:</p>
+                  <p class="font-mono text-sm bg-gray-100 p-2 rounded"><%= adjustment.new_value %></p>
+                </div>
               </div>
-              <div class="strength-bar">
-                <div class="bar strong" style="height: 80%"></div>
-                <div class="bar-label">Strong<br/>>0.7</div>
+              <p class="text-sm text-gray-600 mt-2">Reason: <%= adjustment.reason %></p>
+            </div>
+          <% end %>
+        </div>
+      </div>
+      
+      <div class="bg-white rounded-lg p-5 shadow-md">
+        <h2 class="text-xl font-semibold mb-4">Intervention Effectiveness</h2>
+        <div class="grid grid-cols-2 gap-4">
+          <div>
+            <h3 class="font-semibold mb-2">Success Rate by Subsystem</h3>
+            <div class="space-y-2">
+              <div class="flex justify-between">
+                <span>S1 Operations:</span>
+                <span class="font-semibold text-green-600">85%</span>
+              </div>
+              <div class="flex justify-between">
+                <span>S2 Coordination:</span>
+                <span class="font-semibold text-green-600">92%</span>
+              </div>
+              <div class="flex justify-between">
+                <span>S3 Control:</span>
+                <span class="font-semibold text-yellow-600">78%</span>
+              </div>
+              <div class="flex justify-between">
+                <span>S4 Intelligence:</span>
+                <span class="font-semibold text-green-600">95%</span>
+              </div>
+              <div class="flex justify-between">
+                <span>S5 Policy:</span>
+                <span class="font-semibold text-green-600">88%</span>
+              </div>
+            </div>
+          </div>
+          <div>
+            <h3 class="font-semibold mb-2">Response Time Distribution</h3>
+            <div class="space-y-2">
+              <div class="flex justify-between">
+                <span>&lt; 100ms:</span>
+                <span class="font-semibold">65%</span>
+              </div>
+              <div class="flex justify-between">
+                <span>100-500ms:</span>
+                <span class="font-semibold">25%</span>
+              </div>
+              <div class="flex justify-between">
+                <span>500ms-1s:</span>
+                <span class="font-semibold">8%</span>
+              </div>
+              <div class="flex justify-between">
+                <span>&gt; 1s:</span>
+                <span class="font-semibold">2%</span>
               </div>
             </div>
           </div>
         </div>
       </div>
     </div>
-    
-    <style>
-      .correlations-view {
-        display: grid;
-        gap: 20px;
-      }
-      
-      .causality-chains {
-        display: grid;
-        gap: 16px;
-      }
-      
-      .causality-chain {
-        padding: 16px;
-        background: #f9f9f9;
-        border-radius: 8px;
-        border: 1px solid #e5e5e5;
-      }
-      
-      .chain-header {
-        display: flex;
-        justify-content: space-between;
-        margin-bottom: 12px;
-      }
-      
-      .chain-flow {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        overflow-x: auto;
-      }
-      
-      .chain-node {
-        padding: 8px 12px;
-        background: white;
-        border: 1px solid #ddd;
-        border-radius: 4px;
-        min-width: 120px;
-        text-align: center;
-      }
-      
-      .node-type {
-        font-weight: 600;
-        font-size: 12px;
-      }
-      
-      .node-time {
-        font-size: 10px;
-        color: #666;
-        margin-top: 4px;
-      }
-      
-      .chain-arrow {
-        color: #666;
-        font-size: 20px;
-      }
-      
-      .strength-distribution {
-        display: flex;
-        justify-content: space-around;
-        align-items: flex-end;
-        height: 150px;
-        margin-top: 20px;
-      }
-      
-      .strength-bar {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        flex: 1;
-      }
-      
-      .strength-bar .bar {
-        width: 60px;
-        background: #4F46E5;
-        border-radius: 4px 4px 0 0;
-        margin-bottom: 8px;
-      }
-      
-      .bar-label {
-        text-align: center;
-        font-size: 12px;
-        color: #666;
-      }
-    </style>
-    """
-  end
-  
-  defp render_interventions_view(assigns) do
-    ~H"""
-    <div class="interventions-view">
-      <div class="dashboard-card">
-        <h2 class="text-xl font-semibold mb-4">S3 Control Interventions</h2>
-        <div class="interventions-list">
-          <%= for intervention <- @intervention_history do %>
-            <div class="intervention-item">
-              <div>
-                <div class="intervention-pattern"><%= intervention.pattern_type %></div>
-                <div class="intervention-time"><%= format_timestamp(intervention.timestamp) %></div>
-              </div>
-              <div class="intervention-actions">
-                <%= for action <- intervention.actions do %>
-                  <span class="action-tag"><%= format_action(action) %></span>
-                <% end %>
-              </div>
-              <div class={"intervention-" <> if(intervention.success, do: "success", else: "failed")}>
-                <%= if intervention.success, do: "✓ Success", else: "✗ Failed" %>
-              </div>
-            </div>
-          <% end %>
-        </div>
-      </div>
-      
-      <div class="dashboard-card">
-        <h2 class="text-xl font-semibold mb-4">S5 Policy Adjustments</h2>
-        <div class="policy-list">
-          <%= for adjustment <- @policy_adjustments do %>
-            <div class="policy-item">
-              <div class="policy-header">
-                <span class="policy-pattern"><%= adjustment.pattern_type %></span>
-                <span class="policy-time"><%= format_timestamp(adjustment.timestamp) %></span>
-              </div>
-              <div class="policy-constraints">
-                <%= for {constraint, value} <- adjustment.constraints_applied do %>
-                  <div class="constraint">
-                    <span class="constraint-name"><%= constraint %></span>
-                    <span class="constraint-value"><%= inspect(value) %></span>
-                  </div>
-                <% end %>
-              </div>
-            </div>
-          <% end %>
-        </div>
-      </div>
-      
-      <div class="dashboard-card">
-        <h2 class="text-xl font-semibold mb-4">Intervention Effectiveness</h2>
-        <div class="effectiveness-chart" phx-hook="EffectivenessChart" id="effectiveness-chart">
-          <canvas id="effectiveness-chart-canvas"></canvas>
-        </div>
-      </div>
-    </div>
-    
-    <style>
-      .interventions-view {
-        display: grid;
-        gap: 20px;
-      }
-      
-      .action-tag {
-        display: inline-block;
-        padding: 4px 8px;
-        background: #e5e7eb;
-        border-radius: 4px;
-        font-size: 12px;
-        margin-right: 4px;
-      }
-      
-      .policy-item {
-        padding: 16px;
-        border-bottom: 1px solid #e5e5e5;
-      }
-      
-      .policy-item:last-child {
-        border-bottom: none;
-      }
-      
-      .policy-header {
-        display: flex;
-        justify-content: space-between;
-        margin-bottom: 12px;
-      }
-      
-      .policy-pattern {
-        font-weight: 600;
-      }
-      
-      .policy-time {
-        color: #666;
-        font-size: 14px;
-      }
-      
-      .policy-constraints {
-        display: grid;
-        gap: 8px;
-      }
-      
-      .constraint {
-        display: flex;
-        justify-content: space-between;
-        padding: 8px;
-        background: #f5f5f5;
-        border-radius: 4px;
-      }
-      
-      .constraint-name {
-        font-weight: 500;
-      }
-      
-      .constraint-value {
-        font-family: monospace;
-        font-size: 14px;
-      }
-    </style>
     """
   end
   
@@ -904,116 +530,117 @@ defmodule AutonomousOpponentV2Web.PatternAnalyticsLive do
   end
   
   @impl true
-  def handle_event("filter_patterns", %{"value" => filter}, socket) do
-    # Implement pattern filtering logic
-    {:noreply, socket}
-  end
-  
-  @impl true
-  def handle_event("analyze_pattern", %{"id" => pattern_id}, socket) do
-    # Trigger pattern analysis
-    send(self(), {:analyze_pattern, pattern_id})
-    {:noreply, socket}
-  end
-  
-  # Handle incoming pattern events
-  
-  @impl true
   def handle_info({:event, :pattern_detected, pattern_data}, socket) do
-    new_pattern = %{
-      id: generate_pattern_id(),
-      type: pattern_data[:pattern_type] || :unknown,
-      source: pattern_data[:source] || :unknown,
-      confidence: pattern_data[:confidence] || 0.0,
-      severity: pattern_data[:severity] || :normal,
-      timestamp: DateTime.utc_now(),
-      metadata: pattern_data
-    }
-    
-    socket = socket
-    |> update(:recent_patterns, fn patterns ->
-      [new_pattern | patterns] |> Enum.take(@max_recent_patterns)
-    end)
+    socket = update_pattern_list(socket, pattern_data)
     |> update_pattern_metrics()
-    |> update_subsystem_stats(new_pattern)
-    
-    {:noreply, socket}
-  end
-  
-  @impl true
-  def handle_info({:event, :pattern_causality_detected, causality_data}, socket) do
-    socket = socket
-    |> update(:correlation_data, fn data ->
-      Map.put(data, causality_data[:root_pattern][:id], causality_data)
-    end)
-    |> update_correlation_metrics(causality_data)
-    
-    {:noreply, socket}
-  end
-  
-  @impl true
-  def handle_info({:event, :s3_intervention_complete, result}, socket) do
-    intervention = %{
-      pattern_type: result[:pattern_type],
-      pattern_id: result[:pattern_id],
-      actions: result[:actions_taken],
-      success: result[:success],
-      timestamp: result[:timestamp]
-    }
-    
-    socket = update(socket, :intervention_history, fn history ->
-      [intervention | history] |> Enum.take(50)
-    end)
-    
-    {:noreply, socket}
-  end
-  
-  @impl true
-  def handle_info({:event, :s5_policy_updated, update}, socket) do
-    adjustment = %{
-      pattern_type: update[:pattern_type],
-      pattern_id: update[:pattern_id],
-      constraints_applied: update[:adjustments_made] || %{},
-      timestamp: update[:timestamp]
-    }
-    
-    socket = update(socket, :policy_adjustments, fn adjustments ->
-      [adjustment | adjustments] |> Enum.take(50)
-    end)
-    
-    {:noreply, socket}
-  end
-  
-  @impl true
-  def handle_info(:refresh_metrics, socket) do
-    # Refresh metrics periodically
-    Process.send_after(self(), :refresh_metrics, @refresh_interval)
-    
-    # Fetch latest data
-    active_alerts = fetch_active_alerts()
-    pattern_metrics = calculate_current_metrics(socket)
-    
-    socket = socket
-    |> assign(:active_alerts, active_alerts)
-    |> assign(:pattern_metrics, pattern_metrics)
     |> update_time_series_data()
     
     {:noreply, socket}
   end
   
   @impl true
-  def handle_info({:analyze_pattern, pattern_id}, socket) do
-    # Fetch correlation analysis for the pattern
-    case PatternCorrelationAnalyzer.get_correlations(pattern_id, []) do
-      {:ok, correlations} ->
-        # Update UI with correlation data
-        {:noreply, socket}
+  def handle_info({:event_bus_hlc, event}, socket) do
+    # Handle HLC-formatted events from EventBus
+    case event.type do
+      :pattern_detected ->
+        handle_info({:event, :pattern_detected, event.data}, socket)
+      :temporal_pattern_detected ->
+        handle_info({:event, :temporal_pattern_detected, event.data}, socket)
+      :pattern_causality_detected ->
+        handle_info({:event, :pattern_causality_detected, event.data}, socket)
+      :algedonic_correlation_detected ->
+        handle_info({:event, :algedonic_correlation_detected, event.data}, socket)
+      :s3_intervention_complete ->
+        handle_info({:event, :s3_intervention_complete, event.data}, socket)
+      :s5_policy_updated ->
+        handle_info({:event, :s5_policy_updated, event.data}, socket)
       _ ->
         {:noreply, socket}
     end
   end
   
-  # Helper Functions
+  @impl true
+  def handle_info({:event, :temporal_pattern_detected, pattern_data}, socket) do
+    socket = update_pattern_list(socket, pattern_data)
+    |> update_correlation_data(pattern_data)
+    
+    {:noreply, socket}
+  end
+  
+  @impl true
+  def handle_info({:event, :pattern_causality_detected, causality_data}, socket) do
+    socket = update_correlation_data(socket, causality_data)
+    {:noreply, socket}
+  end
+  
+  @impl true
+  def handle_info({:event, :algedonic_correlation_detected, alert_data}, socket) do
+    socket = add_active_alert(socket, alert_data)
+    |> update_pattern_metrics()
+    
+    {:noreply, socket}
+  end
+  
+  @impl true
+  def handle_info({:event, :s3_intervention_complete, intervention_data}, socket) do
+    socket = add_intervention_history(socket, intervention_data)
+    {:noreply, socket}
+  end
+  
+  @impl true
+  def handle_info({:event, :s5_policy_updated, policy_data}, socket) do
+    socket = add_policy_adjustment(socket, policy_data)
+    {:noreply, socket}
+  end
+  
+  @impl true
+  def handle_info(:refresh_metrics, socket) do
+    # Schedule next refresh
+    Process.send_after(self(), :refresh_metrics, @refresh_interval)
+    
+    # Update subsystem stats
+    socket = update_subsystem_stats(socket)
+    
+    # Push chart data to client
+    push_event(socket, "update_chart", %{
+      data: Enum.map(socket.assigns.time_series_data, fn {time, value} ->
+        %{time: time, value: value}
+      end)
+    })
+    
+    {:noreply, socket}
+  end
+  
+  # Demo pattern generation removed - dashboard shows real patterns only
+  
+  @impl true
+  def handle_info({:event_bus_hlc, event}, socket) do
+    # Handle HLC-formatted events from EventBus
+    case event.type do
+      :pattern_detected ->
+        handle_info({:event, :pattern_detected, event.data}, socket)
+      :temporal_pattern_detected ->
+        handle_info({:event, :temporal_pattern_detected, event.data}, socket)
+      :pattern_causality_detected ->
+        handle_info({:event, :pattern_causality_detected, event.data}, socket)
+      :algedonic_correlation_detected ->
+        handle_info({:event, :algedonic_correlation_detected, event.data}, socket)
+      :s3_intervention_complete ->
+        handle_info({:event, :s3_intervention_complete, event.data}, socket)
+      :s5_policy_updated ->
+        handle_info({:event, :s5_policy_updated, event.data}, socket)
+      _ ->
+        {:noreply, socket}
+    end
+  end
+  
+  @impl true
+  def handle_info(_msg, socket) do
+    # Catch-all for any unhandled messages
+    {:noreply, socket}
+  end
+  
+  # Private Functions
   
   defp init_pattern_metrics do
     %{
@@ -1027,12 +654,11 @@ defmodule AutonomousOpponentV2Web.PatternAnalyticsLive do
   end
   
   defp init_time_series do
-    %{
-      timestamps: [],
-      pattern_counts: [],
-      alert_counts: [],
-      intervention_counts: []
-    }
+    # Initialize with zeros for the last minute
+    now = System.system_time(:second)
+    for i <- 0..(@chart_data_points - 1) do
+      {now - (@chart_data_points - i), 0}
+    end
   end
   
   defp init_subsystem_stats do
@@ -1041,143 +667,132 @@ defmodule AutonomousOpponentV2Web.PatternAnalyticsLive do
       s2: %{count: 0, percentage: 0},
       s3: %{count: 0, percentage: 0},
       s4: %{count: 0, percentage: 0},
-      s5: %{count: 0, percentage: 0},
-      unknown: %{count: 0, percentage: 0}
+      s5: %{count: 0, percentage: 0}
     }
   end
   
+  defp update_pattern_list(socket, pattern_data) do
+    patterns = [pattern_data | socket.assigns.recent_patterns]
+    |> Enum.take(@max_recent_patterns)
+    
+    assign(socket, :recent_patterns, patterns)
+  end
+  
   defp update_pattern_metrics(socket) do
-    recent_patterns = socket.assigns.recent_patterns
-    
-    # Calculate patterns per minute
-    one_minute_ago = DateTime.add(DateTime.utc_now(), -60, :second)
-    recent_count = Enum.count(recent_patterns, fn p ->
-      DateTime.compare(p.timestamp, one_minute_ago) == :gt
-    end)
-    
     metrics = socket.assigns.pattern_metrics
-    |> Map.put(:patterns_per_minute, recent_count)
-    |> Map.put(:total_patterns, length(recent_patterns))
+    |> Map.update!(:total_patterns, &(&1 + 1))
+    |> Map.put(:patterns_per_minute, calculate_patterns_per_minute(socket.assigns.recent_patterns))
     
     assign(socket, :pattern_metrics, metrics)
   end
   
-  defp update_subsystem_stats(socket, pattern) do
-    subsystem = detect_subsystem(pattern.source)
-    
-    update(socket, :subsystem_stats, fn stats ->
-      new_stats = Map.update!(stats, subsystem, fn s ->
-        %{s | count: s.count + 1}
-      end)
-      
-      # Recalculate percentages
-      total = new_stats
-      |> Map.values()
-      |> Enum.map(& &1.count)
-      |> Enum.sum()
-      
-      if total > 0 do
-        Map.new(new_stats, fn {k, v} ->
-          {k, %{v | percentage: round(v.count / total * 100)}}
-        end)
-      else
-        new_stats
-      end
-    end)
-  end
-  
-  defp update_correlation_metrics(socket, causality_data) do
-    update(socket, :pattern_metrics, fn metrics ->
-      metrics
-      |> Map.update(:causality_chains, 1, &(&1 + 1))
-      |> Map.put(:avg_chain_length, 
-        (metrics.avg_chain_length * (metrics.causality_chains - 1) + 
-         length(causality_data[:causality_chain])) / metrics.causality_chains
-      )
-    end)
-  end
-  
   defp update_time_series_data(socket) do
-    now = DateTime.utc_now()
+    now = System.system_time(:second)
     
-    update(socket, :time_series_data, fn data ->
-      %{
-        timestamps: ([now | data.timestamps] |> Enum.take(@chart_data_points)),
-        pattern_counts: ([socket.assigns.pattern_metrics.patterns_per_minute | data.pattern_counts] 
-                        |> Enum.take(@chart_data_points)),
-        alert_counts: ([length(socket.assigns.active_alerts) | data.alert_counts] 
-                      |> Enum.take(@chart_data_points)),
-        intervention_counts: ([count_recent_interventions(socket) | data.intervention_counts] 
-                            |> Enum.take(@chart_data_points))
-      }
-    end)
-  end
-  
-  defp fetch_active_alerts do
-    case S3S5PatternAlertSystem.get_active_alerts() do
-      alerts when is_list(alerts) -> alerts
-      _ -> []
-    end
-  end
-  
-  defp calculate_current_metrics(socket) do
-    socket.assigns.pattern_metrics
-  end
-  
-  defp count_recent_interventions(socket) do
-    one_minute_ago = DateTime.add(DateTime.utc_now(), -60, :second)
+    # Add new data point
+    time_series = socket.assigns.time_series_data
+    |> Enum.take(@chart_data_points - 1)
+    |> then(&([{now, socket.assigns.pattern_metrics.patterns_per_minute} | &1]))
     
-    Enum.count(socket.assigns.intervention_history, fn i ->
-      DateTime.compare(i.timestamp, one_minute_ago) == :gt
-    end)
+    assign(socket, :time_series_data, time_series)
   end
   
-  defp detect_subsystem(source) do
-    case source do
-      src when src in [:s1_operations, "s1_operations"] -> :s1
-      src when src in [:s2_coordination, "s2_coordination"] -> :s2
-      src when src in [:s3_control, "s3_control"] -> :s3
-      src when src in [:s4_intelligence, "s4_intelligence"] -> :s4
-      src when src in [:s5_policy, "s5_policy"] -> :s5
-      _ -> :unknown
+  defp update_correlation_data(socket, correlation_data) do
+    # Update correlation metrics
+    metrics = socket.assigns.pattern_metrics
+    |> Map.update!(:total_correlations, &(&1 + 1))
+    
+    socket
+    |> assign(:pattern_metrics, metrics)
+    |> assign(:correlation_data, Map.merge(socket.assigns.correlation_data, correlation_data))
+  end
+  
+  defp update_subsystem_stats(socket) do
+    patterns = socket.assigns.recent_patterns
+    total = length(patterns)
+    
+    stats = if total > 0 do
+      patterns
+      |> Enum.group_by(& &1.source)
+      |> Enum.map(fn {subsystem, subsystem_patterns} ->
+        count = length(subsystem_patterns)
+        percentage = round(count / total * 100)
+        {subsystem, %{count: count, percentage: percentage}}
+      end)
+      |> Enum.into(%{})
+    else
+      init_subsystem_stats()
     end
+    
+    assign(socket, :subsystem_stats, stats)
+  end
+  
+  defp add_active_alert(socket, alert_data) do
+    alerts = [alert_data | socket.assigns.active_alerts]
+    |> Enum.take(@max_active_alerts)
+    
+    assign(socket, :active_alerts, alerts)
+  end
+  
+  defp add_intervention_history(socket, intervention_data) do
+    history = [intervention_data | socket.assigns.intervention_history]
+    |> Enum.take(50)
+    
+    assign(socket, :intervention_history, history)
+  end
+  
+  defp add_policy_adjustment(socket, policy_data) do
+    adjustments = [policy_data | socket.assigns.policy_adjustments]
+    |> Enum.take(20)
+    
+    assign(socket, :policy_adjustments, adjustments)
   end
   
   defp get_causality_chains(correlation_data) do
-    correlation_data
-    |> Map.values()
-    |> Enum.filter(& &1[:causality_chain])
-    |> Enum.map(fn data ->
-      %{
-        patterns: data[:causality_chain],
-        confidence: :rand.uniform()  # Calculate actual confidence
-      }
-    end)
-    |> Enum.take(10)
+    # Extract causality chains from correlation data
+    Map.get(correlation_data, :causality_chains, [])
   end
   
-  # Formatting helpers
+  defp calculate_patterns_per_minute(patterns) do
+    now = DateTime.utc_now()
+    minute_ago = DateTime.add(now, -60, :second)
+    
+    patterns
+    |> Enum.filter(fn p -> DateTime.compare(p.timestamp, minute_ago) == :gt end)
+    |> length()
+  end
   
-  defp format_pattern_type(type) do
+  # Helper Functions
+  
+  defp format_pattern_type(type) when is_atom(type) do
     type
-    |> to_string()
-    |> String.replace("_", " ")
-    |> String.split()
+    |> Atom.to_string()
+    |> String.split("_")
     |> Enum.map(&String.capitalize/1)
     |> Enum.join(" ")
   end
+  defp format_pattern_type(type), do: to_string(type)
   
   defp format_timestamp(timestamp) do
-    Calendar.strftime(timestamp, "%H:%M:%S")
+    case timestamp do
+      %DateTime{} = dt ->
+        Calendar.strftime(dt, "%H:%M:%S")
+      _ ->
+        "N/A"
+    end
   end
   
   defp format_relative_time(timestamp) do
-    seconds_ago = DateTime.diff(DateTime.utc_now(), timestamp)
-    
-    cond do
-      seconds_ago < 60 -> "#{seconds_ago}s ago"
-      seconds_ago < 3600 -> "#{div(seconds_ago, 60)}m ago"
-      true -> "#{div(seconds_ago, 3600)}h ago"
+    case timestamp do
+      %DateTime{} = dt ->
+        diff = DateTime.diff(DateTime.utc_now(), dt, :second)
+        cond do
+          diff < 60 -> "#{diff}s ago"
+          diff < 3600 -> "#{div(diff, 60)}m ago"
+          true -> "#{div(diff, 3600)}h ago"
+        end
+      _ ->
+        "N/A"
     end
   end
   
@@ -1188,27 +803,46 @@ defmodule AutonomousOpponentV2Web.PatternAnalyticsLive do
       :s3 -> "S3 Control"
       :s4 -> "S4 Intelligence"
       :s5 -> "S5 Policy"
-      _ -> "Unknown"
+      _ -> to_string(subsystem)
     end
   end
   
-  defp format_action({action, _params}) do
-    action
-    |> to_string()
-    |> String.replace("_", " ")
-    |> String.capitalize()
+  defp alert_color_class(count) do
+    cond do
+      count == 0 -> "text-green-600"
+      count < 5 -> "text-yellow-600"
+      true -> "text-red-600"
+    end
   end
   
   defp confidence_class(confidence) when confidence >= 0.8, do: "confidence-high"
   defp confidence_class(confidence) when confidence >= 0.5, do: "confidence-medium"
   defp confidence_class(_), do: "confidence-low"
   
-  defp alert_color_class(count) when count > 10, do: "alert-high"
-  defp alert_color_class(count) when count > 5, do: "alert-medium"
-  defp alert_color_class(_), do: "alert-low"
+  defp confidence_bg_class(confidence) when confidence >= 0.8, do: "bg-green-500"
+  defp confidence_bg_class(confidence) when confidence >= 0.5, do: "bg-yellow-500"
+  defp confidence_bg_class(_), do: "bg-red-500"
   
-  defp generate_pattern_id do
-    :crypto.strong_rand_bytes(8)
-    |> Base.encode16(case: :lower)
+  defp severity_color_class(:critical), do: "text-red-600"
+  defp severity_color_class(:high), do: "text-yellow-600"
+  defp severity_color_class(:normal), do: "text-green-600"
+  defp severity_color_class(_), do: "text-gray-600"
+  
+  # All demo generation functions removed - real patterns only
+  
+  defp calculate_initial_metrics(_patterns) do
+    %{
+      total_patterns: 0,
+      patterns_per_minute: 0,
+      avg_confidence: 0,
+      total_correlations: 0,
+      causality_chains: 0,
+      avg_chain_length: 0,
+      algedonic_correlations: 0,
+      critical_patterns: 0,
+      high_patterns: 0,
+      normal_patterns: 0,
+      avg_response_time_ms: 0
+    }
   end
 end

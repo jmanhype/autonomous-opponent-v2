@@ -39,6 +39,8 @@ defmodule AutonomousOpponentV2Core.VSM.S4.VectorStore.HNSWIndex do
   use GenServer
   require Logger
   
+  alias AutonomousOpponentV2Core.EventBus
+  
   # WISDOM: M=16 provides good connectivity without excessive memory
   # Each node connects to ~16 neighbors per layer
   @default_m 16
@@ -48,6 +50,11 @@ defmodule AutonomousOpponentV2Core.VSM.S4.VectorStore.HNSWIndex do
   @default_ef 200
   
   # WISDOM: ml=1/ln(2) ≈ 1.44 for optimal layer distribution
+  
+  # EventBus publishing configuration
+  @pattern_confidence_threshold 0.3  # Only publish patterns with distance < 0.3
+  @eventbus_batch_size 50           # Max events to publish in one batch
+  @eventbus_rate_limit 100          # Max events per second
   # Probability decay for layer assignment
   @ml 1.44
   
@@ -436,6 +443,29 @@ defmodule AutonomousOpponentV2Core.VSM.S4.VectorStore.HNSWIndex do
         %{k: k, ef: ef, vector_size: length(query_vector), m: state.m}
       )
       
+      # Publish pattern detection events for high-confidence results
+      if state.eventbus_integration && length(formatted_results) > 0 do
+        # Filter and prepare events for batching
+        events_to_publish = formatted_results
+        |> Enum.filter(fn result -> result.distance < @pattern_confidence_threshold end)
+        |> Enum.map(fn result ->
+          pattern_data = Map.merge(result.metadata || %{}, %{
+            type: :vector_pattern_match,
+            pattern_type: Map.get(result.metadata || %{}, :pattern_type, :similarity_match),
+            source: :s4_hnsw_search,
+            confidence: 1.0 - result.distance,  # Convert distance to confidence
+            timestamp: DateTime.utc_now(),
+            vector_distance: result.distance,
+            node_id: result.node_id
+          })
+          
+          {:pattern_detected, pattern_data}
+        end)
+        
+        # Publish in batches with rate limiting
+        publish_eventbus_batch(events_to_publish, state)
+      end
+      
       {:reply, {:ok, formatted_results}, state}
     end
   end
@@ -546,6 +576,33 @@ defmodule AutonomousOpponentV2Core.VSM.S4.VectorStore.HNSWIndex do
         %{duration: duration, batch_size: length(query_vectors)},
         %{k: k, ef: opts[:ef] || state.ef, max_concurrency: max_concurrency}
       )
+      
+      # Publish pattern detection events for high-confidence results from batch
+      if state.eventbus_integration do
+        # Flatten and filter all results, then prepare events
+        events_to_publish = results
+        |> Enum.flat_map(fn 
+          batch_results when is_list(batch_results) -> batch_results
+          _ -> []
+        end)
+        |> Enum.filter(fn result -> result.distance < @pattern_confidence_threshold end)
+        |> Enum.map(fn result ->
+          pattern_data = Map.merge(result.metadata || %{}, %{
+            type: :vector_pattern_match,
+            pattern_type: Map.get(result.metadata || %{}, :pattern_type, :similarity_match),
+            source: :s4_hnsw_batch_search,
+            confidence: 1.0 - result.distance,
+            timestamp: DateTime.utc_now(),
+            vector_distance: result.distance,
+            node_id: result.node_id
+          })
+          
+          {:pattern_detected, pattern_data}
+        end)
+        
+        # Publish in batches with rate limiting
+        publish_eventbus_batch(events_to_publish, state)
+      end
       
       {:reply, {:ok, results}, state}
     end
@@ -1500,6 +1557,40 @@ defmodule AutonomousOpponentV2Core.VSM.S4.VectorStore.HNSWIndex do
       # Use static interval when adaptive persistence is disabled
       {state.persist_interval, state}
     end
+  end
+  
+  # ============================================================================
+  # ============================================================================
+  # EVENTBUS PUBLISHING WITH RATE LIMITING
+  # ============================================================================
+  
+  defp publish_eventbus_batch(events, state) do
+    # Process events in chunks to respect batch size and rate limits
+    events
+    |> Enum.chunk_every(@eventbus_batch_size)
+    |> Enum.each(fn batch ->
+      # Add slight delay between batches for rate limiting
+      Process.sleep(div(length(batch) * 1000, @eventbus_rate_limit))
+      
+      # Publish each event with error handling
+      Enum.each(batch, fn {event_type, event_data} ->
+        try do
+          EventBus.publish(event_type, event_data)
+        rescue
+          error ->
+            Logger.warning("🔍 S4 HNSW: Failed to publish event: #{inspect(error)}")
+            
+            # Emit telemetry for EventBus failures
+            if state.telemetry_enabled do
+              :telemetry.execute(
+                [:hnsw, :eventbus, :publish_failed],
+                %{count: 1},
+                %{event_type: event_type, error: inspect(error)}
+              )
+            end
+        end
+      end)
+    end)
   end
   
   # ============================================================================

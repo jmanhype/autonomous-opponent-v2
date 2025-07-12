@@ -52,6 +52,9 @@ defmodule AutonomousOpponentV2Web.Router do
     live "/dashboard", DashboardLive
     live "/consciousness", ConsciousnessLive, :index
     live "/chat", ChatLive, :index
+    
+    # Pattern Analytics Dashboard - Issue #92 (temporarily public for testing)
+    live "/patterns/analytics", PatternAnalyticsLive, :index
   end
   
   # Protected dashboards
@@ -69,9 +72,6 @@ defmodule AutonomousOpponentV2Web.Router do
     
     # Pattern Flow Dashboard
     live "/patterns/flow", PatternFlowLive, :index
-    
-    # Pattern Analytics Dashboard - Issue #92
-    live "/patterns/analytics", PatternAnalyticsLive, :index
   end
   
   # Web Gateway endpoints
