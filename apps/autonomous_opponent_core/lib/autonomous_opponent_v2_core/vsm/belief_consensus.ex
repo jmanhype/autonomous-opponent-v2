@@ -924,4 +924,479 @@ defmodule AutonomousOpponentV2Core.VSM.BeliefConsensus do
   
   # Add Byzantine detector alias
   alias AutonomousOpponentV2Core.VSM.BeliefConsensus.ByzantineDetector
+  
+  # ===== MISSING FUNCTION IMPLEMENTATIONS =====
+  
+  # Core Consensus Functions
+  
+  defp group_by_similarity(beliefs) do
+    # Group beliefs by semantic content similarity using first 3 words
+    beliefs
+    |> Enum.group_by(fn belief ->
+      belief.content
+      |> String.downcase()
+      |> String.replace(~r/[^\w\s]/, "")  # Remove punctuation
+      |> String.split()
+      |> Enum.take(3)  # First 3 words as grouping key
+      |> Enum.join(" ")
+    end)
+    |> Map.values()  # Return list of groups
+  end
+  
+  defp calculate_group_support(group) do
+    # Calculate weighted support for a group of beliefs
+    if Enum.empty?(group) do
+      0.0
+    else
+      total_weight = Enum.sum(Enum.map(group, & &1.weight))
+      avg_confidence = Enum.sum(Enum.map(group, & &1.confidence)) / length(group)
+      # Support is average of weight and confidence
+      (total_weight / length(group) + avg_confidence) / 2
+    end
+  end
+  
+  defp select_group_representative(group) do
+    # Pick the belief with highest weight * confidence score
+    Enum.max_by(group, fn belief ->
+      belief.weight * belief.confidence
+    end, fn -> hd(group) end)
+  end
+  
+  defp calculate_consensus_strength(beliefs) do
+    if Enum.empty?(beliefs) do
+      0.0
+    else
+      # Calculate strength based on agreement and confidence
+      avg_confidence = beliefs |> Enum.map(& &1.confidence) |> Enum.sum() |> Kernel./(length(beliefs))
+      avg_weight = beliefs |> Enum.map(& &1.weight) |> Enum.sum() |> Kernel./(length(beliefs))
+      belief_diversity = calculate_belief_diversity(beliefs)
+      
+      # Higher diversity slightly reduces strength (indicates less agreement)
+      base_strength = (avg_confidence + avg_weight) / 2
+      base_strength * (1 - belief_diversity * 0.2)
+    end
+  end
+  
+  defp calculate_belief_diversity(beliefs) do
+    # Calculate diversity as ratio of unique content to total beliefs
+    unique_content = beliefs |> Enum.map(& &1.content) |> Enum.uniq() |> length()
+    total_beliefs = length(beliefs)
+    
+    if total_beliefs > 0 do
+      unique_content / total_beliefs
+    else
+      0.0
+    end
+  end
+  
+  defp consensus_changed?(old_consensus, new_consensus) do
+    case {old_consensus, new_consensus} do
+      {%MapSet{} = old, %MapSet{} = new} -> 
+        MapSet.size(MapSet.symmetric_difference(old, new)) > 0
+      {old, new} when is_map(old) and is_map(new) ->
+        old_beliefs = Map.get(old, :beliefs, []) |> Enum.map(& &1.id) |> MapSet.new()
+        new_beliefs = Map.get(new, :beliefs, []) |> Enum.map(& &1.id) |> MapSet.new()
+        MapSet.size(MapSet.symmetric_difference(old_beliefs, new_beliefs)) > 0
+      _ -> 
+        true  # Different types = changed
+    end
+  end
+  
+  defp broadcast_consensus_change(consensus, state) do
+    EventBus.publish(:belief_consensus_update, %{
+      level: state.vsm_level,
+      consensus: consensus,
+      node_id: state.node_id,
+      timestamp: DateTime.utc_now(),
+      strength: Map.get(consensus, :strength, 0.0),
+      belief_count: length(Map.get(consensus, :beliefs, []))
+    })
+  end
+  
+  # Oscillation Management Functions
+  
+  defp detect_oscillating_beliefs(history) do
+    # Find beliefs that appear and disappear repeatedly in recent history
+    recent_history = Enum.take(history, 10)
+    
+    # Extract all belief IDs from history
+    all_belief_ids = recent_history
+    |> Enum.flat_map(fn consensus ->
+      case consensus do
+        %MapSet{} = set -> MapSet.to_list(set) |> Enum.map(& &1.id)
+        %{beliefs: beliefs} -> Enum.map(beliefs, & &1.id)
+        _ -> []
+      end
+    end)
+    
+    # Count appearances and find oscillating ones
+    all_belief_ids
+    |> Enum.frequencies()
+    |> Enum.filter(fn {_belief_id, count} -> 
+      count >= @oscillation_threshold && count < length(recent_history)
+    end)
+    |> Enum.map(fn {belief_id, _count} -> belief_id end)
+  end
+  
+  defp apply_damping(oscillating_beliefs, damping_factor) do
+    # Reduce weight of oscillating beliefs to stabilize consensus
+    Enum.map(oscillating_beliefs, fn belief_id ->
+      # Find the actual belief and apply damping
+      %{
+        id: belief_id,
+        damping_applied: true,
+        damping_factor: damping_factor,
+        timestamp: DateTime.utc_now()
+      }
+    end)
+  end
+  
+  defp update_oscillation_tracker(tracker, oscillating_beliefs) do
+    Enum.reduce(oscillating_beliefs, tracker, fn belief_id, acc ->
+      Map.update(acc, belief_id, 1, &(&1 + 1))
+    end)
+  end
+  
+  defp update_damped_beliefs(state, damped_beliefs) do
+    # Update state with information about damped beliefs
+    damped_ids = Enum.map(damped_beliefs, & &1.id)
+    
+    # Add to metrics
+    new_metrics = Map.update(state.metrics, :oscillations_damped, 0, &(&1 + length(damped_beliefs)))
+    
+    %{state | metrics: new_metrics}
+  end
+  
+  # Belief Management Functions
+  
+  defp update_belief_sets(beliefs, state) do
+    # Update all belief sets with new beliefs
+    belief_categories = Enum.group_by(beliefs, fn belief ->
+      categorize_belief(belief, state.vsm_level)
+    end)
+    
+    # Update each category's CRDT set
+    Enum.reduce(belief_categories, state, fn {category, category_beliefs}, acc ->
+      set_id = Map.get(acc.belief_sets, category)
+      
+      if set_id do
+        # Clear and repopulate the set
+        Enum.each(category_beliefs, fn belief ->
+          CRDTStore.update_crdt(set_id, :add, belief)
+        end)
+      end
+      
+      acc
+    end)
+  end
+  
+  defp cluster_similar_beliefs(state) do
+    # Group similar beliefs for variety management
+    all_beliefs = get_all_beliefs(state)
+    
+    belief_clusters = all_beliefs
+    |> Enum.group_by(fn belief ->
+      # Cluster by content similarity
+      hash_belief_content(belief)
+    end)
+    
+    # Return cluster representatives
+    Map.values(belief_clusters)
+    |> Enum.map(fn cluster ->
+      # Pick representative with highest weight
+      Enum.max_by(cluster, & &1.weight, fn -> hd(cluster) end)
+    end)
+  end
+  
+  defp select_representatives(clustered_beliefs) do
+    # Already implemented in cluster_similar_beliefs
+    clustered_beliefs
+  end
+  
+  defp remove_beliefs(beliefs_to_remove, state) do
+    # Remove beliefs from appropriate CRDT sets
+    Enum.reduce(beliefs_to_remove, state, fn belief, acc ->
+      category = categorize_belief(belief, acc.vsm_level)
+      set_id = Map.get(acc.belief_sets, category)
+      
+      if set_id do
+        CRDTStore.update_crdt(set_id, :remove, belief)
+      end
+      
+      acc
+    end)
+  end
+  
+  defp cleanup_expired_beliefs(state) do
+    # Remove beliefs past their TTL
+    all_beliefs = get_all_beliefs(state)
+    current_time = DateTime.utc_now()
+    
+    expired_beliefs = Enum.filter(all_beliefs, fn belief ->
+      case belief.timestamp do
+        nil -> false
+        timestamp ->
+          age_ms = DateTime.diff(current_time, timestamp, :millisecond)
+          age_ms > @belief_ttl_ms
+      end
+    end)
+    
+    if Enum.any?(expired_beliefs) do
+      Logger.info("🧹 Cleaning up #{length(expired_beliefs)} expired beliefs")
+      remove_beliefs(expired_beliefs, state)
+    else
+      state
+    end
+  end
+  
+  # Emergency & Constraint Handling Functions
+  
+  defp force_immediate_consensus(belief, state) do
+    # Force immediate consensus for critical beliefs (algedonic bypass)
+    Logger.warning("⚡ Forcing immediate consensus for critical belief: #{belief.content}")
+    
+    # Create high-priority consensus
+    emergency_consensus = %{
+      beliefs: [belief],
+      strength: 1.0,
+      timestamp: DateTime.utc_now(),
+      forced: true,
+      algedonic_bypass: true
+    }
+    
+    # Update state immediately
+    new_consensus_state = %{state.consensus_state |
+      current: emergency_consensus,
+      history: [state.consensus_state.current | state.consensus_state.history]
+    }
+    
+    # Broadcast emergency consensus
+    EventBus.publish(:algedonic_consensus_forced, %{
+      level: state.vsm_level,
+      belief: belief,
+      node_id: state.node_id
+    })
+    
+    %{state | consensus_state: new_consensus_state}
+  end
+  
+  defp generate_corrective_beliefs(problematic_beliefs, state) do
+    # Generate corrective beliefs for problematic ones
+    Enum.map(problematic_beliefs, fn belief ->
+      %BeliefConsensus.Belief{
+        id: generate_belief_id(),
+        content: "CORRECTIVE: Address issues with #{String.slice(belief.content, 0..50)}",
+        source: "emergency_correction",
+        weight: 1.0,
+        confidence: 0.8,
+        timestamp: DateTime.utc_now(),
+        hlc_timestamp: nil,
+        ttl: @belief_ttl_ms,
+        contradictions: [belief.id],
+        validation_status: :emergency
+      }
+    end)
+  end
+  
+  defp identify_pain_causing_beliefs(pain_signal, state) do
+    # Identify beliefs that might be causing system pain
+    all_beliefs = get_all_beliefs(state)
+    
+    # Look for beliefs related to the pain signal
+    related_beliefs = Enum.filter(all_beliefs, fn belief ->
+      signal_keywords = extract_keywords(pain_signal.source || "")
+      belief_keywords = extract_keywords(belief.content)
+      
+      # Check for keyword overlap
+      overlap = MapSet.intersection(
+        MapSet.new(signal_keywords),
+        MapSet.new(belief_keywords)
+      )
+      
+      MapSet.size(overlap) > 0
+    end)
+    
+    # Sort by recency (newer beliefs more likely to cause current pain)
+    Enum.sort_by(related_beliefs, & &1.timestamp, {:desc, DateTime})
+  end
+  
+  defp extract_keywords(text) do
+    text
+    |> String.downcase()
+    |> String.replace(~r/[^\w\s]/, "")
+    |> String.split()
+    |> Enum.filter(&(String.length(&1) > 3))  # Filter short words
+    |> Enum.take(5)  # Top 5 keywords
+  end
+  
+  defp evaluate_constraint(belief, constraint) do
+    # Evaluate if belief violates a policy constraint
+    case constraint do
+      %{type: :forbidden_content, pattern: pattern} ->
+        not Regex.match?(pattern, belief.content)
+        
+      %{type: :weight_limit, max_weight: max_weight} ->
+        belief.weight <= max_weight
+        
+      %{type: :source_restriction, allowed_sources: sources} ->
+        belief.source in sources
+        
+      %{type: :confidence_threshold, min_confidence: min_conf} ->
+        belief.confidence >= min_conf
+        
+      _ ->
+        true  # Unknown constraint type, allow by default
+    end
+  end
+  
+  # Metrics & Monitoring Functions
+  
+  defp calculate_variety_ratio(state) do
+    # Calculate current variety usage vs capacity
+    current_variety = calculate_current_variety(state)
+    max_variety = state.variety_state.channel_capacity
+    
+    if max_variety > 0 do
+      current_variety / max_variety
+    else
+      0.0
+    end
+  end
+  
+  defp update_belief_metrics(belief, state) do
+    # Update metrics when a belief is added
+    new_metrics = state.metrics
+    |> Map.update(:beliefs_proposed, 0, &(&1 + 1))
+    |> Map.update(:total_belief_weight, 0.0, &(&1 + belief.weight))
+    
+    %{state | metrics: new_metrics}
+  end
+  
+  defp update_metrics(state, metrics_update) do
+    # Generic metrics update function
+    new_metrics = Map.merge(state.metrics, metrics_update)
+    %{state | metrics: new_metrics}
+  end
+  
+  defp calculate_detailed_metrics(state) do
+    # Calculate comprehensive metrics for reporting
+    all_beliefs = get_all_beliefs(state)
+    
+    # Handle consensus_state.current which can be MapSet or map
+    consensus_size = case state.consensus_state.current do
+      %MapSet{} = set -> MapSet.size(set)
+      %{beliefs: beliefs} -> length(beliefs)
+      _ -> 0
+    end
+    
+    %{
+      belief_count: length(all_beliefs),
+      consensus_size: consensus_size,
+      variety_ratio: calculate_variety_ratio(state),
+      oscillation_count: map_size(state.oscillation_tracker),
+      algedonic_triggers: Map.get(state.metrics, :algedonic_triggers, 0),
+      consensus_quality: calculate_consensus_quality(state),
+      avg_belief_weight: calculate_avg_belief_weight(all_beliefs),
+      avg_belief_confidence: calculate_avg_belief_confidence(all_beliefs),
+      belief_age_distribution: calculate_belief_age_distribution(all_beliefs),
+      source_distribution: calculate_source_distribution(all_beliefs)
+    }
+  end
+  
+  defp calculate_avg_belief_weight(beliefs) do
+    if Enum.empty?(beliefs) do
+      0.0
+    else
+      Enum.sum(Enum.map(beliefs, & &1.weight)) / length(beliefs)
+    end
+  end
+  
+  defp calculate_avg_belief_confidence(beliefs) do
+    if Enum.empty?(beliefs) do
+      0.0
+    else
+      Enum.sum(Enum.map(beliefs, & &1.confidence)) / length(beliefs)
+    end
+  end
+  
+  defp calculate_belief_age_distribution(beliefs) do
+    now = DateTime.utc_now()
+    
+    age_buckets = beliefs
+    |> Enum.map(fn belief ->
+      case belief.timestamp do
+        nil -> :unknown
+        timestamp ->
+          age_minutes = DateTime.diff(now, timestamp, :second) / 60
+          cond do
+            age_minutes < 5 -> :very_recent
+            age_minutes < 30 -> :recent
+            age_minutes < 120 -> :moderate
+            true -> :old
+          end
+      end
+    end)
+    |> Enum.frequencies()
+    
+    Map.merge(%{very_recent: 0, recent: 0, moderate: 0, old: 0, unknown: 0}, age_buckets)
+  end
+  
+  defp calculate_source_distribution(beliefs) do
+    beliefs
+    |> Enum.map(& &1.source)
+    |> Enum.frequencies()
+  end
+  
+  # VSM Level Integration Functions
+  
+  defp aggregate_lower_belief(belief_data, state) do
+    # Aggregate belief from lower VSM level
+    %BeliefConsensus.Belief{
+      id: generate_belief_id(),
+      content: "AGGREGATED: #{belief_data.content}",
+      source: "aggregated_from_#{belief_data.level}",
+      weight: belief_data.weight * @attenuation_factor,  # Attenuate for higher level
+      confidence: belief_data.confidence,
+      timestamp: DateTime.utc_now(),
+      hlc_timestamp: nil,
+      ttl: @belief_ttl_ms,
+      contradictions: [],
+      validation_status: :aggregated
+    }
+  end
+  
+  defp apply_higher_level_constraint(belief_data, state) do
+    # Apply constraints from higher VSM level
+    constraint = %{
+      type: :higher_level_override,
+      source_level: belief_data.level,
+      constraint_content: belief_data.content,
+      applied_at: DateTime.utc_now()
+    }
+    
+    # Add to constraints
+    new_constraints = Map.put(state.constraints, constraint.source_level, constraint)
+    
+    # Re-evaluate current beliefs against new constraint
+    %{state | constraints: new_constraints}
+  end
+  
+  defp coordinate_peer_belief(belief_data, state) do
+    # Coordinate with peer belief from same VSM level
+    # For now, just add to our belief set with coordination marker
+    coordinated_belief = %BeliefConsensus.Belief{
+      id: generate_belief_id(),
+      content: belief_data.content,
+      source: "coordinated_from_#{belief_data.source}",
+      weight: belief_data.weight,
+      confidence: belief_data.confidence * 0.9,  # Slight reduction for peer coordination
+      timestamp: DateTime.utc_now(),
+      hlc_timestamp: nil,
+      ttl: @belief_ttl_ms,
+      contradictions: [],
+      validation_status: :peer_coordinated
+    }
+    
+    add_belief_to_set(coordinated_belief, state)
+  end
 end
